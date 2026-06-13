@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Next.js (frontend is moving to Next.js per the build plan)
+.next/
+out/
+next-env.d.ts
+
+# Env / secrets
+.env
+.env*.local
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
