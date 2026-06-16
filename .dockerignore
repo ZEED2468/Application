@@ -1,0 +1,14 @@
+# Keep the Docker build context (repo root, used by the web image) lean.
+**/node_modules
+**/.next
+**/out
+**/.venv
+**/.r2store
+**/__pycache__
+**/*.pyc
+.git
+.pytest_cache
+.ruff_cache
+**/.env
+**/dist
+apps/wa-bridge/session

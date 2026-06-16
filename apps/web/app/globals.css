@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+ * Design system — Coffee-brown + cream, editorial / paper, EB Garamond.
+ * Tokens live as CSS variables AND Tailwind v4 @theme tokens so utilities
+ * like bg-cream, text-coffee-900, border-coffee-300 are available.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  --coffee-900: #3b2a1e; /* text / headers */
+  --coffee-700: #5a4233; /* primary */
+  --coffee-500: #7b5e45; /* accent / interactive */
+  --coffee-300: #b79a82; /* muted / borders */
+  --coffee-100: #efe7df; /* surfaces / hover */
+  --cream: #faf6f1; /* page background */
+  --white: #ffffff; /* cards */
+
+  /* status tints — muted, layered on brown */
+  --status-applied: #7b5e45; /* coffee-500 */
+  --status-interviewed: #a6792e; /* warm amber-brown */
+  --status-rejected: #9c5b4a; /* muted clay */
+  --status-no_response: #b79a82; /* coffee-300 */
+  --status-accepted: #5b6b4a; /* deep warm green-brown */
+}
+
+@theme inline {
+  --color-coffee-900: var(--coffee-900);
+  --color-coffee-700: var(--coffee-700);
+  --color-coffee-500: var(--coffee-500);
+  --color-coffee-300: var(--coffee-300);
+  --color-coffee-100: var(--coffee-100);
+  --color-cream: var(--cream);
+  --color-white: var(--white);
+
+  --color-status-applied: var(--status-applied);
+  --color-status-interviewed: var(--status-interviewed);
+  --color-status-rejected: var(--status-rejected);
+  --color-status-no_response: var(--status-no_response);
+  --color-status-accepted: var(--status-accepted);
+
+  --font-serif: var(--font-eb-garamond), "EB Garamond", Garamond, Georgia, serif;
+
+  --default-font-family: var(--font-serif);
+}
+
+* {
+  border-color: var(--coffee-300);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--cream);
+  color: var(--coffee-900);
+  font-family: var(--font-eb-garamond), "EB Garamond", Garamond, Georgia, serif;
+  font-feature-settings: "kern", "liga", "onum";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-eb-garamond), "EB Garamond", Garamond, Georgia, serif;
+  color: var(--coffee-900);
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+
+/* subtle, paper-like focus ring instead of harsh blue */
+:focus-visible {
+  outline: 2px solid var(--coffee-500);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--coffee-100);
+  color: var(--coffee-900);
+}

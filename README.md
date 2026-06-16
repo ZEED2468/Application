@@ -1,84 +1,74 @@
 # Job Application & Outreach Engine
 
-A conversion-optimized job-application pipeline for 3 hunters with VAs running
-the human-in-the-loop steps. **Modular monolith**: one FastAPI app (all pipelines
-as internal modules sharing a DB + Celery), a Next.js dashboard, and a thin Go
-whatsmeow bridge. See [PRD](als_PRD.pdf) and the build plan in
-`~/.claude/plans/`.
+A conversion-optimized, multi-user job-application & outreach engine: discover a
+real job (or paste one), tailor a **truthful** CV + cover letter, reach a specific
+human with a real hook, and route replies to a VA on WhatsApp. Two application
+paths — autonomous and a manual VA chatbot — converge on the **same** data objects,
+so one tracker stays in sync. Postgres is the single source of truth; deliverability
+is protected in code (the warm-up governor), not by discipline.
 
-## Layout
+## Monorepo layout
 
 ```
-backend/   FastAPI + Celery monolith (api / worker / beat off one image)
-  app/
-    models/      13 entities — Day-0 schema freeze (additive-only after)
-    events/      6 frozen event contracts + JSON fixtures (the inter-team API)
-    api/         routers (auth wired; jobs/outreach/respond/webhooks to come)
-    pipelines/   apply (A) · outreach (B) · respond (C) — the 3 parallel seams
-    email/       governor.py (single send choke point) + addressing + caps
-    workers/     celery_app + beat_schedule
-    sources/     pluggable job-source interface (to come)
-    integrations/ resend · apollo · r2 · anthropic · bridge_client (to come)
-bridge/    Go whatsmeow sidecar (transport only) — to come
-frontend/  Next.js dashboard (replaces the Vite scaffold) — to come
-infra/     docker-compose (postgres, redis, api, worker, beat, bridge)
+apps/
+  api/         FastAPI + Celery — ALL business logic (api / worker / beat off one image)
+    app/
+      models/        13 frozen entities + 6 additive (role_cv, cover_letter, chat, audit)
+      events/        10 event contracts + JSON fixtures (the inter-pipeline API)
+      api/           28 routes: auth, jobs/tracker, applications, chat, onboarding,
+                     va, admin, webhooks (resend, bridge)
+      pipelines/     apply (A) · outreach (B) · respond (C) · manual (chatbot) · generation
+      llm/           relevance, track_classify, tailoring (truth-bounded), hookfinder,
+                     draft_email, classify_reply, cover_letter
+      email/         governor.py (single send choke point) + sender + addressing + caps + health
+      sources/       pluggable job sources (greenhouse/lever/ashby/adzuna/serpapi + fake)
+      integrations/  resend · apollo · r2 · bridge_client (all fakeable)
+      workers/       celery_app + beat_schedule + runner
+  web/         Next.js dashboard (coffee/Garamond, App Router, ky + React Query)
+  wa-bridge/   Go + whatsmeow — dumb transport only (FAKE mode by default)
+packages/
+  shared-types/ TS API types
+infra/         docker-compose (postgres, redis, api, worker, beat, web, wa-bridge) + Dockerfiles
+docs/          PRD, application-flow, BUILD_REPORT
+Makefile, pnpm-workspace.yaml
 ```
 
-## The parallel-build seam
+## The two paths, one set of objects
 
-Pipelines communicate **only** through Celery events (never direct calls), so the
-three engineers build against fixtures and integrate last. Dependency order at
-integration time is C → B → A; until then each works in isolation.
+Both the **autonomous** pipeline and the **manual VA chatbot** call the shared
+generation engine and create identical `job → generated_cv → cover_letter →
+application` records. The chatbot adds: paste JD → match a per-role CV → run the
+**internal ATS** scorer → raise confirm-true prompts (only real facts get added) →
+generate. No path creates an application the tracker can't see; every change writes
+an `application_event` audit row.
 
-| Event (`app/events/names.py`) | Producer | Consumer |
-|---|---|---|
-| `evt.job.discovered` | source poller | Pipeline A |
-| `evt.application.submitted` | Pipeline A (VA submit) | Pipeline B |
-| `evt.reply.received` | Resend inbound / poll | Pipeline C |
+## Non-negotiables (enforced)
 
-`evt.job.scored`, `evt.cv.generated`, `evt.outreach.sent` are intra-pipeline
-transitions (contracts + fixtures frozen, wired as each pipeline lands).
+- **Truth boundary** — generation only reorders/reframes facts in the profile or
+  VA-confirmed-true; `tailoring.assert_truth_bounded` proves no fabrication.
+- **ATS** — internal 0–100 match optimized toward 90–95%; framed everywhere as
+  "internal ATS match", never a guaranteed employer-ATS score.
+- **Warm-up governor** — every outbound email (first contact, follow-ups, VA
+  relays) passes one choke point: per-domain daily cap + ~20/week per hunter.
+- **`user_id` on every row + event**; VA is a separate assignable principal;
+  dossiers stamped with the owning hunter.
 
-Every payload carries `user_id`. Fixtures in `app/events/fixtures/*.json` are
-validated against the contracts by `tests/test_event_contracts.py` (CI gate) —
-a contract change that breaks a fixture is a visible, reviewable failure.
-
-## Run (local dev)
-
-Local Postgres/Redis already occupy 5432/6379, so the containers publish
-**5433 / 6380** (see `backend/.env`).
+## Run (one command)
 
 ```bash
-# infra
-cd infra && docker compose up -d postgres redis
-
-# backend
-cd backend
-uv venv && uv pip install -e . --group dev
-cp .env.example .env          # already present for host-run dev
-uv run alembic upgrade head   # applies the frozen schema
-uv run uvicorn app.main:app --reload
-uv run celery -A app.workers.celery_app worker -Q default,email,render,poll
-uv run celery -A app.workers.celery_app beat
-
-# tests
-uv run pytest -q              # 16 passing: contracts, governor, addressing, auth
+cp infra/.env.example .env     # USE_FAKE_INTEGRATIONS=true — runs with no creds
+make dev                       # postgres, redis, api, worker, beat, web, wa-bridge
+make migrate                   # alembic upgrade head
 ```
 
-Full stack (once frontend + bridge land): `cd infra && docker compose up`.
+Backend tests: `cd apps/api && uv venv && uv pip install -e . --group dev && uv run pytest`
+→ **40 passing**.
 
 ## Status
 
-- **Day-0 foundation** — schema freeze + migration, event contracts + bus +
-  fixtures, cookie/JWT auth (hunters + VAs), the warm-up governor, pipeline seams.
-- **Pipeline A (Apply)** — pluggable sources (greenhouse/lever/ashby + adzuna/serpapi
-  + a deterministic fake), per-hunter dedupe, rules-based relevance prefilter,
-  track classification, **truth-bounded tailoring** (provably no fabrication in the
-  deterministic path), tectonic render → R2, and the `/api/jobs` surface
-  (list, track override, generate, VA submit → `application.submitted`).
-  External IO (LLM/R2/HTTP sources) is faked under `USE_FAKE_INTEGRATIONS=true`,
-  so the whole pipeline runs end-to-end with no credentials. 25 tests passing.
-
-Next: Pipeline B (Apollo people lookup, hook-finder, draft, Resend send through
-the governor, follow-up sequencer), Pipeline C (reply match, classify, dossier,
-Go bridge), and the Next.js dashboard.
+Foundation + all three pipelines + the manual chatbot + ATS + cover letters +
+tracker/export/audit + the Next.js dashboard + Go bridge + infra are built and
+verified. Everything runs end-to-end behind `USE_FAKE_INTEGRATIONS`; see
+[docs/BUILD_REPORT.md](docs/BUILD_REPORT.md) for the full status and the seam table
+showing exactly where real Resend/Apollo/Anthropic/R2 keys and a WhatsApp phone
+drop in.

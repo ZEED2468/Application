@@ -1,0 +1,9 @@
+# Build artifacts
+/wa-bridge
+/wa-bridge.exe
+
+# whatsmeow session store (default local path)
+/session/
+*.db
+*.db-shm
+*.db-wal

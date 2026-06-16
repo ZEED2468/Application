@@ -1,34 +1,62 @@
+# JD Engine — local/dev stack
+#
+# Validate (no build needed):   docker compose -f infra/docker-compose.yml config
+# Bring up:                     make dev   (== docker compose -f infra/docker-compose.yml up --build)
+#
+# Env is loaded from ../.env (copy infra/.env.example -> .env at repo root, or pass --env-file).
+# Inside this compose network, services reach each other by service name:
+#   postgres:5432, redis:6379, api:8000, wa-bridge:8081, web:3000
+
+name: jd
+
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16
     environment:
       POSTGRES_USER: jd
       POSTGRES_PASSWORD: jd
       POSTGRES_DB: jd
     ports:
+      # Host 5433 -> container 5432, to avoid colliding with a native Postgres on
+      # 5432 (matches apps/api/.env for host-run dev). Inside the network it's 5432.
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U jd"]
+      test: ["CMD-SHELL", "pg_isready -U jd -d jd"]
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - jd
 
   redis:
-    image: redis:7-alpine
+    image: redis:7
     ports:
+      # Host 6380 -> container 6379, to avoid colliding with a native Redis on 6379.
       - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - jd
 
   api:
-    build: ../backend
+    build:
+      context: ../apps/api
+    image: jd-api:local
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    env_file: ../backend/.env
+    env_file:
+      - ../.env
+    environment:
+      # Compose-internal overrides: point at the in-network service hosts.
+      DATABASE_URL: postgresql+asyncpg://jd:jd@postgres:5432/jd
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      BRIDGE_BASE_URL: http://wa-bridge:8081
     ports:
       - "8000:8000"
     depends_on:
@@ -36,32 +64,98 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - jd
 
   worker:
-    build: ../backend
-    command: celery -A app.workers.celery_app worker -Q default,email,render,poll --loglevel=info
-    env_file: ../backend/.env
+    build:
+      context: ../apps/api
+    image: jd-api:local
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q default,email,render,poll
+    env_file:
+      - ../.env
+    environment:
+      RUN_MIGRATIONS: "0"
+      DATABASE_URL: postgresql+asyncpg://jd:jd@postgres:5432/jd
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      BRIDGE_BASE_URL: http://wa-bridge:8081
     depends_on:
-      - redis
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - jd
 
   beat:
-    build: ../backend
+    build:
+      context: ../apps/api
+    image: jd-api:local
     command: celery -A app.workers.celery_app beat --loglevel=info
-    env_file: ../backend/.env
+    env_file:
+      - ../.env
+    environment:
+      RUN_MIGRATIONS: "0"
+      DATABASE_URL: postgresql+asyncpg://jd:jd@postgres:5432/jd
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - jd
 
-  bridge:
-    build: ../bridge
-    env_file: ../backend/.env
+  wa-bridge:
+    build:
+      context: ../apps/wa-bridge
+    image: jd-wa-bridge:local
+    env_file:
+      - ../.env
+    environment:
+      API_BASE_URL: http://api:8000
+      BRIDGE_HMAC_SECRET: ${BRIDGE_HMAC_SECRET:-change-me-bridge}
+      BRIDGE_FAKE: "1"
     ports:
       - "8081:8081"
     volumes:
-      - whatsapp_session:/data
+      - wa_session:/data
     depends_on:
-      - api
+      api:
+        condition: service_started
+    networks:
+      - jd
+
+  web:
+    build:
+      # Build from the repo root so the pnpm workspace + packages/shared-types
+      # (which apps/web imports via @jd/shared-types) are in the build context.
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    image: jd-web:local
+    env_file:
+      - ../.env
+    environment:
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+      BACKEND_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - jd
+
+networks:
+  jd:
+    driver: bridge
 
 volumes:
   pgdata:
-  whatsapp_session:
+  wa_session:
