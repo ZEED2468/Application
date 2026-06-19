@@ -32,13 +32,20 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 REFRESH_COOKIE = "refresh_token"
 
 
-def _set_auth_cookies(response: Response, access: str, refresh: str) -> None:
-    common = {
+def _cookie_attrs() -> dict:
+    samesite = settings.cookie_samesite.lower()
+    # Browsers reject SameSite=None unless Secure is also set.
+    secure = settings.cookie_secure or samesite == "none"
+    return {
         "httponly": True,
-        "secure": settings.cookie_secure,
-        "samesite": "lax",
+        "secure": secure,
+        "samesite": samesite,
         "domain": settings.cookie_domain,
     }
+
+
+def _set_auth_cookies(response: Response, access: str, refresh: str) -> None:
+    common = _cookie_attrs()
     response.set_cookie(
         ACCESS_COOKIE, access, max_age=settings.access_token_ttl_minutes * 60, **common
     )
@@ -165,6 +172,9 @@ async def logout(
         ).scalar_one_or_none()
         if row and row.revoked_at is None:
             row.revoked_at = datetime.now(timezone.utc)
-    response.delete_cookie(ACCESS_COOKIE, domain=settings.cookie_domain)
-    response.delete_cookie(REFRESH_COOKIE, path="/api/auth", domain=settings.cookie_domain)
+    attrs = _cookie_attrs()
+    response.delete_cookie(ACCESS_COOKIE, samesite=attrs["samesite"], secure=attrs["secure"],
+                           domain=settings.cookie_domain)
+    response.delete_cookie(REFRESH_COOKIE, path="/api/auth", samesite=attrs["samesite"],
+                           secure=attrs["secure"], domain=settings.cookie_domain)
     return {"status": "logged_out"}

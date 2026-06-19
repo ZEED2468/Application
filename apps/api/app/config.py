@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     refresh_token_ttl_days: int = 30
     cookie_secure: bool = False
     cookie_domain: str | None = None
+    # "lax" works when the frontend is the same site as the API (e.g. both under
+    # quickbiteltd.org). For a cross-site frontend (e.g. *.vercel.app) calling the
+    # API directly, set "none" (Secure is then forced on automatically).
+    cookie_samesite: str = "lax"  # lax | none | strict
+
+    # --- CORS (only needed when the browser calls the API directly) ---
+    # Comma-separated allowed origins, e.g.
+    #   https://jd.quickbiteltd.org,https://application-eight-phi.vercel.app
+    cors_origins: str = "https://application-eight-phi.vercel.app/"
 
     # --- HMAC shared secrets (bridge + webhook signature) ---
     bridge_hmac_secret: str = "dev-bridge-secret"
@@ -79,6 +88,10 @@ class Settings(BaseSettings):
     # --- Email warm-up ---
     weekly_cap_per_hunter: int = 20
     use_fake_integrations: bool = Field(default=True)
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @field_validator("database_url", mode="before")
     @classmethod

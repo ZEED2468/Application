@@ -26,6 +26,17 @@ const HOP_BY_HOP = new Set([
 ]);
 
 async function handle(req: NextRequest, segments: string[]): Promise<Response> {
+  if (!BACKEND_URL) {
+    return new Response(
+      JSON.stringify({
+        detail:
+          "BACKEND_URL is not configured. Set it in the hosting env " +
+          "(e.g. Vercel → Settings → Environment Variables) to your FastAPI URL.",
+      }),
+      { status: 500, headers: { "content-type": "application/json" } },
+    );
+  }
+
   const search = req.nextUrl.search;
   const target = `${BACKEND_URL}/api/${segments.map(encodeURIComponent).join("/")}${search}`;
 

@@ -1,12 +1,22 @@
 import ky, { HTTPError, type KyInstance } from "ky";
 
 /**
- * Same-origin API client. All calls hit `/api/...` which is the catch-all
- * proxy route handler that forwards to FastAPI (carrying httpOnly cookies).
+ * Browser API client.
  *
- * On a 401, attempt `/api/auth/refresh` once. If refresh fails, redirect to
- * login (browser only).
+ * If NEXT_PUBLIC_API_BASE is set (e.g. https://jd-be.quickbiteltd.org), the
+ * browser calls the FastAPI backend DIRECTLY (cross-origin) — the backend must
+ * allow that origin via CORS_ORIGINS and set cross-site cookies (SameSite=None;
+ * Secure if the frontend is a different site). If it's unset, calls fall back to
+ * the same-origin `/api/[...path]` proxy. Either way, `credentials: "include"`
+ * sends the httpOnly auth cookie.
  */
+
+// Inlined at build time by Next (must be set in Vercel before deploying).
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "").replace(/\/$/, "");
+
+/** Base for ky: the backend's /api when configured, else the same-origin proxy. */
+const PREFIX_URL =
+  typeof window === "undefined" ? undefined : `${API_BASE}/api`;
 
 let refreshing: Promise<boolean> | null = null;
 
@@ -14,7 +24,10 @@ async function tryRefresh(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   if (!refreshing) {
     refreshing = ky
-      .post("/api/auth/refresh", { throwHttpErrors: false })
+      .post(`${API_BASE}/api/auth/refresh`, {
+        credentials: "include",
+        throwHttpErrors: false,
+      })
       .then((res) => res.ok)
       .catch(() => false)
       .finally(() => {
@@ -36,9 +49,10 @@ function redirectToLogin() {
 }
 
 export const api: KyInstance = ky.create({
-  prefixUrl: typeof window === "undefined" ? undefined : "/api",
-  // When running on the server (RSC), use an absolute path via the proxy is
-  // not available; client components are the primary consumers.
+  prefixUrl: PREFIX_URL,
+  // Send the httpOnly auth cookie on cross-origin requests.
+  credentials: "include",
+  // Client components are the primary consumers (RSC uses server fetches).
   retry: 0,
   hooks: {
     afterResponse: [

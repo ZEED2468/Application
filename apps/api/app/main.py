@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import structlog
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import api_router
@@ -64,6 +65,19 @@ def create_app() -> FastAPI:
         openapi_tags=TAGS_METADATA,
         debug=settings.debug,
     )
+
+    # CORS — only needed when the browser calls this API directly (cross-origin).
+    # With the same-origin Next.js proxy this stays empty and no CORS is applied.
+    # allow_credentials=True is required for cookie auth, which forbids "*", so we
+    # echo back the explicit allow-list from CORS_ORIGINS.
+    if settings.cors_origins_list:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins_list,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     @app.exception_handler(DomainError)
     async def _domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:

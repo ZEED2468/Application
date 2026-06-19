@@ -1,0 +1,195 @@
+# =============================================================================
+# Render Blueprint — alternative deploy path to the VPS/compose setup in infra/.
+# (The two are independent: compose for a VPS, this for Render PaaS.)
+#
+# Deploy: push to GitHub, then Render dashboard → New → Blueprint → pick this repo.
+# Render builds from the existing Dockerfiles; there is NO nginx/certbot here —
+# Render terminates TLS and routes each service on its own URL + custom domain.
+#
+# Region must be the SAME for every resource (private networking). `frankfurt`
+# is closest to West Africa; change all `region:` together if you prefer another.
+# Plan slugs (starter/basic-256mb/free) reflect Render's tiers — adjust to taste;
+# free instances spin down on idle, which is bad for worker/beat/api.
+# =============================================================================
+
+databases:
+  - name: jd-postgres
+    databaseName: jd
+    user: jd
+    region: frankfurt
+    plan: basic-256mb        # `free` works but expires after 30 days
+
+envVarGroups:
+  - name: jd-shared
+    envVars:
+      # Non-secret config (committed)
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: USE_FAKE_INTEGRATIONS
+        value: "false"       # set "true" to run on Render with no external creds
+      - key: WEEKLY_CAP_PER_HUNTER
+        value: "20"
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-4-8
+      - key: R2_BUCKET
+        value: jd-cvs
+      # Secrets — set the values in the Render dashboard (sync:false = not in git)
+      - key: JWT_SECRET
+        sync: false
+      - key: BRIDGE_HMAC_SECRET
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: APOLLO_API_KEY
+        sync: false
+      - key: ADZUNA_APP_ID
+        sync: false
+      - key: ADZUNA_APP_KEY
+        sync: false
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+
+services:
+  # --- Managed Redis / Key Value (Celery broker + cache) ---------------------
+  - type: keyvalue            # older Blueprints call this `redis`
+    name: jd-redis
+    region: frankfurt
+    plan: free                # 25MB is plenty at this volume
+    ipAllowList: []           # private — only other Render services can connect
+    maxmemoryPolicy: noeviction  # never drop queued Celery messages
+
+  # --- API (FastAPI; public) -------------------------------------------------
+  - type: web
+    name: api
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    healthCheckPath: /health
+    preDeployCommand: alembic upgrade head   # run migrations once per deploy
+    domains:
+      - jd-be.quickbiteltd.org
+    envVars:
+      - fromGroup: jd-shared
+      - key: PORT
+        value: "8000"          # CMD binds 8000; Render routes here
+      - key: RUN_MIGRATIONS
+        value: "0"             # preDeployCommand handles migrations instead
+      - key: COOKIE_SECURE
+        value: "true"          # Render serves real HTTPS
+      - key: DATABASE_URL
+        fromDatabase:
+          name: jd-postgres
+          property: connectionString   # validator converts postgres:// -> postgresql+asyncpg://
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+      - key: CELERY_BROKER_URL
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+      - key: CELERY_RESULT_BACKEND
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+      - key: BRIDGE_BASE_URL
+        value: http://wa-bridge:8081   # private network, by service name
+
+  # --- Celery worker (private, no port) --------------------------------------
+  - type: worker
+    name: worker
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    dockerCommand: celery -A app.workers.celery_app worker --loglevel=info -Q default,email,render,poll
+    envVars:
+      - fromGroup: jd-shared
+      - key: RUN_MIGRATIONS
+        value: "0"
+      - key: DATABASE_URL
+        fromDatabase: { name: jd-postgres, property: connectionString }
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+      - key: CELERY_BROKER_URL
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+      - key: CELERY_RESULT_BACKEND
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+      - key: BRIDGE_BASE_URL
+        value: http://wa-bridge:8081
+
+  # --- Celery beat scheduler (private, no port) ------------------------------
+  - type: worker
+    name: beat
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    dockerCommand: celery -A app.workers.celery_app beat --loglevel=info
+    envVars:
+      - fromGroup: jd-shared
+      - key: RUN_MIGRATIONS
+        value: "0"
+      - key: DATABASE_URL
+        fromDatabase: { name: jd-postgres, property: connectionString }
+      - key: REDIS_URL
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+      - key: CELERY_BROKER_URL
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+      - key: CELERY_RESULT_BACKEND
+        fromService: { type: keyvalue, name: jd-redis, property: connectionString }
+
+  # --- WhatsApp bridge (Go; PRIVATE service + persistent session disk) -------
+  - type: pserv
+    name: wa-bridge
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    dockerfilePath: ./apps/wa-bridge/Dockerfile
+    dockerContext: ./apps/wa-bridge
+    disk:
+      name: wa-session
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - fromGroup: jd-shared          # for BRIDGE_HMAC_SECRET (extras are harmless)
+      - key: PORT
+        value: "8081"
+      - key: API_BASE_URL
+        value: http://api:8000
+      - key: WHATSAPP_SESSION_DIR
+        value: /data
+      - key: BRIDGE_FAKE
+        value: "1"                    # flip to "0" + scan the QR (from logs) for real WhatsApp
+
+  # --- Next.js dashboard (public; monorepo build context = repo root) --------
+  - type: web
+    name: web
+    runtime: docker
+    region: frankfurt
+    plan: starter
+    rootDir: .
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .               # repo root, so pnpm workspace + shared-types resolve
+    healthCheckPath: /login        # public page that returns 200
+    domains:
+      - jd.quickbiteltd.org
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: BACKEND_URL
+        value: http://api:8000       # server-side proxy target (private network)
+      - key: NEXT_PUBLIC_API_BASE
+        value: https://jd.quickbiteltd.org
