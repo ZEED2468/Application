@@ -48,7 +48,7 @@ async def draft_outreach(
     proof_link = _proof_link(links, track)
     from app.llm import client
 
-    if not client.is_live():
+    if not client.is_live("draft_email"):
         return _fake_draft(
             candidate_name=candidate_name, company=company, role_title=role_title,
             track=track, hook=hook, proof_link=proof_link, contact_name=contact_name,
@@ -64,6 +64,6 @@ async def draft_outreach(
         f"Track: {track.value}\nProof link: {proof_link}\nHook: {hook.text}\n"
         f"Contact: {contact_name}"
     )
-    text = await client.complete_text(system, prompt, max_tokens=500)
+    text = await client.complete_text(system, prompt, max_tokens=500, feature="draft_email")
     subject, _, body = text.partition("||")
     return subject.strip() or f"{role_title} at {company}", body.strip()

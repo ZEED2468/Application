@@ -1,0 +1,1294 @@
+openapi: 3.1.0
+info:
+  title: Job Application & Outreach Engine
+  description: "\nBackend for the **Job Application & Outreach Engine** \u2014 a conversion-optimized,\n\
+    multi-user job-application + outreach pipeline.\n\n### Auth\nMost endpoints require\
+    \ an authenticated principal. Logging in via\n`POST /api/auth/login` sets an **httpOnly\
+    \ `access_token` cookie** (+ a rotating\nrefresh token); subsequent requests are\
+    \ authenticated by that cookie. The web app\nproxies the cookie server-side. Webhooks\
+    \ (`/api/webhooks/*`) and the WhatsApp\nbridge authenticate with an **HMAC signature**,\
+    \ not the cookie.\n\n### Pipelines\n- **Apply** \u2014 discover \u2192 score \u2192\
+    \ track-classify \u2192 tailor (truth-bounded) \u2192 render \u2192 submit.\n\
+    - **Outreach** \u2014 Apollo lookup \u2192 hook \u2192 draft \u2192 governed send\
+    \ \u2192 follow-up sequencer.\n- **Respond** \u2014 match reply \u2192 classify\
+    \ \u2192 dossier \u2192 WhatsApp bridge \u2192 relay.\n- **Manual** \u2014 VA\
+    \ chatbot: paste JD \u2192 match CV \u2192 ATS gaps \u2192 confirm-true \u2192\
+    \ generate.\n\n### Dev mode\nWith `USE_FAKE_INTEGRATIONS=true` every external\
+    \ dependency (LLM, email, Apollo,\nR2, WhatsApp) is faked, so the whole API runs\
+    \ with no credentials.\n"
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      tags:
+      - health
+      summary: Liveness probe
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Health Health Get
+  /api/auth/login:
+    post:
+      tags:
+      - auth
+      summary: Login
+      operationId: login_api_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/auth/refresh:
+    post:
+      tags:
+      - auth
+      summary: Refresh
+      operationId: refresh_api_auth_refresh_post
+      parameters:
+      - name: refresh_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refresh Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Refresh Api Auth Refresh Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/auth/me:
+    get:
+      tags:
+      - auth
+      summary: Me
+      operationId: me_api_auth_me_get
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/auth/logout:
+    post:
+      tags:
+      - auth
+      summary: Logout
+      operationId: logout_api_auth_logout_post
+      parameters:
+      - name: refresh_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refresh Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Logout Api Auth Logout Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/jobs:
+    get:
+      tags:
+      - jobs
+      summary: List Jobs
+      operationId: list_jobs_api_jobs_get
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/JobStatus'
+          - type: 'null'
+          title: Status
+      - name: track
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/Track'
+          - type: 'null'
+          title: Track
+      - name: origin
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - $ref: '#/components/schemas/Origin'
+          - type: 'null'
+          title: Origin
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Jobs Api Jobs Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/jobs/{job_id}:
+    get:
+      tags:
+      - jobs
+      summary: Get Job
+      operationId: get_job_api_jobs__job_id__get
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Job Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Job Api Jobs  Job Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/jobs/{job_id}/track:
+    patch:
+      tags:
+      - jobs
+      summary: Override Track
+      operationId: override_track_api_jobs__job_id__track_patch
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Job Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackOverrideRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Override Track Api Jobs  Job Id  Track Patch
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/jobs/{job_id}/generate:
+    post:
+      tags:
+      - jobs
+      summary: Generate
+      description: Run classify -> score -> tailor + render synchronously (dashboard
+        action).
+      operationId: generate_api_jobs__job_id__generate_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Job Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/jobs/{job_id}/submit:
+    post:
+      tags:
+      - jobs
+      summary: Submit
+      operationId: submit_api_jobs__job_id__submit_post
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Job Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/applications:
+    get:
+      tags:
+      - applications
+      summary: List Applications
+      operationId: list_applications_api_applications_get
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApplicationOut'
+                title: Response List Applications Api Applications Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/applications/{application_id}/status:
+    patch:
+      tags:
+      - applications
+      summary: Update Status
+      operationId: update_status_api_applications__application_id__status_patch
+      parameters:
+      - name: application_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Application Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/applications/{application_id}/audit:
+    get:
+      tags:
+      - applications
+      summary: Application Audit
+      operationId: application_audit_api_applications__application_id__audit_get
+      parameters:
+      - name: application_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Application Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEventOut'
+                title: Response Application Audit Api Applications  Application Id  Audit
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/applications/export.xlsx:
+    get:
+      tags:
+      - applications
+      summary: Export Xlsx
+      description: One-click spreadsheet export of the tracker (export-only).
+      operationId: export_xlsx_api_applications_export_xlsx_get
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/profiles:
+    get:
+      tags:
+      - onboarding
+      summary: List Profiles
+      operationId: list_profiles_api_profiles_get
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProfileOut'
+                title: Response List Profiles Api Profiles Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/onboarding/role-cv:
+    post:
+      tags:
+      - onboarding
+      summary: Upload Role Cv
+      operationId: upload_role_cv_api_onboarding_role_cv_post
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_upload_role_cv_api_onboarding_role_cv_post'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Upload Role Cv Api Onboarding Role Cv Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/onboarding/cover-letter-template:
+    put:
+      tags:
+      - onboarding
+      summary: Set Template
+      operationId: set_template_api_onboarding_cover_letter_template_put
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateBody'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Set Template Api Onboarding Cover Letter Template
+                  Put
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/profiles/{track}/confirm:
+    post:
+      tags:
+      - onboarding
+      summary: Confirm Profile
+      operationId: confirm_profile_api_profiles__track__confirm_post
+      parameters:
+      - name: track
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Track'
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Confirm Profile Api Profiles  Track  Confirm Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/chat/sessions:
+    post:
+      tags:
+      - chat
+      summary: Start
+      operationId: start_api_chat_sessions_post
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Start Api Chat Sessions Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/chat/sessions/{session_id}/answer:
+    post:
+      tags:
+      - chat
+      summary: Answer
+      operationId: answer_api_chat_sessions__session_id__answer_post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnswerRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Answer Api Chat Sessions  Session Id  Answer Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/chat/sessions/{session_id}/generate:
+    post:
+      tags:
+      - chat
+      summary: Generate
+      operationId: generate_api_chat_sessions__session_id__generate_post
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Generate Api Chat Sessions  Session Id  Generate Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/chat/sessions/{session_id}:
+    get:
+      tags:
+      - chat
+      summary: Get Session Detail
+      operationId: get_session_detail_api_chat_sessions__session_id__get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Get Session Detail Api Chat Sessions  Session Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/va/queue:
+    get:
+      tags:
+      - va
+      summary: Queue
+      operationId: queue_api_va_queue_get
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Queue Api Va Queue Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/domains:
+    get:
+      tags:
+      - admin
+      summary: Domain Health
+      operationId: domain_health_api_admin_domains_get
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Domain Health Api Admin Domains Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/admin/quota:
+    get:
+      tags:
+      - admin
+      summary: Quota
+      operationId: quota_api_admin_quota_get
+      parameters:
+      - name: access_token
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Access Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Quota Api Admin Quota Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/webhooks/resend/inbound:
+    post:
+      tags:
+      - webhooks
+      summary: Inbound
+      description: Parsed inbound email -> match to a thread, persist, emit reply.received.
+      operationId: inbound_api_webhooks_resend_inbound_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Inbound Api Webhooks Resend Inbound Post
+  /api/webhooks/resend/events:
+    post:
+      tags:
+      - webhooks
+      summary: Events
+      description: Delivery events (bounce/complaint) -> per-domain health + auto-pause.
+      operationId: events_api_webhooks_resend_events_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Events Api Webhooks Resend Events Post
+  /api/webhooks/bridge/reply:
+    post:
+      tags:
+      - webhooks
+      summary: Reply
+      description: '`{va_jid, in_reply_to_ref, text, ts}` (HMAC-signed) -> governed
+        relay.'
+      operationId: reply_api_webhooks_bridge_reply_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Reply Api Webhooks Bridge Reply Post
+components:
+  schemas:
+    AnswerRequest:
+      properties:
+        prompt_id:
+          type: string
+          format: uuid
+          title: Prompt Id
+        selected:
+          items:
+            type: string
+          type: array
+          title: Selected
+        detail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Detail
+      type: object
+      required:
+      - prompt_id
+      - selected
+      title: AnswerRequest
+    ApplicationOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        job_id:
+          type: string
+          format: uuid
+          title: Job Id
+        company:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Company
+        role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+        track:
+          anyOf:
+          - $ref: '#/components/schemas/Track'
+          - type: 'null'
+        origin:
+          anyOf:
+          - $ref: '#/components/schemas/Origin'
+          - type: 'null'
+        status:
+          $ref: '#/components/schemas/ApplicationStatus'
+        tracker_status:
+          $ref: '#/components/schemas/TrackerStatus'
+        submitted_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Submitted At
+      type: object
+      required:
+      - id
+      - job_id
+      - company
+      - role
+      - track
+      - origin
+      - status
+      - tracker_status
+      - submitted_at
+      title: ApplicationOut
+    ApplicationStatus:
+      type: string
+      enum:
+      - draft
+      - submitted
+      - interview
+      - rejected
+      - offer
+      - failed
+      title: ApplicationStatus
+    AuditEventOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        kind:
+          type: string
+          title: Kind
+        actor:
+          type: string
+          title: Actor
+        detail:
+          additionalProperties: true
+          type: object
+          title: Detail
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - kind
+      - actor
+      - detail
+      - created_at
+      title: AuditEventOut
+    Body_upload_role_cv_api_onboarding_role_cv_post:
+      properties:
+        track:
+          $ref: '#/components/schemas/Track'
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+      type: object
+      required:
+      - track
+      - file
+      title: Body_upload_role_cv_api_onboarding_role_cv_post
+    GenerateResponse:
+      properties:
+        job_id:
+          type: string
+          format: uuid
+          title: Job Id
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        generated_cv_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Generated Cv Id
+        pdf_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Pdf Url
+      type: object
+      required:
+      - job_id
+      - status
+      title: GenerateResponse
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    JobStatus:
+      type: string
+      enum:
+      - discovered
+      - scored
+      - rejected
+      - tailoring
+      - ready
+      - submitted
+      title: JobStatus
+    LoginRequest:
+      properties:
+        email:
+          type: string
+          format: email
+          title: Email
+        password:
+          type: string
+          title: Password
+      type: object
+      required:
+      - email
+      - password
+      title: LoginRequest
+    MeResponse:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        type:
+          type: string
+          title: Type
+        email:
+          type: string
+          title: Email
+        name:
+          type: string
+          title: Name
+        role:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Role
+      type: object
+      required:
+      - id
+      - type
+      - email
+      - name
+      title: MeResponse
+    Origin:
+      type: string
+      enum:
+      - auto
+      - manual
+      title: Origin
+      description: How a job entered the system. Both paths produce identical objects.
+    ProfileOut:
+      properties:
+        track:
+          $ref: '#/components/schemas/Track'
+        headline:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Headline
+        summary:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary
+        skills:
+          anyOf:
+          - items: {}
+            type: array
+          - additionalProperties: true
+            type: object
+          title: Skills
+      type: object
+      required:
+      - track
+      - headline
+      - summary
+      - skills
+      title: ProfileOut
+    StartRequest:
+      properties:
+        jd_text:
+          type: string
+          title: Jd Text
+        va_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Va Id
+        surface:
+          type: string
+          title: Surface
+          default: dashboard
+      type: object
+      required:
+      - jd_text
+      title: StartRequest
+    StatusUpdate:
+      properties:
+        status:
+          $ref: '#/components/schemas/TrackerStatus'
+      type: object
+      required:
+      - status
+      title: StatusUpdate
+    SubmitResponse:
+      properties:
+        application_id:
+          type: string
+          format: uuid
+          title: Application Id
+        status:
+          type: string
+          title: Status
+      type: object
+      required:
+      - application_id
+      - status
+      title: SubmitResponse
+    TemplateBody:
+      properties:
+        body:
+          type: string
+          title: Body
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+      type: object
+      required:
+      - body
+      title: TemplateBody
+    Track:
+      type: string
+      enum:
+      - frontend
+      - backend
+      - general
+      title: Track
+    TrackOverrideRequest:
+      properties:
+        track:
+          $ref: '#/components/schemas/Track'
+      type: object
+      required:
+      - track
+      title: TrackOverrideRequest
+    TrackerStatus:
+      type: string
+      enum:
+      - applied
+      - interviewed
+      - rejected
+      - no_response
+      - accepted
+      title: TrackerStatus
+      description: The unified tracker status the VA sets from the dashboard dropdown.
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+tags:
+- name: auth
+  description: Login/refresh/logout + current principal (cookie session).
+- name: jobs
+  description: Jobs list + the tracker; track override, generate, VA submit.
+- name: applications
+  description: Tracker status dropdown, audit trail, and `.xlsx` export.
+- name: onboarding
+  description: Multi-role CV upload, profile review, cover-letter template.
+- name: chat
+  description: "Manual application chatbot (paste JD \u2192 prompts \u2192 generate)."
+- name: va
+  description: 'VA work queue: submit, first-contact review, replies.'
+- name: admin
+  description: 9-domain health panel + per-hunter weekly quota (admin only).
+- name: webhooks
+  description: Resend (inbound mail + events) and WhatsApp bridge (HMAC).
+- name: health
+  description: Liveness probe.

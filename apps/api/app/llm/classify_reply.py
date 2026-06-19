@@ -27,7 +27,7 @@ def _fake_classify(body: str) -> tuple[ReplyClassification, str | None]:
 async def classify(body: str) -> tuple[ReplyClassification, str | None]:
     from app.llm import client
 
-    if not client.is_live():
+    if not client.is_live("classify_reply"):
         return _fake_classify(body)
 
     system = (
@@ -35,7 +35,7 @@ async def classify(body: str) -> tuple[ReplyClassification, str | None]:
         "`substantive` (screening/negotiation/real conversation). If routine, also "
         "propose a brief reply draft. Return: routine|substantive || <draft or empty>."
     )
-    text = await client.complete_text(system, body, max_tokens=400)
+    text = await client.complete_text(system, body, max_tokens=400, feature="classify_reply")
     label, _, draft = text.partition("||")
     cls = (ReplyClassification.routine if "routine" in label.lower()
            else ReplyClassification.substantive)

@@ -1,31 +1,41 @@
-"""Thin Anthropic wrapper. In fake mode (no key / use_fake_integrations) the
-high-level llm functions take a deterministic path and never call this."""
+"""Provider-agnostic LLM facade.
+
+The six AI features call only `is_live()` + `complete_text()`. This module
+resolves the configured provider/model (globally or per-feature) and dispatches
+to it. In fake mode (`USE_FAKE_INTEGRATIONS=true`) `is_live()` is False and the
+features take their deterministic path — no provider is ever called.
+"""
 
 from __future__ import annotations
 
 import structlog
 
 from app.config import settings
+from app.llm import config as llm_config
+from app.llm.providers import get as get_provider
 
 log = structlog.get_logger(__name__)
 
 
-def is_live() -> bool:
-    return bool(settings.anthropic_api_key) and not settings.use_fake_integrations
+def is_live(feature: str | None = None) -> bool:
+    """True when a real model should be used for this feature."""
+    if settings.use_fake_integrations:
+        return False
+    return llm_config.resolve(feature).is_usable()
 
 
-async def complete_text(system: str, prompt: str, *, max_tokens: int = 1500) -> str:
-    """Single-turn completion. Raises if called without a configured key."""
-    if not is_live():
-        raise RuntimeError("LLM not configured; callers must use the fake path")
-    # Imported lazily so the dependency isn't required in fake/dev/test runs.
-    from anthropic import AsyncAnthropic
-
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
-    msg = await client.messages.create(
-        model=settings.anthropic_model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": prompt}],
+async def complete_text(
+    system: str, prompt: str, *, max_tokens: int = 1500, feature: str | None = None
+) -> str:
+    """Single-turn completion via the configured provider for `feature`."""
+    resolved = llm_config.resolve(feature)
+    if not resolved.is_usable():
+        raise RuntimeError(
+            f"LLM not configured for feature={feature!r} (provider={resolved.provider})"
+        )
+    provider = get_provider(resolved.provider)
+    log.info("llm.complete", feature=feature, provider=resolved.provider, model=resolved.model)
+    return await provider.complete(
+        system=system, prompt=prompt, model=resolved.model,
+        api_key=resolved.api_key, base_url=resolved.base_url, max_tokens=max_tokens,
     )
-    return "".join(block.text for block in msg.content if block.type == "text")

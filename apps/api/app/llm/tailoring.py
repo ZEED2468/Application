@@ -100,7 +100,7 @@ async def tailor(profile: dict, *, job_title: str, job_description: str | None) 
     """Public entry. Deterministic in fake mode; constrained LLM call otherwise."""
     from app.llm import client
 
-    if not client.is_live():
+    if not client.is_live("tailoring"):
         cv_json, diff = tailor_fake(
             profile, job_title=job_title, job_description=job_description
         )
@@ -120,7 +120,7 @@ async def tailor(profile: dict, *, job_title: str, job_description: str | None) 
         f"JOB TITLE: {job_title}\nJOB DESCRIPTION: {job_description or ''}\n\n"
         "Return only the JSON object."
     )
-    text = await client.complete_text(system, prompt, max_tokens=2500)
+    text = await client.complete_text(system, prompt, max_tokens=2500, feature="tailoring")
     cv_json = json.loads(text)
     diff = {"strategy": "llm", "model": True}
     return cv_json, diff

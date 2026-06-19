@@ -55,7 +55,7 @@ async def generate_cover_letter(
 ) -> str:
     from app.llm import client
 
-    if not client.is_live():
+    if not client.is_live("cover_letter"):
         return build_three_paragraphs(
             candidate_name=candidate_name, company=company, role_title=role_title,
             hook=hook, profile=profile, jd_text=jd_text,
@@ -74,4 +74,4 @@ async def generate_cover_letter(
         f"Hook (real): {hook.text}\nTemplate: {template_body or ''}\n"
         f"Profile: {json.dumps(profile)}\nJD: {jd_text or ''}"
     )
-    return await client.complete_text(system, prompt, max_tokens=900)
+    return await client.complete_text(system, prompt, max_tokens=900, feature="cover_letter")

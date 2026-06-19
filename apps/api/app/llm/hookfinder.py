@@ -38,7 +38,7 @@ def _fake_hook(company: str, track: Track, job_description: str | None) -> Hook:
 async def find_hook(*, company: str, track: Track, job_description: str | None = None) -> Hook:
     from app.llm import client
 
-    if not client.is_live():
+    if not client.is_live("hookfinder"):
         return _fake_hook(company, track, job_description)
 
     system = (
@@ -48,6 +48,6 @@ async def find_hook(*, company: str, track: Track, job_description: str | None =
         "use only what is in the provided job description. Return: <detail> || <source>."
     )
     prompt = f"Company: {company}\nTrack angle: {_TRACK_ANGLE.get(track)}\nJD:\n{job_description or ''}"
-    text = await client.complete_text(system, prompt, max_tokens=300)
+    text = await client.complete_text(system, prompt, max_tokens=300, feature="hookfinder")
     detail, _, source = text.partition("||")
     return Hook(text=detail.strip(), source=(source.strip() or "model"))

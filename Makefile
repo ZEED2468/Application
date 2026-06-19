@@ -3,7 +3,7 @@
 
 COMPOSE := docker compose -f infra/docker-compose.yml
 
-.PHONY: dev down logs migrate seed test fmt
+.PHONY: dev down logs migrate seed openapi test fmt
 
 ## dev: build images and start the full stack (postgres, redis, api, worker, beat, wa-bridge, web)
 dev:
@@ -24,6 +24,10 @@ migrate:
 ## seed: bootstrap dev data (3 hunters, 1 VA, profiles, role CVs, 9 domains)
 seed:
 	$(COMPOSE) exec api python -m scripts.seed
+
+## openapi: export the Swagger/OpenAPI spec + static docs to docs/api/
+openapi:
+	cd apps/api && uv run python -m scripts.export_openapi
 
 ## test: run the api test suite (pytest)
 test:

@@ -47,7 +47,17 @@ class Settings(BaseSettings):
     bridge_hmac_secret: str = "dev-bridge-secret"
     resend_webhook_secret: str = "dev-resend-secret"
 
+    # --- LLM (provider-agnostic; any model behind the AI features) ---
+    # Global default; per-feature overrides via LLM_<FEATURE>_{PROVIDER,MODEL,
+    # API_KEY,BASE_URL}. `openai` + a base_url points at OpenAI/Groq/OpenRouter/
+    # Ollama/LM Studio/vLLM. See app/llm/config.py.
+    llm_provider: str = "anthropic"  # anthropic | openai | google
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+
     # --- Integrations (optional in dev; fakes used when blank) ---
+    # Legacy Anthropic settings — still honored as a fallback for provider=anthropic.
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-opus-4-8"
     resend_api_key: str = ""
