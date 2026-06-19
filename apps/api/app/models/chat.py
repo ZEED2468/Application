@@ -31,6 +31,7 @@ class ChatSession(Base, TimestampMixin):
     jd_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     jd_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     role_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    company: Mapped[str | None] = mapped_column(String(200), nullable=True)  # VA-editable
     track: Mapped[Track | None] = mapped_column(Enum(Track, native_enum=False), nullable=True)
     role_cv_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("role_cv.id", ondelete="SET NULL"), nullable=True

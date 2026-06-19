@@ -3,12 +3,15 @@
 import pytest
 from sqlalchemy import select
 
-from app.core.enums import ApplicationStatus, ChatState, Origin
+from app.api import chat as chat_api
+from app.core.enums import ApplicationStatus, ChatState, Origin, Track
 from app.events import names
 from app.models.application import Application
 from app.models.application_event import ApplicationEvent
+from app.models.chat import ChatPrompt
 from app.models.cover_letter import CoverLetter
 from app.models.generated_cv import GeneratedCv
+from app.models.job import Job
 from app.pipelines.manual import service
 from tests.helpers import EventSink, seed_hunter
 
@@ -89,3 +92,50 @@ async def test_manual_application_is_visible_to_tracker_with_audit(session):
     assert "created" in kinds
     created = next(e for e in events if e.kind == "created")
     assert created.detail.get("origin") == "manual"
+
+
+@pytest.mark.asyncio
+async def test_session_dto_is_frontend_aligned(session):
+    """The chat DTO matches what the UI renders (matched_cv, {id,label} options)."""
+    user, _ = await seed_hunter(session)
+    chat, prompts = await service.start_session(
+        session, user_id=user.id, jd_text=JD, emit=EventSink()
+    )
+    dto = await chat_api._session_dto(session, chat, prompts)
+    assert {"matched_cv", "ats", "confirmed_facts", "company", "prompts"} <= dto.keys()
+    assert dto["company"]  # extracted from "...at Streamline"
+    p = dto["prompts"][0]
+    assert p["kind"] == "skill" and p["multi"] is False
+    assert all(set(o.keys()) == {"id", "label"} for o in p["options"])
+
+
+@pytest.mark.asyncio
+async def test_track_override_reanalyzes_prompts(session):
+    user, _ = await seed_hunter(session)  # profile/track = backend
+    chat, prompts = await service.start_session(session, user_id=user.id, jd_text=JD, emit=EventSink())
+    old_ids = {p.id for p in prompts}
+
+    chat.track = Track.frontend
+    new_prompts = await service.reanalyze(session, chat=chat, emit=EventSink())
+
+    remaining = (await session.execute(
+        select(ChatPrompt).where(ChatPrompt.chat_session_id == chat.id)
+    )).scalars().all()
+    remaining_ids = {p.id for p in remaining}
+    assert remaining_ids == {p.id for p in new_prompts}
+    assert old_ids.isdisjoint(remaining_ids)  # old prompts were replaced
+
+
+@pytest.mark.asyncio
+async def test_add_fact_and_edited_company_reach_generation(session):
+    user, _ = await seed_hunter(session)
+    chat, _ = await service.start_session(session, user_id=user.id, jd_text=JD, emit=EventSink())
+    await service.add_confirmed_fact(session, chat=chat, skill="GraphQL")
+    assert "GraphQL" in chat.confirmed_facts
+    chat.company = "Acme (edited)"
+
+    application = await service.generate_application(
+        session, user_id=user.id, chat_session_id=chat.id, emit=EventSink()
+    )
+    job = await session.get(Job, application.job_id)
+    assert job.company == "Acme (edited)"

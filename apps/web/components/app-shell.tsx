@@ -11,6 +11,7 @@ import {
   Globe,
   UploadCloud,
   Users,
+  ShieldCheck,
   LogOut,
 } from "lucide-react";
 import type { MeResponse } from "@jd/shared-types";
@@ -38,6 +39,7 @@ function navFor(me?: MeResponse): NavItem[] {
     items.push({ href: "/team", label: "Team", icon: Users });
   }
   if (me?.role === "admin") {
+    items.push({ href: "/admin", label: "Admin", icon: ShieldCheck });
     items.push({ href: "/domains", label: "Domains", icon: Globe });
   }
   return items;

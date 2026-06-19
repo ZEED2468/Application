@@ -16,6 +16,7 @@ from app.models.invite import Invite
 from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.outreach import Outreach
+from app.models.platform import Platform
 from app.models.reply import Reply
 from app.models.role_cv import RoleCv
 from app.models.sending_domain import SendingDomain
@@ -48,4 +49,5 @@ __all__ = [
     "ChatPrompt",
     "ApplicationEvent",
     "Invite",
+    "Platform",
 ]

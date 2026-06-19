@@ -6,3 +6,4 @@ export { chatService } from "./chat";
 export { vaService } from "./va";
 export { adminService } from "./admin";
 export { invitesService } from "./invites";
+export { platformsService } from "./platforms";

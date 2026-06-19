@@ -14,12 +14,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import InviteKind, InviteStatus
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.db import get_session
 from app.deps import current_user, require_admin
+from app.models.platform import Platform
 from app.models.user import User
 from app.repositories import invites as invites_repo
 from app.schemas.auth import (
+    AdminInviteRequest,
     HunterInviteRequest,
     InviteCreatedResponse,
     InviteOut,
@@ -37,8 +39,9 @@ def _signup_link(email: str, key: str) -> str:
 def _created(invite, key: str) -> InviteCreatedResponse:
     return InviteCreatedResponse(
         id=invite.id, email=invite.email, kind=invite.kind, status=invite.status,
-        track=invite.track, va_name=invite.va_name, expires_at=invite.expires_at,
-        created_at=invite.created_at, key=key, signup_link=_signup_link(invite.email, key),
+        track=invite.track, va_name=invite.va_name, platform_id=invite.platform_id,
+        expires_at=invite.expires_at, created_at=invite.created_at, key=key,
+        signup_link=_signup_link(invite.email, key),
     )
 
 
@@ -50,6 +53,23 @@ async def invite_hunter(
 ) -> InviteCreatedResponse:
     invite, key = await invites_repo.create(
         session, email=str(body.email), kind=InviteKind.hunter, invited_by_user_id=admin.id
+    )
+    return _created(invite, key)
+
+
+@router.post("/admin", response_model=InviteCreatedResponse)
+async def invite_admin(
+    body: AdminInviteRequest,
+    admin: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+) -> InviteCreatedResponse:
+    """Invite another admin, attached to a platform (the platform is a label)."""
+    platform = await session.get(Platform, body.platform_id)
+    if platform is None or not platform.is_active:
+        raise ConflictError("Unknown or inactive platform.")
+    invite, key = await invites_repo.create(
+        session, email=str(body.email), kind=InviteKind.admin,
+        invited_by_user_id=admin.id, platform_id=body.platform_id,
     )
     return _created(invite, key)
 
@@ -77,7 +97,8 @@ async def list_invites(
     return [
         InviteOut(
             id=i.id, email=i.email, kind=i.kind, status=i.status, track=i.track,
-            va_name=i.va_name, expires_at=i.expires_at, created_at=i.created_at,
+            va_name=i.va_name, platform_id=i.platform_id,
+            expires_at=i.expires_at, created_at=i.created_at,
         )
         for i in rows
     ]

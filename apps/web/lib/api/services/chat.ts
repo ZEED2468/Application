@@ -2,6 +2,7 @@ import type {
   ChatAnswerRequest,
   ChatGenerateResult,
   ChatSession,
+  ChatSessionPatch,
 } from "@jd/shared-types";
 import { api, path } from "../client";
 
@@ -19,6 +20,18 @@ export const chatService = {
   async answer(id: string, body: ChatAnswerRequest): Promise<ChatSession> {
     return api
       .post(path(`/api/chat/sessions/${id}/answer`), { json: body })
+      .json<ChatSession>();
+  },
+
+  async update(id: string, patch: ChatSessionPatch): Promise<ChatSession> {
+    return api
+      .patch(path(`/api/chat/sessions/${id}`), { json: patch })
+      .json<ChatSession>();
+  },
+
+  async addFact(id: string, skill: string): Promise<ChatSession> {
+    return api
+      .post(path(`/api/chat/sessions/${id}/facts`), { json: { skill } })
       .json<ChatSession>();
   },
 

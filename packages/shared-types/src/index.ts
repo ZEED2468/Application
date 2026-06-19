@@ -63,6 +63,9 @@ export interface MeResponse {
   email: string;
   name: string;
   role: Role;
+  /** the platform an admin is attached to (label; admins are still global) */
+  platform_id?: string | null;
+  platform_name?: string | null;
 }
 
 export interface LoginRequest {
@@ -72,7 +75,7 @@ export interface LoginRequest {
 
 /* --- Invite-gated signup --- */
 
-export type InviteKind = "hunter" | "va";
+export type InviteKind = "hunter" | "va" | "admin";
 export type InviteStatus = "pending" | "accepted" | "revoked";
 
 export interface RegisterRequest {
@@ -84,6 +87,35 @@ export interface RegisterRequest {
 
 export interface HunterInviteRequest {
   email: string;
+}
+
+export interface AdminInviteRequest {
+  email: string;
+  platform_id: string;
+}
+
+/* --- Admin platforms --- */
+
+export interface Platform {
+  id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface PlatformCreate {
+  name: string;
+}
+
+export interface AdminOut {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  is_active: boolean;
+  platform_id?: string | null;
+  platform_name?: string | null;
 }
 
 export interface VaInviteRequest {
@@ -100,6 +132,7 @@ export interface InviteOut {
   status: InviteStatus;
   track?: Track | null;
   va_name?: string | null;
+  platform_id?: string | null;
   expires_at: string;
   created_at: string;
 }
@@ -239,6 +272,10 @@ export interface ChatPrompt {
 
 export interface ChatSession {
   session_id: string;
+  state?: string;
+  company?: string | null;
+  role_title?: string | null;
+  track?: Track | null;
   matched_cv: {
     track: Track;
     filename?: string | null;
@@ -247,8 +284,18 @@ export interface ChatSession {
     score: number;
     breakdown: AtsBreakdown;
   } | null;
+  /** skills the VA has confirmed-true (from prompts or added manually) */
+  confirmed_facts?: string[];
   prompts: ChatPrompt[];
+  job_id?: string | null;
   answered_prompt_ids?: string[];
+}
+
+/** Correct the auto-extracted fields; changing `track` re-runs the analysis. */
+export interface ChatSessionPatch {
+  company?: string;
+  role_title?: string;
+  track?: Track;
 }
 
 export interface ChatAnswerRequest {

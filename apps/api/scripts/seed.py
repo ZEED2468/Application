@@ -15,6 +15,7 @@ from app.core.enums import ParseStatus, Track, UserRole
 from app.db import AsyncSessionLocal
 from app.models.cover_letter import CoverLetterTemplate
 from app.models.master_profile import MasterProfile
+from app.models.platform import Platform
 from app.models.role_cv import RoleCv
 from app.models.user import User
 from app.models.va import Va
@@ -88,6 +89,13 @@ async def _seed_hunter(session, email: str, name: str, role: UserRole) -> User:
 
 async def main() -> None:
     async with AsyncSessionLocal() as session:
+        # A default platform so the admin console + admin-invite dropdown have an option.
+        platform = (await session.execute(
+            select(Platform).where(Platform.slug == "default")
+        )).scalar_one_or_none()
+        if platform is None:
+            session.add(Platform(name="Default", slug="default"))
+
         hunters = [await _seed_hunter(session, e, n, r) for e, n, r in HUNTERS]
 
         va = (await session.execute(select(Va).where(Va.email == "vera@jd.dev"))).scalar_one_or_none()

@@ -1,4 +1,5 @@
 import type {
+  AdminInviteRequest,
   HunterInviteRequest,
   InviteCreatedResponse,
   InviteOut,
@@ -16,6 +17,12 @@ export const invitesService = {
   ): Promise<InviteCreatedResponse> {
     return api
       .post(path("/api/invites/hunter"), { json: body })
+      .json<InviteCreatedResponse>();
+  },
+
+  async inviteAdmin(body: AdminInviteRequest): Promise<InviteCreatedResponse> {
+    return api
+      .post(path("/api/invites/admin"), { json: body })
       .json<InviteCreatedResponse>();
   },
 

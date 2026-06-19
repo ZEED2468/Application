@@ -67,22 +67,11 @@ def extract_company(jd_text: str) -> str:
     return " ".join(m.group(1).split()[:4]).strip()
 
 
-async def start_session(
-    session, *, user_id: UUID, jd_text: str, va_id: UUID | None = None,
-    surface: str = "dashboard", emit=_real_emit,
-) -> tuple[ChatSession, list[ChatPrompt]]:
-    """Create a chat session: match a CV, run ATS, and raise gap prompts."""
-    role_title = extract_role_title(jd_text)
-    track = track_classify.classify(title=role_title, description=jd_text)
-
-    chat = ChatSession(
-        user_id=user_id, va_id=va_id, surface=surface, jd_text=jd_text,
-        role_title=role_title, track=track, state=ChatState.started, confirmed_facts=[],
-    )
-    session.add(chat)
-    await session.flush()
-    emit(names.CHAT_SESSION_STARTED, ChatSessionStarted(user_id=user_id, chat_session_id=chat.id))
-
+async def _analyze(session, *, chat: ChatSession, emit=_real_emit) -> list[ChatPrompt]:
+    """(Re)compute the role-CV match, ATS preview, and confirm-true prompts for the
+    session's current track. Reused by start_session and the track-override path."""
+    user_id = chat.user_id
+    track = chat.track or Track.general
     role_cv = (
         await session.execute(
             select(RoleCv).where(RoleCv.user_id == user_id, RoleCv.track == track)
@@ -96,7 +85,8 @@ async def start_session(
              ChatCvMatched(user_id=user_id, chat_session_id=chat.id,
                            role_cv_id=role_cv.id, track=track))
 
-    # ATS preview against the (tailored) profile.
+    role_title = chat.role_title or "Role"
+    jd_text = chat.jd_text or ""
     profile_dict = profiles_repo.profile_to_dict(profile) if profile else {"skills": []}
     cv_json, _ = await tailoring.tailor(
         profile_dict, job_title=role_title, job_description=jd_text
@@ -105,7 +95,6 @@ async def start_session(
     chat.ats_score = breakdown["score"]
     chat.ats_breakdown = breakdown
 
-    # Raise confirm-true prompts for the top missing skills.
     prompts: list[ChatPrompt] = []
     for skill in ats.gap_skills(breakdown):
         p = ChatPrompt(
@@ -121,8 +110,51 @@ async def start_session(
     chat.state = ChatState.prompts_raised if prompts else ChatState.ready
     emit(names.CHAT_PROMPTS_RAISED,
          ChatPromptsRaised(user_id=user_id, chat_session_id=chat.id, prompt_count=len(prompts)))
+    return prompts
+
+
+async def start_session(
+    session, *, user_id: UUID, jd_text: str, va_id: UUID | None = None,
+    surface: str = "dashboard", emit=_real_emit,
+) -> tuple[ChatSession, list[ChatPrompt]]:
+    """Create a chat session: match a CV, run ATS, and raise gap prompts."""
+    role_title = extract_role_title(jd_text)
+    track = track_classify.classify(title=role_title, description=jd_text)
+
+    chat = ChatSession(
+        user_id=user_id, va_id=va_id, surface=surface, jd_text=jd_text,
+        role_title=role_title, track=track, company=extract_company(jd_text),
+        state=ChatState.started, confirmed_facts=[],
+    )
+    session.add(chat)
+    await session.flush()
+    emit(names.CHAT_SESSION_STARTED, ChatSessionStarted(user_id=user_id, chat_session_id=chat.id))
+
+    prompts = await _analyze(session, chat=chat, emit=emit)
     log.info("manual.session", chat=str(chat.id), track=track.value, prompts=len(prompts))
     return chat, prompts
+
+
+async def reanalyze(session, *, chat: ChatSession, emit=_real_emit) -> list[ChatPrompt]:
+    """Track changed: drop old prompts and re-run the analysis for the new track."""
+    old = (
+        await session.execute(
+            select(ChatPrompt).where(ChatPrompt.chat_session_id == chat.id)
+        )
+    ).scalars().all()
+    for p in old:
+        await session.delete(p)
+    await session.flush()
+    return await _analyze(session, chat=chat, emit=emit)
+
+
+async def add_confirmed_fact(session, *, chat: ChatSession, skill: str) -> ChatSession:
+    """Append a VA-asserted-true skill (truth-bounded) the JD didn't surface."""
+    skill = (skill or "").strip()
+    if skill and skill not in (chat.confirmed_facts or []):
+        chat.confirmed_facts = [*(chat.confirmed_facts or []), skill]
+    await session.flush()
+    return chat
 
 
 async def answer_prompt(
@@ -165,7 +197,7 @@ async def generate_application(
         session.add(profile)
         await session.flush()
 
-    company = extract_company(chat.jd_text or "")
+    company = chat.company or extract_company(chat.jd_text or "")
     dedupe = hashlib.sha256((chat.jd_text or str(chat.id)).encode()).hexdigest()[:32]
     job = Job(
         user_id=user_id, source=JobSourceName.manual, origin=Origin.manual,

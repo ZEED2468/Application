@@ -53,6 +53,7 @@ async def create(
     va_name: str | None = None,
     va_whatsapp_jid: str | None = None,
     track: Track | None = None,
+    platform_id: UUID | None = None,
 ) -> tuple[Invite, str]:
     """Create a pending invite. Returns (invite, raw_code). The raw code is shown
     once to the inviter and never persisted. Raises ConflictError if the email is
@@ -79,6 +80,7 @@ async def create(
         va_name=va_name,
         va_whatsapp_jid=va_whatsapp_jid,
         track=track,
+        platform_id=platform_id,
         status=InviteStatus.pending,
         expires_at=datetime.now(timezone.utc) + timedelta(days=INVITE_TTL_DAYS),
     )

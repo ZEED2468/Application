@@ -21,6 +21,10 @@ class User(Base, TimestampMixin):
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, native_enum=False), default=UserRole.hunter, nullable=False
     )
+    # The platform an admin is attached to. Null = global (super-admin) or a hunter.
+    platform_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("platform.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 

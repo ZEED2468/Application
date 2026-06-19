@@ -11,4 +11,6 @@ export const queryKeys = {
   domains: ["domains"] as const,
   quota: ["quota"] as const,
   invites: ["invites"] as const,
+  platforms: ["platforms"] as const,
+  admins: ["admins"] as const,
 };

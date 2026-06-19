@@ -35,6 +35,10 @@ class Invite(Base, TimestampMixin):
     track: Mapped[Track | None] = mapped_column(
         Enum(Track, native_enum=False), nullable=True
     )  # None = all-tracks assignment
+    # Set on admin invites: the platform the new admin is attached to.
+    platform_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("platform.id", ondelete="SET NULL"), nullable=True
+    )
     status: Mapped[InviteStatus] = mapped_column(
         Enum(InviteStatus, native_enum=False), default=InviteStatus.pending, nullable=False
     )

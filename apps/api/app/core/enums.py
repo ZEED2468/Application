@@ -11,7 +11,7 @@ class Track(str, enum.Enum):
 
 class UserRole(str, enum.Enum):
     hunter = "hunter"
-    admin = "admin"
+    admin = "admin"  # the single top-level admin (manages platforms + all admins)
 
 
 class PrincipalType(str, enum.Enum):
@@ -157,11 +157,13 @@ class CoverLetterStatus(str, enum.Enum):
 
 
 class InviteKind(str, enum.Enum):
-    """Who an invite creates. Hunter invites come from an admin; VA invites from
-    the hunter who will own (be assisted by) the VA."""
+    """Who an invite creates. Admin invites come from a super-admin (carry a
+    platform); hunter invites come from an admin; VA invites from the hunter who
+    will own (be assisted by) the VA."""
 
     hunter = "hunter"
     va = "va"
+    admin = "admin"
 
 
 class InviteStatus(str, enum.Enum):

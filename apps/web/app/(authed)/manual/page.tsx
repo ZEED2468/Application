@@ -4,11 +4,13 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Sparkles, FileText, ArrowRight } from "lucide-react";
+import { Sparkles, FileText, ArrowRight, Plus, Pencil } from "lucide-react";
 import type {
   ChatSession,
   ChatGenerateResult,
+  Track,
 } from "@jd/shared-types";
+import { TRACKS } from "@jd/shared-types";
 import { chatService } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { TRACK_LABELS } from "@/lib/status";
@@ -23,6 +25,9 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 
@@ -36,6 +41,25 @@ export default function ManualPage() {
     {},
   );
   const [confirmed, setConfirmed] = React.useState<Record<string, boolean>>({});
+  const [details, setDetails] = React.useState({
+    company: "",
+    role_title: "",
+    track: "" as Track | "",
+  });
+  const [newSkill, setNewSkill] = React.useState("");
+
+  // Sync the editable fields when a NEW session starts (same id keeps user edits).
+  const sessionId = session?.session_id;
+  React.useEffect(() => {
+    if (session) {
+      setDetails({
+        company: session.company ?? "",
+        role_title: session.role_title ?? "",
+        track: (session.track as Track) ?? "",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   const createSession = useMutation({
     mutationFn: (text: string) => chatService.createSession(text),
@@ -44,6 +68,37 @@ export default function ManualPage() {
       setAnswers({});
       setConfirmed({});
       toast.success("Session started — review the matched CV and prompts.");
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
+  const updateDetails = useMutation({
+    mutationFn: (_vars: { trackChanged: boolean }) =>
+      chatService.update(session!.session_id, {
+        company: details.company,
+        role_title: details.role_title,
+        track: details.track ? (details.track as Track) : undefined,
+      }),
+    onSuccess: (s, vars) => {
+      setSession(s);
+      if (vars.trackChanged) {
+        // prompts changed for the new track — clear stale confirmations.
+        setAnswers({});
+        setConfirmed({});
+      }
+      toast.success(
+        vars.trackChanged ? "Re-analyzed for the new track." : "Details updated.",
+      );
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
+  const addSkill = useMutation({
+    mutationFn: (skill: string) =>
+      chatService.addFact(session!.session_id, skill),
+    onSuccess: (s) => {
+      setSession(s);
+      setNewSkill("");
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
@@ -167,6 +222,116 @@ export default function ManualPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Editable job details */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Pencil className="size-4 text-coffee-500" />
+                Job details
+              </CardTitle>
+              <CardDescription>
+                Auto-filled from the JD — correct them if needed. Changing the track
+                re-matches the CV and re-runs the prompts.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="company">Company</Label>
+                  <Input
+                    id="company"
+                    value={details.company}
+                    onChange={(e) =>
+                      setDetails((d) => ({ ...d, company: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="role">Role title</Label>
+                  <Input
+                    id="role"
+                    value={details.role_title}
+                    onChange={(e) =>
+                      setDetails((d) => ({ ...d, role_title: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="track">Track</Label>
+                  <Select
+                    id="track"
+                    value={details.track}
+                    onChange={(e) =>
+                      setDetails((d) => ({ ...d, track: e.target.value as Track }))
+                    }
+                  >
+                    {TRACKS.map((t) => (
+                      <option key={t} value={t}>
+                        {TRACK_LABELS[t]}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  disabled={updateDetails.isPending}
+                  onClick={() =>
+                    updateDetails.mutate({
+                      trackChanged:
+                        (details.track || null) !== (session.track ?? null),
+                    })
+                  }
+                >
+                  {updateDetails.isPending ? "Updating…" : "Update details"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Skills the VA knows are true */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Skills you have</CardTitle>
+              <CardDescription>
+                Add a real skill the JD didn&apos;t surface — truth-bounded, so only
+                add what is genuinely true. These feed the tailored CV.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {(session.confirmed_facts?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {session.confirmed_facts!.map((f) => (
+                    <Badge key={f} variant="default">
+                      {f}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. GraphQL"
+                  value={newSkill}
+                  onChange={(e) => setNewSkill(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newSkill.trim()) {
+                      e.preventDefault();
+                      addSkill.mutate(newSkill.trim());
+                    }
+                  }}
+                />
+                <Button
+                  variant="secondary"
+                  disabled={addSkill.isPending || newSkill.trim().length === 0}
+                  onClick={() => addSkill.mutate(newSkill.trim())}
+                >
+                  <Plus className="size-4" /> Add
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Prompts */}
           {session.prompts.length > 0 && (

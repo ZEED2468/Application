@@ -18,6 +18,7 @@ from app.core.errors import AuthError
 from app.db import get_session
 from app.deps import ACCESS_COOKIE, Principal, current_principal
 from app.models.invite import Invite
+from app.models.platform import Platform
 from app.models.user import RefreshToken, User
 from app.models.va import Va
 from app.models.va_assignment import VaAssignment
@@ -92,9 +93,7 @@ async def login(
             response, session, subject_id=user.id, principal=PrincipalType.user,
             role=user.role.value, track_scope=[],
         )
-        return MeResponse(
-            id=user.id, type="user", email=user.email, name=user.name, role=user.role.value
-        )
+        return await _user_me(session, user)
 
     va = (
         await session.execute(select(Va).where(Va.email == body.email))
@@ -129,33 +128,40 @@ async def register(
     email = invites_repo.normalize_email(str(body.email))
     password_hash = hash_password(body.password)
 
-    if invite.kind is InviteKind.hunter:
-        principal_id = await _create_hunter(session, email, body.name, password_hash)
-        principal, role = PrincipalType.user, UserRole.hunter.value
-    else:
-        principal_id = await _create_va(session, invite, email, body.name, password_hash)
-        principal, role = PrincipalType.va, "va"
+    if invite.kind is InviteKind.va:
+        va = await _create_va(session, invite, email, body.name, password_hash)
+        invite.status = InviteStatus.accepted
+        invite.accepted_at = datetime.now(timezone.utc)
+        await _issue_session(
+            response, session, subject_id=va.id, principal=PrincipalType.va,
+            role="va", track_scope=[],
+        )
+        return MeResponse(id=va.id, type="va", email=email, name=body.name, role="va")
 
+    # hunter or admin -> a User; an admin carries the invite's platform.
+    new_role = UserRole.admin if invite.kind is InviteKind.admin else UserRole.hunter
+    platform_id = invite.platform_id if invite.kind is InviteKind.admin else None
+    user = await _create_user(
+        session, email, body.name, password_hash, role=new_role, platform_id=platform_id
+    )
     invite.status = InviteStatus.accepted
     invite.accepted_at = datetime.now(timezone.utc)
-
     await _issue_session(
-        response, session, subject_id=principal_id, principal=principal,
-        role=role, track_scope=[],
+        response, session, subject_id=user.id, principal=PrincipalType.user,
+        role=new_role.value, track_scope=[],
     )
-    return MeResponse(
-        id=principal_id, type=principal.value, email=email, name=body.name, role=role
-    )
+    return await _user_me(session, user)
 
 
-async def _create_hunter(session, email, name, password_hash):
-    user = User(email=email, name=name, role=UserRole.hunter, password_hash=password_hash)
+async def _create_user(session, email, name, password_hash, *, role: UserRole, platform_id):
+    user = User(email=email, name=name, role=role, password_hash=password_hash,
+                platform_id=platform_id)
     session.add(user)
     await session.flush()
-    return user.id
+    return user
 
 
-async def _create_va(session, invite: Invite, email, name, password_hash):
+async def _create_va(session, invite: Invite, email, name, password_hash) -> Va:
     va = Va(
         name=invite.va_name or name, email=email, password_hash=password_hash,
         whatsapp_jid=invite.va_whatsapp_jid or f"{email}@s.whatsapp.net",
@@ -164,7 +170,19 @@ async def _create_va(session, invite: Invite, email, name, password_hash):
     await session.flush()
     # Bind the VA to the inviting hunter (so they share that dashboard).
     session.add(VaAssignment(va_id=va.id, user_id=invite.invited_by_user_id, track=invite.track))
-    return va.id
+    return va
+
+
+async def _user_me(session, user: User) -> MeResponse:
+    """MeResponse for a User, resolving the attached platform (admins only)."""
+    platform_name = None
+    if user.platform_id is not None:
+        platform = await session.get(Platform, user.platform_id)
+        platform_name = platform.name if platform else None
+    return MeResponse(
+        id=user.id, type="user", email=user.email, name=user.name,
+        role=user.role.value, platform_id=user.platform_id, platform_name=platform_name,
+    )
 
 
 @router.post("/refresh")
@@ -210,9 +228,7 @@ async def me(
         user = await session.get(User, principal.id)
         if not user:
             raise AuthError("Not found")
-        return MeResponse(
-            id=user.id, type="user", email=user.email, name=user.name, role=user.role.value
-        )
+        return await _user_me(session, user)
     va = await session.get(Va, principal.id)
     if not va:
         raise AuthError("Not found")

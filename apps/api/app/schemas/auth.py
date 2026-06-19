@@ -18,7 +18,9 @@ class MeResponse(BaseModel):
     type: str  # user | va
     email: str
     name: str
-    role: str | None = None
+    role: str | None = None  # hunter | admin | super_admin | va
+    platform_id: UUID | None = None
+    platform_name: str | None = None
 
 
 class RegisterRequest(BaseModel):
@@ -30,6 +32,11 @@ class RegisterRequest(BaseModel):
 
 class HunterInviteRequest(BaseModel):
     email: EmailStr
+
+
+class AdminInviteRequest(BaseModel):
+    email: EmailStr
+    platform_id: UUID
 
 
 class VaInviteRequest(BaseModel):
@@ -46,6 +53,7 @@ class InviteOut(BaseModel):
     status: InviteStatus
     track: Track | None = None
     va_name: str | None = None
+    platform_id: UUID | None = None
     expires_at: datetime
     created_at: datetime
 
