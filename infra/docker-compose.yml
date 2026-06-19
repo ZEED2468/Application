@@ -3,8 +3,16 @@
 # Validate (no build needed):   docker compose -f infra/docker-compose.yml config
 # Bring up:                     make dev   (== docker compose -f infra/docker-compose.yml up --build)
 #
-# Env is loaded from ../.env (copy infra/.env.example -> .env at repo root, or pass --env-file).
-# Inside this compose network, services reach each other by service name:
+# ONE central env file drives every container. By default it's ../.env (repo root).
+# To point at a different file, set ENV_FILE (absolute path recommended) and pass
+# the same file to --env-file so compose interpolation matches:
+#   ENV_FILE=/opt/jd/prod.env docker compose --env-file /opt/jd/prod.env \
+#     -f infra/docker-compose.yml -f infra/docker-compose.nginx.yml up -d
+# Or just:  make up ENV=/opt/jd/prod.env
+#
+# Inside this compose network, services reach each other by service name; the
+# network-critical vars (DATABASE_URL/REDIS/CELERY/BRIDGE/BACKEND) are pinned per
+# service below so they're always correct regardless of the env file's values:
 #   postgres:5432, redis:6379, api:8000, wa-bridge:8081, web:3000
 
 name: jd
@@ -49,7 +57,7 @@ services:
     image: jd-api:local
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     env_file:
-      - ../.env
+      - ${ENV_FILE:-../.env}
     environment:
       # Compose-internal overrides: point at the in-network service hosts.
       DATABASE_URL: postgresql+asyncpg://jd:jd@postgres:5432/jd
@@ -73,7 +81,7 @@ services:
     image: jd-api:local
     command: celery -A app.workers.celery_app worker --loglevel=info -Q default,email,render,poll
     env_file:
-      - ../.env
+      - ${ENV_FILE:-../.env}
     environment:
       RUN_MIGRATIONS: "0"
       DATABASE_URL: postgresql+asyncpg://jd:jd@postgres:5432/jd
@@ -97,7 +105,7 @@ services:
     image: jd-api:local
     command: celery -A app.workers.celery_app beat --loglevel=info
     env_file:
-      - ../.env
+      - ${ENV_FILE:-../.env}
     environment:
       RUN_MIGRATIONS: "0"
       DATABASE_URL: postgresql+asyncpg://jd:jd@postgres:5432/jd
@@ -117,7 +125,7 @@ services:
       context: ../apps/wa-bridge
     image: jd-wa-bridge:local
     env_file:
-      - ../.env
+      - ${ENV_FILE:-../.env}
     environment:
       API_BASE_URL: http://api:8000
       BRIDGE_HMAC_SECRET: ${BRIDGE_HMAC_SECRET:-change-me-bridge}
@@ -140,7 +148,7 @@ services:
       dockerfile: apps/web/Dockerfile
     image: jd-web:local
     env_file:
-      - ../.env
+      - ${ENV_FILE:-../.env}
     environment:
       NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
       BACKEND_URL: http://api:8000

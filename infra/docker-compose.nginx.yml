@@ -11,11 +11,9 @@ services:
     image: nginx:1.27-alpine
     depends_on:
       - web
-      - api
+      - api 
     ports:
       - "80:80"
     volumes:
       - ./nginx/jd.conf:/etc/nginx/conf.d/default.conf:ro
-    networks:
-      - jd
     restart: unless-stopped
