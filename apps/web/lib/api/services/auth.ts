@@ -1,9 +1,15 @@
-import type { LoginRequest, MeResponse } from "@jd/shared-types";
+import type { LoginRequest, MeResponse, RegisterRequest } from "@jd/shared-types";
 import { api, path } from "../client";
 
 export const authService = {
   async login(body: LoginRequest): Promise<MeResponse> {
     return api.post(path("/api/auth/login"), { json: body }).json<MeResponse>();
+  },
+
+  async register(body: RegisterRequest): Promise<MeResponse> {
+    return api
+      .post(path("/api/auth/register"), { json: body })
+      .json<MeResponse>();
   },
 
   async me(): Promise<MeResponse> {

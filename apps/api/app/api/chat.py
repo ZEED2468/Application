@@ -9,11 +9,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundError
+from app.core.enums import PrincipalType
+from app.core.errors import DomainError, NotFoundError
 from app.db import get_session
-from app.deps import current_user
+from app.deps import Principal, authorize_owner, current_principal, scoped_user_ids
 from app.models.chat import ChatPrompt, ChatSession
-from app.models.user import User
 from app.pipelines.manual import service
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -21,8 +21,27 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 class StartRequest(BaseModel):
     jd_text: str
-    va_id: UUID | None = None
+    # Target hunter to apply on behalf of. Optional for a hunter (themselves);
+    # a VA assisting >1 hunter must set it. va_id is ignored from the client and
+    # taken from the authenticated principal instead.
+    user_id: UUID | None = None
     surface: str = "dashboard"
+
+
+async def _resolve_owner(
+    session: AsyncSession, principal: Principal, requested_user_id: UUID | None
+) -> tuple[UUID, UUID | None]:
+    """Return (owner_user_id, va_id) for a chat action. A hunter acts as itself;
+    a VA acts on an assigned hunter (explicit, or the sole one)."""
+    if principal.type is PrincipalType.user:
+        return principal.id, None
+    user_ids = await scoped_user_ids(session, principal)
+    if requested_user_id is not None:
+        await authorize_owner(session, principal, requested_user_id)
+        return requested_user_id, principal.id
+    if len(user_ids) == 1:
+        return user_ids[0], principal.id
+    raise DomainError("Specify user_id: this VA assists multiple hunters.")
 
 
 class AnswerRequest(BaseModel):
@@ -48,13 +67,23 @@ def _session_dto(chat: ChatSession, prompts: list[ChatPrompt]) -> dict:
     }
 
 
+async def _owned_chat(session, principal: Principal, session_id: UUID) -> ChatSession:
+    chat = await session.get(ChatSession, session_id)
+    if chat is None:
+        raise NotFoundError("Chat session not found")
+    await authorize_owner(session, principal, chat.user_id)
+    return chat
+
+
 @router.post("/sessions")
 async def start(
     body: StartRequest,
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
+    owner_id, va_id = await _resolve_owner(session, principal, body.user_id)
     chat, prompts = await service.start_session(
-        session, user_id=user.id, jd_text=body.jd_text, va_id=body.va_id, surface=body.surface
+        session, user_id=owner_id, jd_text=body.jd_text, va_id=va_id, surface=body.surface
     )
     return _session_dto(chat, prompts)
 
@@ -62,10 +91,12 @@ async def start(
 @router.post("/sessions/{session_id}/answer")
 async def answer(
     session_id: UUID, body: AnswerRequest,
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
+    chat = await _owned_chat(session, principal, session_id)
     prompt = await service.answer_prompt(
-        session, user_id=user.id, prompt_id=body.prompt_id,
+        session, user_id=chat.user_id, prompt_id=body.prompt_id,
         selected=body.selected, detail=body.detail,
     )
     return {"ok": True, "resolved": prompt.resolved}
@@ -74,10 +105,12 @@ async def answer(
 @router.post("/sessions/{session_id}/generate")
 async def generate(
     session_id: UUID,
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
+    chat = await _owned_chat(session, principal, session_id)
     application = await service.generate_application(
-        session, user_id=user.id, chat_session_id=session_id
+        session, user_id=chat.user_id, chat_session_id=session_id
     )
     return {"application_id": str(application.id), "job_id": str(application.job_id)}
 
@@ -85,11 +118,10 @@ async def generate(
 @router.get("/sessions/{session_id}")
 async def get_session_detail(
     session_id: UUID,
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
-    chat = await session.get(ChatSession, session_id)
-    if chat is None or chat.user_id != user.id:
-        raise NotFoundError("Chat session not found")
+    chat = await _owned_chat(session, principal, session_id)
     prompts = list((await session.execute(
         select(ChatPrompt).where(ChatPrompt.chat_session_id == chat.id)
     )).scalars().all())

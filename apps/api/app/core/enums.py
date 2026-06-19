@@ -151,3 +151,20 @@ class CoverLetterStatus(str, enum.Enum):
     rendering = "rendering"
     ready = "ready"
     failed = "failed"
+
+
+# --- Invite-gated signup ---
+
+
+class InviteKind(str, enum.Enum):
+    """Who an invite creates. Hunter invites come from an admin; VA invites from
+    the hunter who will own (be assisted by) the VA."""
+
+    hunter = "hunter"
+    va = "va"
+
+
+class InviteStatus(str, enum.Enum):
+    pending = "pending"
+    accepted = "accepted"
+    revoked = "revoked"

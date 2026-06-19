@@ -10,4 +10,5 @@ export const queryKeys = {
   vaQueue: ["va-queue"] as const,
   domains: ["domains"] as const,
   quota: ["quota"] as const,
+  invites: ["invites"] as const,
 };

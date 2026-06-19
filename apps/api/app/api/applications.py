@@ -13,12 +13,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import TrackerStatus
+from app.core.enums import PrincipalType, TrackerStatus
 from app.core.errors import NotFoundError
 from app.db import get_session
-from app.deps import current_user
+from app.deps import Principal, authorize_owner, current_principal, scoped_user_ids
+from app.models.application import Application
 from app.models.job import Job
-from app.models.user import User
 from app.repositories import applications as app_repo
 from app.schemas.applications import ApplicationOut, AuditEventOut
 
@@ -29,28 +29,37 @@ class StatusUpdate(BaseModel):
     status: TrackerStatus
 
 
+def _actor(principal: Principal) -> str:
+    kind = "va" if principal.type is PrincipalType.va else "hunter"
+    return f"{kind}:{principal.id}"
+
+
 @router.get("/applications", response_model=list[ApplicationOut])
 async def list_applications(
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> list[ApplicationOut]:
-    rows = await app_repo.list_for_user(session, user_id=user.id)
     out: list[ApplicationOut] = []
-    for a in rows:
-        job = await session.get(Job, a.job_id)
-        out.append(ApplicationOut.from_models(a, job))
+    for uid in await scoped_user_ids(session, principal):
+        for a in await app_repo.list_for_user(session, user_id=uid):
+            job = await session.get(Job, a.job_id)
+            out.append(ApplicationOut.from_models(a, job))
+    out.sort(key=lambda o: str(o.submitted_at or ""), reverse=True)
     return out
 
 
 @router.patch("/applications/{application_id}/status", response_model=ApplicationOut)
 async def update_status(
     application_id: UUID, body: StatusUpdate,
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> ApplicationOut:
-    app = await app_repo.get_owned(session, user_id=user.id, application_id=application_id)
+    app = await session.get(Application, application_id)
     if app is None:
         raise NotFoundError("Application not found")
+    await authorize_owner(session, principal, app.user_id)
     await app_repo.set_tracker_status(
-        session, application=app, status=body.status, actor=f"hunter:{user.id}"
+        session, application=app, status=body.status, actor=_actor(principal)
     )
     job = await session.get(Job, app.job_id)
     return ApplicationOut.from_models(app, job)
@@ -59,15 +68,23 @@ async def update_status(
 @router.get("/applications/{application_id}/audit", response_model=list[AuditEventOut])
 async def application_audit(
     application_id: UUID,
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> list[AuditEventOut]:
-    events = await app_repo.list_audit(session, user_id=user.id, application_id=application_id)
+    app = await session.get(Application, application_id)
+    if app is None:
+        raise NotFoundError("Application not found")
+    await authorize_owner(session, principal, app.user_id)
+    events = await app_repo.list_audit(
+        session, user_id=app.user_id, application_id=application_id
+    )
     return [AuditEventOut.model_validate(e) for e in events]
 
 
 @router.get("/applications/export.xlsx")
 async def export_xlsx(
-    user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
 ) -> Response:
     """One-click spreadsheet export of the tracker (export-only)."""
     from openpyxl import Workbook
@@ -77,7 +94,10 @@ async def export_xlsx(
     ws.title = "Applications"
     ws.append(["Company", "Role", "Track", "Origin", "ATS", "Tracker Status",
                "Lifecycle", "Submitted At"])
-    for a in await app_repo.list_for_user(session, user_id=user.id):
+    apps: list[Application] = []
+    for uid in await scoped_user_ids(session, principal):
+        apps.extend(await app_repo.list_for_user(session, user_id=uid))
+    for a in apps:
         job = await session.get(Job, a.job_id)
         from app.models.generated_cv import GeneratedCv
         cv = (await session.execute(

@@ -20,16 +20,19 @@ export const dynamic = "force-dynamic";
 
 const schema = z.object({
   email: z.string().email("Enter a valid email"),
-  password: z.string().min(1, "Password is required"),
+  name: z.string().min(1, "Your name is required"),
+  password: z.string().min(8, "At least 8 characters"),
+  key: z.string().min(4, "Enter your invite key"),
 });
 
 type FormValues = z.infer<typeof schema>;
 
-function LoginForm() {
+function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const next = searchParams.get("next") || "/jobs";
+  const invitedEmail = searchParams.get("email") ?? "";
+  const invitedKey = searchParams.get("key") ?? "";
 
   const {
     register,
@@ -37,20 +40,27 @@ function LoginForm() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: {
+      email: invitedEmail,
+      name: "",
+      password: "",
+      key: invitedKey,
+    },
   });
 
-  const login = useMutation({
-    mutationFn: (values: FormValues) => authService.login(values),
+  const signup = useMutation({
+    mutationFn: (values: FormValues) => authService.register(values),
     onSuccess: (me) => {
       queryClient.setQueryData(queryKeys.me, me);
-      toast.success(`Welcome back, ${me.name || me.email}`);
-      router.replace(next.startsWith("/") ? next : "/jobs");
+      toast.success(`Welcome, ${me.name || me.email}`);
+      router.replace("/jobs");
     },
     onError: async (err) => {
       const e = await toApiError(err);
       toast.error(
-        e.status === 401 ? "Invalid email or password." : e.message,
+        e.status === 401
+          ? "That invite key or email isn't valid. Check your invite link."
+          : e.message,
       );
     },
   });
@@ -63,13 +73,13 @@ function LoginForm() {
             The Outreach Desk
           </h1>
           <p className="mt-2 text-coffee-500">
-            Sign in to your application engine.
+            Create your account from an invite.
           </p>
         </div>
 
         <div className="rounded-lg border border-coffee-300 bg-white px-8 py-8">
           <form
-            onSubmit={handleSubmit((v) => login.mutate(v))}
+            onSubmit={handleSubmit((v) => signup.mutate(v))}
             className="space-y-5"
             noValidate
           >
@@ -80,6 +90,7 @@ function LoginForm() {
                 type="email"
                 autoComplete="email"
                 placeholder="you@company.com"
+                readOnly={Boolean(invitedEmail)}
                 {...register("email")}
               />
               {errors.email && (
@@ -90,12 +101,28 @@ function LoginForm() {
             </div>
 
             <div className="space-y-1.5">
+              <Label htmlFor="name">Full name</Label>
+              <Input
+                id="name"
+                type="text"
+                autoComplete="name"
+                placeholder="Ada Lovelace"
+                {...register("name")}
+              />
+              {errors.name && (
+                <p className="text-sm text-status-rejected">
+                  {errors.name.message}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
-                autoComplete="current-password"
-                placeholder="••••••••"
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
                 {...register("password")}
               />
               {errors.password && (
@@ -105,21 +132,38 @@ function LoginForm() {
               )}
             </div>
 
+            <div className="space-y-1.5">
+              <Label htmlFor="key">Invite key</Label>
+              <Input
+                id="key"
+                type="text"
+                autoCapitalize="characters"
+                placeholder="6-character code"
+                className="uppercase tracking-[0.3em]"
+                {...register("key")}
+              />
+              {errors.key && (
+                <p className="text-sm text-status-rejected">
+                  {errors.key.message}
+                </p>
+              )}
+            </div>
+
             <Button
               type="submit"
               className="w-full"
               size="lg"
-              disabled={login.isPending}
+              disabled={signup.isPending}
             >
-              {login.isPending ? "Signing in…" : "Sign in"}
+              {signup.isPending ? "Creating account…" : "Create account"}
             </Button>
           </form>
         </div>
 
         <p className="mt-6 text-center text-sm text-coffee-500">
-          Have an invite?{" "}
-          <Link href="/signup" className="font-medium text-coffee-900 underline">
-            Create your account
+          Already have an account?{" "}
+          <Link href="/login" className="font-medium text-coffee-900 underline">
+            Sign in
           </Link>
         </p>
       </div>
@@ -127,7 +171,7 @@ function LoginForm() {
   );
 }
 
-export default function LoginPage() {
+export default function SignupPage() {
   return (
     <Suspense
       fallback={
@@ -136,7 +180,7 @@ export default function LoginPage() {
         </div>
       }
     >
-      <LoginForm />
+      <SignupForm />
     </Suspense>
   );
 }

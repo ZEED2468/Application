@@ -38,7 +38,8 @@ async def client():
 
     app.dependency_overrides[get_session] = _override
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    # https so the auth cookies (Secure whenever COOKIE_SAMESITE=none) are sent back.
+    async with AsyncClient(transport=transport, base_url="https://test") as c:
         yield c
     app.dependency_overrides.clear()
     await engine.dispose()

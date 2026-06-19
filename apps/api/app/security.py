@@ -56,3 +56,19 @@ def generate_refresh_token() -> tuple[str, str]:
 
 def hash_refresh_token(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# Unambiguous alphabet: A-Z + 2-9, dropping 0/O/1/I to keep codes easy to read/type.
+_INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+INVITE_KEY_LENGTH = 6
+
+
+def generate_invite_key() -> tuple[str, str]:
+    """Return (code, sha256_hash) for a 6-char invite key. Store only the hash.
+
+    Reuses `hash_refresh_token` so verification is a plain hash lookup. The short
+    code is safe because lookups are scoped by email and the invite is single-use
+    and expiring.
+    """
+    code = "".join(secrets.choice(_INVITE_ALPHABET) for _ in range(INVITE_KEY_LENGTH))
+    return code, hash_refresh_token(code)

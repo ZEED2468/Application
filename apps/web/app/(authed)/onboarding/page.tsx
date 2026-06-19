@@ -3,14 +3,14 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { UploadCloud, Check, FileText } from "lucide-react";
-import type { MasterProfile, Track } from "@jd/shared-types";
+import { UploadCloud, Check, FileText, Lock } from "lucide-react";
+import type { MasterProfile, MeResponse, Track } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
-import { onboardingService } from "@/lib/api/services";
+import { authService, onboardingService } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
-import { PageHeading } from "@/components/states";
+import { PageHeading, EmptyState } from "@/components/states";
 import {
   Card,
   CardHeader,
@@ -31,6 +31,13 @@ export default function OnboardingPage() {
   const queryClient = useQueryClient();
   const [selectedTracks, setSelectedTracks] = React.useState<Track[]>([]);
   const [coverLetter, setCoverLetter] = React.useState("");
+
+  const { data: me } = useQuery<MeResponse>({
+    queryKey: queryKeys.me,
+    queryFn: () => authService.me(),
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const profilesQuery = useQuery({
     queryKey: queryKeys.profiles,
@@ -74,6 +81,18 @@ export default function OnboardingPage() {
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
+
+  // Editing source content (CV / cover letter / profile) is hunter-only. VAs assist
+  // elsewhere; the backend also 403s these endpoints. (Nav hides this for VAs.)
+  if (me?.type === "va") {
+    return (
+      <EmptyState
+        icon={<Lock className="size-8" />}
+        title="Onboarding is hunter-only"
+        description="Your CV and cover-letter content are managed by the hunter you assist."
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">

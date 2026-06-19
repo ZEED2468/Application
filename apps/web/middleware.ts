@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
  * here, so we can't gate server-side — the client-side AuthGuard does it instead.
  */
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/signup"];
 const DIRECT_MODE = Boolean(process.env.NEXT_PUBLIC_API_BASE);
 
 export function middleware(req: NextRequest) {

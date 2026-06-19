@@ -10,6 +10,7 @@ import {
   Inbox,
   Globe,
   UploadCloud,
+  Users,
   LogOut,
 } from "lucide-react";
 import type { MeResponse } from "@jd/shared-types";
@@ -24,13 +25,23 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const NAV: NavItem[] = [
-  { href: "/jobs", label: "Jobs / Tracker", icon: Briefcase },
-  { href: "/manual", label: "Manual Apply", icon: MessageSquareText },
-  { href: "/va", label: "VA Queue", icon: Inbox },
-  { href: "/domains", label: "Domains", icon: Globe },
-  { href: "/onboarding", label: "Onboarding", icon: UploadCloud },
-];
+/** Nav is principal-aware: VAs assist but can't edit source content or manage a
+ *  team; only admins see the (admin-only) Domains panel. */
+function navFor(me?: MeResponse): NavItem[] {
+  const items: NavItem[] = [
+    { href: "/jobs", label: "Jobs / Tracker", icon: Briefcase },
+    { href: "/manual", label: "Manual Apply", icon: MessageSquareText },
+    { href: "/va", label: "VA Queue", icon: Inbox },
+  ];
+  if (me?.type !== "va") {
+    items.push({ href: "/onboarding", label: "Onboarding", icon: UploadCloud });
+    items.push({ href: "/team", label: "Team", icon: Users });
+  }
+  if (me?.role === "admin") {
+    items.push({ href: "/domains", label: "Domains", icon: Globe });
+  }
+  return items;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -43,6 +54,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     retry: false,
     staleTime: 5 * 60 * 1000,
   });
+
+  const navItems = React.useMemo(() => navFor(me), [me]);
 
   const logout = useMutation({
     mutationFn: () => authService.logout(),
@@ -67,7 +80,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="mt-8 flex flex-1 flex-col gap-1">
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const active =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;

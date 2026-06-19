@@ -51,19 +51,63 @@ export type WarmupStage =
  * Auth
  * ------------------------------------------------------------------------- */
 
-export type PrincipalType = "hunter" | "va" | "admin";
+/** auth principal kind, as returned by the backend `/me` (`type` field). */
+export type PrincipalType = "user" | "va";
+
+/** the `role` field on `/me`: hunters/admins are `user`s; VAs report `"va"`. */
+export type Role = "hunter" | "admin" | "va";
 
 export interface MeResponse {
   id: string;
   type: PrincipalType;
   email: string;
   name: string;
-  role: string;
+  role: Role;
 }
 
 export interface LoginRequest {
   email: string;
   password: string;
+}
+
+/* --- Invite-gated signup --- */
+
+export type InviteKind = "hunter" | "va";
+export type InviteStatus = "pending" | "accepted" | "revoked";
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  name: string;
+  key: string;
+}
+
+export interface HunterInviteRequest {
+  email: string;
+}
+
+export interface VaInviteRequest {
+  email: string;
+  va_name: string;
+  whatsapp: string;
+  track?: Track | null;
+}
+
+export interface InviteOut {
+  id: string;
+  email: string;
+  kind: InviteKind;
+  status: InviteStatus;
+  track?: Track | null;
+  va_name?: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
+/** Returned once at creation — carries the raw key + a ready-to-share link. */
+export interface InviteCreatedResponse extends InviteOut {
+  key: string;
+  signup_link: string;
 }
 
 /* ----------------------------------------------------------------------------

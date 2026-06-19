@@ -13,16 +13,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.enums import PrincipalType
+from app.core.enums import InviteKind, InviteStatus, PrincipalType, UserRole
 from app.core.errors import AuthError
 from app.db import get_session
 from app.deps import ACCESS_COOKIE, Principal, current_principal
+from app.models.invite import Invite
 from app.models.user import RefreshToken, User
 from app.models.va import Va
-from app.schemas.auth import LoginRequest, MeResponse
+from app.models.va_assignment import VaAssignment
+from app.repositories import invites as invites_repo
+from app.schemas.auth import LoginRequest, MeResponse, RegisterRequest
 from app.security import (
     create_access_token,
     generate_refresh_token,
+    hash_password,
     hash_refresh_token,
     verify_password,
 )
@@ -103,6 +107,64 @@ async def login(
         return MeResponse(id=va.id, type="va", email=va.email, name=va.name, role="va")
 
     raise AuthError("Invalid credentials")
+
+
+@router.post("/register", response_model=MeResponse)
+async def register(
+    body: RegisterRequest, response: Response, session: AsyncSession = Depends(get_session)
+) -> MeResponse:
+    """Redeem an invite key to create an account, then auto-login.
+
+    The invite (created by an admin for a hunter, or by a hunter for their VA)
+    carries the account kind + any VA context. The email+key must match a pending,
+    unexpired invite — otherwise no account is created.
+    """
+    key = body.key.strip().upper()
+    invite = await invites_repo.get_redeemable(
+        session, email=str(body.email), key_hash=hash_refresh_token(key)
+    )
+    if invite is None:
+        raise AuthError("Invalid or expired invite. Check the email and key.")
+
+    email = invites_repo.normalize_email(str(body.email))
+    password_hash = hash_password(body.password)
+
+    if invite.kind is InviteKind.hunter:
+        principal_id = await _create_hunter(session, email, body.name, password_hash)
+        principal, role = PrincipalType.user, UserRole.hunter.value
+    else:
+        principal_id = await _create_va(session, invite, email, body.name, password_hash)
+        principal, role = PrincipalType.va, "va"
+
+    invite.status = InviteStatus.accepted
+    invite.accepted_at = datetime.now(timezone.utc)
+
+    await _issue_session(
+        response, session, subject_id=principal_id, principal=principal,
+        role=role, track_scope=[],
+    )
+    return MeResponse(
+        id=principal_id, type=principal.value, email=email, name=body.name, role=role
+    )
+
+
+async def _create_hunter(session, email, name, password_hash):
+    user = User(email=email, name=name, role=UserRole.hunter, password_hash=password_hash)
+    session.add(user)
+    await session.flush()
+    return user.id
+
+
+async def _create_va(session, invite: Invite, email, name, password_hash):
+    va = Va(
+        name=invite.va_name or name, email=email, password_hash=password_hash,
+        whatsapp_jid=invite.va_whatsapp_jid or f"{email}@s.whatsapp.net",
+    )
+    session.add(va)
+    await session.flush()
+    # Bind the VA to the inviting hunter (so they share that dashboard).
+    session.add(VaAssignment(va_id=va.id, user_id=invite.invited_by_user_id, track=invite.track))
+    return va.id
 
 
 @router.post("/refresh")

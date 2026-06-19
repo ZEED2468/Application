@@ -12,6 +12,7 @@ from app.models.contact import Contact
 from app.models.cover_letter import CoverLetter, CoverLetterTemplate
 from app.models.dossier import Dossier
 from app.models.generated_cv import GeneratedCv
+from app.models.invite import Invite
 from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.outreach import Outreach
@@ -46,4 +47,5 @@ __all__ = [
     "ChatSession",
     "ChatPrompt",
     "ApplicationEvent",
+    "Invite",
 ]
