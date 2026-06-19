@@ -1,22 +1,29 @@
 import ky, { HTTPError, type KyInstance } from "ky";
 
 /**
- * Browser API client.
+ * Browser API client — mode switches on NODE_ENV:
  *
- * If NEXT_PUBLIC_API_BASE is set (e.g. https://jd-be.quickbiteltd.org), the
- * browser calls the FastAPI backend DIRECTLY (cross-origin) — the backend must
- * allow that origin via CORS_ORIGINS and set cross-site cookies (SameSite=None;
- * Secure if the frontend is a different site). If it's unset, calls fall back to
- * the same-origin `/api/[...path]` proxy. Either way, `credentials: "include"`
- * sends the httpOnly auth cookie.
+ *  - production:  call the FastAPI backend DIRECTLY at NEXT_PUBLIC_API_BASE
+ *    (e.g. https://jd-be.quickbiteltd.org). The backend must allow this origin
+ *    via CORS_ORIGINS and set cross-site cookies (SameSite=None;Secure if the
+ *    frontend is a different site). Falls back to the same-origin proxy if
+ *    NEXT_PUBLIC_API_BASE is not set.
+ *  - development: always use the same-origin `/api/[...path]` proxy → the local
+ *    backend (no CORS, no cross-site cookies, no env var needed).
+ *
+ * Either way, `credentials: "include"` sends the httpOnly auth cookie.
  */
 
-// Inlined at build time by Next (must be set in Vercel before deploying).
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "").replace(/\/$/, "");
+const IS_PROD = process.env.NODE_ENV === "production";
+// Inlined at build time by Next; only used in production.
+const PUBLIC_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "").replace(/\/$/, "");
 
-/** Base for ky: the backend's /api when configured, else the same-origin proxy. */
+/** "" = same-origin proxy; otherwise the backend origin (prod + configured). */
+const API_ROOT = IS_PROD && PUBLIC_BASE ? PUBLIC_BASE : "";
+
+/** Base for ky. */
 const PREFIX_URL =
-  typeof window === "undefined" ? undefined : `${API_BASE}/api`;
+  typeof window === "undefined" ? undefined : `${API_ROOT}/api`;
 
 let refreshing: Promise<boolean> | null = null;
 
@@ -24,9 +31,10 @@ async function tryRefresh(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   if (!refreshing) {
     refreshing = ky
-      .post(`${API_BASE}/api/auth/refresh`, {
+      .post(`${API_ROOT}/api/auth/refresh`, {
         credentials: "include",
         throwHttpErrors: false,
+        timeout: 30000,
       })
       .then((res) => res.ok)
       .catch(() => false)
@@ -52,6 +60,8 @@ export const api: KyInstance = ky.create({
   prefixUrl: PREFIX_URL,
   // Send the httpOnly auth cookie on cross-origin requests.
   credentials: "include",
+  // 30s (ky default is 10s) — login runs argon2 + may hit a cold backend start.
+  timeout: 30000,
   // Client components are the primary consumers (RSC uses server fetches).
   retry: 0,
   hooks: {

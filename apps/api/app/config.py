@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # --- CORS (only needed when the browser calls the API directly) ---
     # Comma-separated allowed origins, e.g.
     #   https://jd.quickbiteltd.org,https://application-eight-phi.vercel.app
-    cors_origins: str = "https://application-eight-phi.vercel.app/"
+    cors_origins: str = "https://application-eight-phi.vercel.app"
 
     # --- HMAC shared secrets (bridge + webhook signature) ---
     bridge_hmac_secret: str = "dev-bridge-secret"
