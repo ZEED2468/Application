@@ -83,6 +83,11 @@ async function handle(req: NextRequest, segments: string[]): Promise<Response> {
     const lower = key.toLowerCase();
     if (HOP_BY_HOP.has(lower)) return;
     if (lower === "set-cookie") return; // handled below
+    // fetch() already decompressed the body, so the upstream content-encoding /
+    // content-length no longer describe what we're streaming. Forwarding them
+    // makes the browser try to decode an already-decoded body → "content
+    // decoding failed". Drop them and let the platform re-set them.
+    if (lower === "content-encoding" || lower === "content-length") return;
     resHeaders.set(key, value);
   });
 
