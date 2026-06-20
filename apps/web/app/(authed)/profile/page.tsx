@@ -35,6 +35,7 @@ export default function ProfilePage() {
   const [templateFilename, setTemplateFilename] = React.useState<string | null>(
     null,
   );
+  const [templateLoaded, setTemplateLoaded] = React.useState(false);
   const [uploadingTrack, setUploadingTrack] = React.useState<Track | null>(null);
 
   const { data: me } = useQuery<MeResponse>({
