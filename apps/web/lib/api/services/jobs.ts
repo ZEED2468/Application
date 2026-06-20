@@ -25,8 +25,8 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
     ...jobFields
   } = raw;
 
-  const job = {
-    ...(jobFields as JobOut),
+  const job: JobDetail["job"] = {
+    ...(jobFields as unknown as JobOut),
     description: (description as string | null) ?? null,
     jd_text: (description as string | null) ?? null,
   };
@@ -36,8 +36,9 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
 
   return {
     job,
-    generated_cv: (cv as JobDetail["generated_cv"]) ?? null,
-    cover_letter: (coverLetter as JobDetail["cover_letter"]) ?? null,
+    generated_cv: (cv as unknown as JobDetail["generated_cv"]) ?? null,
+    cover_letter:
+      (coverLetter as unknown as JobDetail["cover_letter"]) ?? null,
     application: app
       ? {
           id: String(app.id),
@@ -50,9 +51,9 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
       : null,
     outreach:
       outreachList.length > 0
-        ? (outreachList[0] as JobDetail["outreach"])
+        ? (outreachList[0] as unknown as JobDetail["outreach"])
         : null,
-    thread: (thread as JobDetail["thread"]) ?? [],
+    thread: (thread as unknown as JobDetail["thread"]) ?? [],
   };
 }
 
