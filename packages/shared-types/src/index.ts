@@ -194,6 +194,14 @@ export interface JobOut {
   location?: string | null;
   url?: string | null;
   created_at?: string;
+  /** Full job description text */
+  description?: string | null;
+  /** Truncated preview for table rows */
+  jd_preview?: string | null;
+  /** Google Docs viewer URL for tailored resume PDF */
+  resume_doc_url?: string | null;
+  /** Google Docs viewer URL for tailored cover letter PDF */
+  cover_letter_doc_url?: string | null;
 }
 
 export interface ApplicationSummary {

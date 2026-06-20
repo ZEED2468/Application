@@ -54,11 +54,18 @@ def _naive_skills(text: str, *, top: int = 30) -> list[str]:
     return [w for w, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:top]]
 
 
+class RoleCvOut(BaseModel):
+    filename: str | None
+    parsed: bool
+
+
 class ProfileOut(BaseModel):
     track: Track
     headline: str | None
     summary: str | None
     skills: list | dict
+    confirmed: bool = False
+    role_cv: RoleCvOut | None = None
 
 
 class TemplateBody(BaseModel):
@@ -70,11 +77,35 @@ class TemplateBody(BaseModel):
 async def list_profiles(
     user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
 ) -> list[ProfileOut]:
-    rows = (await session.execute(
+    profiles = (await session.execute(
         select(MasterProfile).where(MasterProfile.user_id == user.id)
     )).scalars().all()
-    return [ProfileOut(track=p.track, headline=p.headline, summary=p.summary, skills=p.skills)
-            for p in rows]
+    role_cvs = {
+        rc.track: rc
+        for rc in (await session.execute(
+            select(RoleCv).where(RoleCv.user_id == user.id)
+        )).scalars().all()
+    }
+    out: list[ProfileOut] = []
+    for p in profiles:
+        rc = role_cvs.get(p.track)
+        parsed = rc is not None and rc.parse_status is ParseStatus.parsed
+        out.append(ProfileOut(
+            track=p.track,
+            headline=p.headline,
+            summary=p.summary,
+            skills=p.skills,
+            confirmed=bool(p.truth_corpus and parsed),
+            role_cv=(
+                RoleCvOut(
+                    filename=rc.original_filename,
+                    parsed=parsed,
+                )
+                if rc is not None
+                else None
+            ),
+        ))
+    return out
 
 
 @router.post("/onboarding/role-cv")

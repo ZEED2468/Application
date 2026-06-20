@@ -27,9 +27,10 @@ import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { formatDateTime } from "@/lib/utils";
+import { toGoogleDocsViewerUrl } from "@/lib/docs-links";
 import { PageHeading, ErrorState } from "@/components/states";
-import { StatusBadge } from "@/components/status-badge";
 import { AtsBreakdown } from "@/components/ats-breakdown";
+import { StatusCell } from "../status-cell";
 import {
   Card,
   CardHeader,
@@ -153,7 +154,11 @@ export default function JobDetailPage({
         <Badge variant={job.origin === "manual" ? "default" : "muted"}>
           {job.origin === "manual" ? "Manual" : "Auto"}
         </Badge>
-        {application && <StatusBadge status={application.status} />}
+        {application?.submitted_at && (
+          <span className="text-xs text-coffee-400">
+            Submitted {formatDateTime(application.submitted_at)}
+          </span>
+        )}
         {job.url && (
           <a
             href={job.url}
@@ -269,6 +274,19 @@ export default function JobDetailPage({
 
         {/* Side column */}
         <div className="space-y-6">
+          {/* Application status */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Application status</CardTitle>
+              <CardDescription>
+                Update manually after applying, interviewing, or hearing back.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <StatusCell job={job} jobDetailId={id} />
+            </CardContent>
+          </Card>
+
           {/* Track override */}
           <Card>
             <CardHeader>
@@ -366,7 +384,8 @@ function BackLink() {
 }
 
 function DocLink({ label, href }: { label: string; href: string | null }) {
-  if (!href) {
+  const docHref = toGoogleDocsViewerUrl(href);
+  if (!docHref) {
     return (
       <div className="flex items-center justify-between rounded-md border border-coffee-100 px-3 py-2.5">
         <span className="flex items-center gap-2 text-sm text-coffee-300">
@@ -379,16 +398,16 @@ function DocLink({ label, href }: { label: string; href: string | null }) {
   }
   return (
     <a
-      href={href}
+      href={docHref}
       target="_blank"
-      rel="noreferrer"
+      rel="noreferrer noopener"
       className="flex items-center justify-between rounded-md border border-coffee-300 px-3 py-2.5 transition-colors hover:bg-coffee-100"
     >
       <span className="flex items-center gap-2 text-sm font-medium text-coffee-900">
         <FileText className="size-4 text-coffee-500" />
         {label}
       </span>
-      <span className="text-xs text-coffee-500">Open PDF</span>
+      <span className="text-xs text-coffee-500">Google Doc</span>
     </a>
   );
 }

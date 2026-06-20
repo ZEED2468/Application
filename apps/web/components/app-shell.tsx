@@ -35,7 +35,7 @@ function navFor(me?: MeResponse): NavItem[] {
     { href: "/va", label: "VA Queue", icon: Inbox },
   ];
   if (me?.type !== "va") {
-    items.push({ href: "/onboarding", label: "Onboarding", icon: UploadCloud });
+    items.push({ href: "/profile", label: "Profile", icon: UploadCloud });
     items.push({ href: "/team", label: "Team", icon: Users });
   }
   if (me?.role === "admin") {

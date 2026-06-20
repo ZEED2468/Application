@@ -23,6 +23,8 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { StatusCell } from "./status-cell";
+import { JdCell } from "./jd-cell";
+import { DocLinkCell } from "./doc-link-cell";
 
 export const dynamic = "force-dynamic";
 
@@ -86,8 +88,27 @@ export default function JobsPage() {
         ),
     },
     {
+      key: "jd",
+      header: "JD",
+      cell: (job) => <JdCell job={job} />,
+    },
+    {
+      key: "resume",
+      header: "Resume",
+      cell: (job) => (
+        <DocLinkCell url={job.resume_doc_url} label="tailored resume" />
+      ),
+    },
+    {
+      key: "cover_letter",
+      header: "Cover letter",
+      cell: (job) => (
+        <DocLinkCell url={job.cover_letter_doc_url} label="cover letter" />
+      ),
+    },
+    {
       key: "status",
-      header: "Status",
+      header: "Application status",
       cell: (job) => <StatusCell job={job} filter={filter} />,
     },
   ];
@@ -120,7 +141,7 @@ export default function JobsPage() {
             options={TRACKS.map((t) => ({ value: t, label: TRACK_LABELS[t] }))}
           />
           <FilterSelect
-            label="Status"
+            label="Application status"
             value={filter.status ?? ""}
             onChange={(v) =>
               setFilter((f) => ({ ...f, status: v as TrackerStatus | "" }))

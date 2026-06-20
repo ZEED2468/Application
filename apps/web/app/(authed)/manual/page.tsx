@@ -204,7 +204,7 @@ export default function ManualPage() {
                   </div>
                 ) : (
                   <p className="text-coffee-300">
-                    No CV matched yet — finish onboarding to add role CVs.
+                    No CV matched yet — add source CV files on your Profile page.
                   </p>
                 )}
               </CardContent>

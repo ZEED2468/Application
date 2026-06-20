@@ -61,7 +61,10 @@ async def update_status(
         raise ConflictError(
             "not_applied is only shown for jobs that have not been submitted yet"
         )
-    await authorize_owner(session, principal, app.user_id)
+    job = await session.get(Job, app.job_id)
+    await authorize_owner(
+        session, principal, app.user_id, track=job.track if job else None
+    )
     await app_repo.set_tracker_status(
         session, application=app, status=body.status, actor=_actor(principal)
     )
@@ -78,7 +81,10 @@ async def application_audit(
     app = await session.get(Application, application_id)
     if app is None:
         raise NotFoundError("Application not found")
-    await authorize_owner(session, principal, app.user_id)
+    job = await session.get(Job, app.job_id)
+    await authorize_owner(
+        session, principal, app.user_id, track=job.track if job else None
+    )
     events = await app_repo.list_audit(
         session, user_id=app.user_id, application_id=application_id
     )
