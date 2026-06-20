@@ -102,8 +102,11 @@ export default function VaQueuePage() {
                           </span>
                         </p>
                         <p className="text-xs text-coffee-300">
-                          {item.hunter_name} · {TRACK_LABELS[item.track]} ·{" "}
-                          {formatDateTime(item.created_at)}
+                          {item.hunter_name} ·{" "}
+                          {item.track in TRACK_LABELS
+                            ? TRACK_LABELS[item.track]
+                            : item.track}{" "}
+                          · {formatDateTime(item.created_at)}
                         </p>
                         {item.preview && (
                           <p className="mt-1 line-clamp-2 text-sm text-coffee-700">
