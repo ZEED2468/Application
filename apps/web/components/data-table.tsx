@@ -31,6 +31,9 @@ export interface DataTableProps<T> {
   skeletonRows?: number;
   /** Keep column headers visible while scrolling long tables. */
   stickyHeader?: boolean;
+  /** Draw vertical rules between columns. */
+  columnBorders?: boolean;
+  tableClassName?: string;
 }
 
 export function DataTable<T>({
@@ -42,17 +45,25 @@ export function DataTable<T>({
   emptyState,
   skeletonRows = 6,
   stickyHeader = false,
+  columnBorders = false,
+  tableClassName,
 }: DataTableProps<T>) {
+  const cellBorder = (index: number) =>
+    columnBorders && index < columns.length - 1
+      ? "border-r border-coffee-200"
+      : undefined;
+
   return (
-    <Table>
+    <Table className={tableClassName}>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          {columns.map((col) => (
+          {columns.map((col, index) => (
             <TableHead
               key={col.key}
               className={cn(
                 stickyHeader &&
                   "sticky top-0 z-10 bg-white shadow-[0_1px_0_0_theme(colors.coffee.300)]",
+                cellBorder(index),
                 col.headClassName,
               )}
             >
@@ -65,8 +76,8 @@ export function DataTable<T>({
         {isLoading
           ? Array.from({ length: skeletonRows }).map((_, i) => (
               <TableRow key={`sk-${i}`} className="hover:bg-transparent">
-                {columns.map((col) => (
-                  <TableCell key={col.key}>
+                {columns.map((col, index) => (
+                  <TableCell key={col.key} className={cellBorder(index)}>
                     <Skeleton className="h-4 w-full max-w-32" />
                   </TableCell>
                 ))}
@@ -78,8 +89,11 @@ export function DataTable<T>({
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 className={cn(onRowClick && "cursor-pointer")}
               >
-                {columns.map((col) => (
-                  <TableCell key={col.key} className={col.className}>
+                {columns.map((col, index) => (
+                  <TableCell
+                    key={col.key}
+                    className={cn(cellBorder(index), col.className)}
+                  >
                     {col.cell(row)}
                   </TableCell>
                 ))}

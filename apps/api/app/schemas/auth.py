@@ -11,6 +11,7 @@ from app.core.enums import InviteKind, InviteStatus, Track
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    pin: str | None = Field(default=None, min_length=4, max_length=16)
 
 
 class MeResponse(BaseModel):
@@ -26,7 +27,7 @@ class MeResponse(BaseModel):
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
-    name: str = Field(min_length=1, max_length=200)
+    name: str | None = Field(default=None, max_length=200)
     key: str = Field(min_length=4, max_length=16)
 
 
@@ -41,7 +42,6 @@ class AdminInviteRequest(BaseModel):
 
 class VaInviteRequest(BaseModel):
     email: EmailStr
-    va_name: str = Field(min_length=1, max_length=200)
     whatsapp: str = Field(min_length=5, max_length=40)
     track: Track | None = None  # None = all-tracks assignment
 
@@ -52,7 +52,7 @@ class InviteOut(BaseModel):
     kind: InviteKind
     status: InviteStatus
     track: Track | None = None
-    va_name: str | None = None
+    whatsapp: str | None = None
     platform_id: UUID | None = None
     expires_at: datetime
     created_at: datetime

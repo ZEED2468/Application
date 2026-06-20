@@ -274,10 +274,10 @@ export default function JobDetailPage({
 
         {/* Side column */}
         <div className="space-y-6">
-          {/* Application status */}
+          {/* Status */}
           <Card>
             <CardHeader>
-              <CardTitle>Application status</CardTitle>
+              <CardTitle>Status</CardTitle>
               <CardDescription>
                 Update manually after applying, interviewing, or hearing back.
               </CardDescription>

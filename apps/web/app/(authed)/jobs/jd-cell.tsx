@@ -17,11 +17,11 @@ export function JdCell({ job }: { job: JobOut }) {
   return (
     <>
       <div
-        className="max-w-xs space-y-1"
+        className="min-w-0 space-y-1"
         onClick={(e) => e.stopPropagation()}
       >
         {preview && (
-          <p className="line-clamp-2 text-xs leading-relaxed text-coffee-500">
+          <p className="line-clamp-3 text-sm leading-relaxed text-coffee-500">
             {preview}
           </p>
         )}

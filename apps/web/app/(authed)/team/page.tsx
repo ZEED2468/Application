@@ -47,17 +47,24 @@ async function copy(text: string) {
 /** A one-time panel shown right after an invite is created (the key is never shown again). */
 function CreatedInvite({ invite }: { invite: InviteCreatedResponse }) {
   const link = fullLink(invite.signup_link);
+  const isVa = invite.kind === "va";
   return (
     <div className="space-y-2 rounded-md border border-coffee-500/40 bg-coffee-100/50 p-4">
       <p className="text-sm font-medium text-coffee-900">
         Invite ready for {invite.email}
       </p>
       <p className="text-xs text-coffee-500">
-        Share this link — the key{" "}
+        Share this link — the PIN{" "}
         <span className="font-mono font-semibold tracking-widest text-coffee-900">
           {invite.key}
         </span>{" "}
         is shown only once.
+        {isVa && invite.whatsapp
+          ? ` WhatsApp on file: ${invite.whatsapp}.`
+          : ""}
+        {isVa
+          ? " The VA uses email + PIN + password to sign in."
+          : ""}
       </p>
       <div className="flex items-center gap-2">
         <Input readOnly value={link} className="font-mono text-xs" />
@@ -71,7 +78,6 @@ function CreatedInvite({ invite }: { invite: InviteCreatedResponse }) {
 
 const vaSchema = z.object({
   email: z.string().email("Enter a valid email"),
-  va_name: z.string().min(1, "Name is required"),
   whatsapp: z.string().min(5, "Enter a WhatsApp number"),
   track: z.string(),
 });
@@ -87,14 +93,13 @@ function InviteVaCard() {
     formState: { errors },
   } = useForm<VaForm>({
     resolver: zodResolver(vaSchema),
-    defaultValues: { email: "", va_name: "", whatsapp: "", track: "" },
+    defaultValues: { email: "", whatsapp: "", track: "" },
   });
 
   const invite = useMutation({
     mutationFn: (v: VaForm) =>
       invitesService.inviteVa({
         email: v.email,
-        va_name: v.va_name,
         whatsapp: v.whatsapp,
         track: v.track ? (v.track as Track) : null,
       }),
@@ -130,20 +135,13 @@ function InviteVaCard() {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="va-name">Name</Label>
-              <Input id="va-name" placeholder="Vera Assistant" {...register("va_name")} />
-              {errors.va_name && (
-                <p className="text-sm text-status-rejected">{errors.va_name.message}</p>
-              )}
-            </div>
-            <div className="space-y-1.5">
               <Label htmlFor="va-wa">WhatsApp number</Label>
               <Input id="va-wa" placeholder="+234 801 234 5678" {...register("whatsapp")} />
               {errors.whatsapp && (
                 <p className="text-sm text-status-rejected">{errors.whatsapp.message}</p>
               )}
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 sm:col-span-2 sm:max-w-xs">
               <Label htmlFor="va-track">Track scope</Label>
               <Select id="va-track" {...register("track")}>
                 <option value="">All tracks</option>
@@ -272,7 +270,7 @@ function InvitesList() {
               </p>
               <p className="text-xs text-coffee-500">
                 {inv.kind === "va" ? "VA" : "Hunter"}
-                {inv.va_name ? ` · ${inv.va_name}` : ""}
+                {inv.whatsapp ? ` · ${inv.whatsapp}` : ""}
                 {inv.track ? ` · ${TRACK_LABELS[inv.track]}` : ""}
               </p>
             </div>

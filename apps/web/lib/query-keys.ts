@@ -13,4 +13,5 @@ export const queryKeys = {
   invites: ["invites"] as const,
   platforms: ["platforms"] as const,
   admins: ["admins"] as const,
+  coverLetterTemplate: ["cover-letter-template"] as const,
 };

@@ -89,6 +89,8 @@ export default function JobsPage() {
     {
       key: "jd",
       header: "JD",
+      headClassName: "min-w-[20rem] w-[26%]",
+      className: "min-w-[20rem] w-[26%] align-top",
       cell: (job) => <JdCell job={job} />,
     },
     {
@@ -107,7 +109,9 @@ export default function JobsPage() {
     },
     {
       key: "status",
-      header: "Application status",
+      header: "Status",
+      headClassName: "min-w-[11rem]",
+      className: "min-w-[11rem]",
       cell: (job) => <StatusCell job={job} filter={filter} />,
     },
   ];
@@ -144,7 +148,7 @@ export default function JobsPage() {
           options={TRACKS.map((t) => ({ value: t, label: TRACK_LABELS[t] }))}
         />
         <FilterSelect
-          label="Application status"
+          label="Status"
           value={filter.status ?? ""}
           onChange={(v) =>
             setFilter((f) => ({ ...f, status: v as TrackerStatus | "" }))
@@ -194,6 +198,8 @@ export default function JobsPage() {
               onRowClick={(j) => router.push(`/jobs/${j.id}`)}
               skeletonRows={12}
               stickyHeader
+              columnBorders
+              tableClassName="table-fixed"
               emptyState={
                 <EmptyState
                   icon={<Briefcase className="size-8" />}

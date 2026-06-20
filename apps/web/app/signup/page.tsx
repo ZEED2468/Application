@@ -18,14 +18,23 @@ import { Label } from "@/components/ui/label";
 
 export const dynamic = "force-dynamic";
 
-const schema = z.object({
-  email: z.string().email("Enter a valid email"),
-  name: z.string().min(1, "Your name is required"),
-  password: z.string().min(8, "At least 8 characters"),
-  key: z.string().min(4, "Enter your invite key"),
-});
+function buildSchema(isVaInvite: boolean) {
+  return z.object({
+    email: z.string().email("Enter a valid email"),
+    password: z.string().min(8, "At least 8 characters"),
+    key: z.string().min(4, "Enter your PIN"),
+    name: isVaInvite
+      ? z.string().optional()
+      : z.string().min(1, "Your name is required"),
+  });
+}
 
-type FormValues = z.infer<typeof schema>;
+type FormValues = {
+  email: string;
+  password: string;
+  key: string;
+  name?: string;
+};
 
 function SignupForm() {
   const router = useRouter();
@@ -33,6 +42,9 @@ function SignupForm() {
   const queryClient = useQueryClient();
   const invitedEmail = searchParams.get("email") ?? "";
   const invitedKey = searchParams.get("key") ?? "";
+  const isVaInvite = searchParams.get("kind") === "va";
+
+  const schema = React.useMemo(() => buildSchema(isVaInvite), [isVaInvite]);
 
   const {
     register,
@@ -49,7 +61,13 @@ function SignupForm() {
   });
 
   const signup = useMutation({
-    mutationFn: (values: FormValues) => authService.register(values),
+    mutationFn: (values: FormValues) =>
+      authService.register({
+        email: values.email,
+        password: values.password,
+        key: values.key,
+        name: values.name?.trim() || undefined,
+      }),
     onSuccess: (me) => {
       queryClient.setQueryData(queryKeys.me, me);
       toast.success(`Welcome, ${me.name || me.email}`);
@@ -59,7 +77,7 @@ function SignupForm() {
       const e = await toApiError(err);
       toast.error(
         e.status === 401
-          ? "That invite key or email isn't valid. Check your invite link."
+          ? "That PIN or email isn't valid. Check your invite link."
           : e.message,
       );
     },
@@ -73,7 +91,9 @@ function SignupForm() {
             The Outreach Desk
           </h1>
           <p className="mt-2 text-coffee-500">
-            Create your account from an invite.
+            {isVaInvite
+              ? "Create your VA account — you'll use this PIN to sign in."
+              : "Create your account from an invite."}
           </p>
         </div>
 
@@ -100,21 +120,23 @@ function SignupForm() {
               )}
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="name">Full name</Label>
-              <Input
-                id="name"
-                type="text"
-                autoComplete="name"
-                placeholder="Ada Lovelace"
-                {...register("name")}
-              />
-              {errors.name && (
-                <p className="text-sm text-status-rejected">
-                  {errors.name.message}
-                </p>
-              )}
-            </div>
+            {!isVaInvite && (
+              <div className="space-y-1.5">
+                <Label htmlFor="name">Full name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  autoComplete="name"
+                  placeholder="Ada Lovelace"
+                  {...register("name")}
+                />
+                {errors.name && (
+                  <p className="text-sm text-status-rejected">
+                    {errors.name.message}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="password">Password</Label>
@@ -133,7 +155,7 @@ function SignupForm() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="key">Invite key</Label>
+              <Label htmlFor="key">{isVaInvite ? "PIN" : "Invite key"}</Label>
               <Input
                 id="key"
                 type="text"
@@ -142,6 +164,12 @@ function SignupForm() {
                 className="uppercase tracking-[0.3em]"
                 {...register("key")}
               />
+              {isVaInvite && (
+                <p className="text-xs text-coffee-400">
+                  Keep this PIN — you'll need it with your email and password
+                  every time you sign in.
+                </p>
+              )}
               {errors.key && (
                 <p className="text-sm text-status-rejected">
                   {errors.key.message}

@@ -31,17 +31,28 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/invites", tags=["invites"])
 
 
-def _signup_link(email: str, key: str) -> str:
+def _whatsapp_display(jid: str | None) -> str | None:
+    if not jid:
+        return None
+    user = jid.split("@", 1)[0]
+    return f"+{user}" if user.isdigit() else user
+
+
+def _signup_link(email: str, key: str, kind: InviteKind) -> str:
     """Relative signup link; the frontend prepends its own origin when sharing."""
-    return f"/signup?{urlencode({'email': email, 'key': key})}"
+    params: dict[str, str] = {"email": email, "key": key}
+    if kind is InviteKind.va:
+        params["kind"] = "va"
+    return f"/signup?{urlencode(params)}"
 
 
 def _created(invite, key: str) -> InviteCreatedResponse:
     return InviteCreatedResponse(
         id=invite.id, email=invite.email, kind=invite.kind, status=invite.status,
-        track=invite.track, va_name=invite.va_name, platform_id=invite.platform_id,
+        track=invite.track, whatsapp=_whatsapp_display(invite.va_whatsapp_jid),
+        platform_id=invite.platform_id,
         expires_at=invite.expires_at, created_at=invite.created_at, key=key,
-        signup_link=_signup_link(invite.email, key),
+        signup_link=_signup_link(invite.email, key, invite.kind),
     )
 
 
@@ -82,7 +93,7 @@ async def invite_va(
 ) -> InviteCreatedResponse:
     invite, key = await invites_repo.create(
         session, email=str(body.email), kind=InviteKind.va, invited_by_user_id=user.id,
-        va_name=body.va_name, va_whatsapp_jid=invites_repo.phone_to_jid(body.whatsapp),
+        va_whatsapp_jid=invites_repo.phone_to_jid(body.whatsapp),
         track=body.track,
     )
     return _created(invite, key)
@@ -97,7 +108,7 @@ async def list_invites(
     return [
         InviteOut(
             id=i.id, email=i.email, kind=i.kind, status=i.status, track=i.track,
-            va_name=i.va_name, platform_id=i.platform_id,
+            whatsapp=_whatsapp_display(i.va_whatsapp_jid), platform_id=i.platform_id,
             expires_at=i.expires_at, created_at=i.created_at,
         )
         for i in rows

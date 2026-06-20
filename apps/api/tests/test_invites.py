@@ -62,11 +62,11 @@ async def _invite_hunter(client, email):
     return r.json()
 
 
-async def _register(client, *, email, name, key, password="newpassw0rd"):
-    return await client.post(
-        "/api/auth/register",
-        json={"email": email, "name": name, "key": key, "password": password},
-    )
+async def _register(client, *, email, name=None, key, password="newpassw0rd"):
+    payload = {"email": email, "key": key, "password": password}
+    if name is not None:
+        payload["name"] = name
+    return await client.post("/api/auth/register", json=payload)
 
 
 async def _make_hunter(client, email="hunter@example.com"):
@@ -78,16 +78,17 @@ async def _make_hunter(client, email="hunter@example.com"):
     return UUID(reg.json()["id"])  # cookie now = hunter
 
 
-async def _make_va(client, email="va@example.com"):
+async def _make_va(client, email="va@example.com", *, password="newpassw0rd"):
     """hunter (current cookie) -> invite VA -> register. Leaves the client logged in AS the VA."""
     inv = await client.post(
         "/api/invites/va",
-        json={"email": email, "va_name": "Vera", "whatsapp": "+2348012345678"},
+        json={"email": email, "whatsapp": "+2348012345678"},
     )
     assert inv.status_code == 200, inv.text
-    reg = await _register(client, email=email, name="Vera", key=inv.json()["key"])
+    key = inv.json()["key"]
+    reg = await _register(client, email=email, key=key, password=password)
     assert reg.status_code == 200, reg.text
-    return UUID(reg.json()["id"])  # cookie now = va
+    return UUID(reg.json()["id"]), key, password  # cookie now = va
 
 
 # --------------------------------------------------------------------------- #
@@ -152,7 +153,7 @@ async def test_duplicate_email_invite_conflicts(ctx):
 async def test_hunter_invites_va_creates_assignment(ctx):
     client, maker = ctx
     hunter_id = await _make_hunter(client)
-    va_id = await _make_va(client)
+    va_id = await _make_va(client)[0]
 
     me = await client.get("/api/auth/me")
     assert me.json()["type"] == "va"
@@ -166,6 +167,36 @@ async def test_hunter_invites_va_creates_assignment(ctx):
 
 
 @pytest.mark.asyncio
+async def test_va_login_requires_pin(ctx):
+    client, _ = ctx
+    await _make_hunter(client)
+    _, key, password = await _make_va(client, "pinva@example.com")
+    assert (
+        await client.post(
+            "/api/auth/login",
+            json={"email": "pinva@example.com", "password": password},
+        )
+    ).status_code == 401
+    ok = await client.post(
+        "/api/auth/login",
+        json={"email": "pinva@example.com", "password": password, "pin": key},
+    )
+    assert ok.status_code == 200, ok.text
+
+
+@pytest.mark.asyncio
+async def test_va_signup_link_includes_kind(ctx):
+    client, _ = ctx
+    await _make_hunter(client)
+    inv = await client.post(
+        "/api/invites/va",
+        json={"email": "linkva@example.com", "whatsapp": "+2348012345678"},
+    )
+    assert inv.status_code == 200, inv.text
+    assert "kind=va" in inv.json()["signup_link"]
+
+
+@pytest.mark.asyncio
 async def test_va_blocked_from_sensitive_and_invites(ctx):
     client, _ = ctx
     await _make_hunter(client)
@@ -175,7 +206,7 @@ async def test_va_blocked_from_sensitive_and_invites(ctx):
     assert (await client.get("/api/profiles")).status_code == 403
     # cannot invite anyone
     assert (await client.post("/api/invites/va",
-            json={"email": "x@e.com", "va_name": "n", "whatsapp": "+2340000000"})).status_code == 403
+            json={"email": "x@e.com", "whatsapp": "+2340000000"})).status_code == 403
     assert (await client.post("/api/invites/hunter", json={"email": "y@e.com"})).status_code == 403
 
 

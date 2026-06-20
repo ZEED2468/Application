@@ -20,6 +20,20 @@ export const onboardingService = {
       .json<RoleCv>();
   },
 
+  async getCoverLetterTemplate(): Promise<CoverLetterTemplate> {
+    return api
+      .get(path("/api/onboarding/cover-letter-template"))
+      .json<CoverLetterTemplate>();
+  },
+
+  async uploadCoverLetterTemplate(file: File): Promise<CoverLetterTemplate> {
+    const form = new FormData();
+    form.set("file", file);
+    return api
+      .post(path("/api/onboarding/cover-letter-template/upload"), { body: form })
+      .json<CoverLetterTemplate>();
+  },
+
   async setCoverLetterTemplate(body: string): Promise<CoverLetterTemplate> {
     return api
       .put(path("/api/onboarding/cover-letter-template"), { json: { body } })

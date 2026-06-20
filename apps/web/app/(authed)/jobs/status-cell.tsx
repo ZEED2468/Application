@@ -92,7 +92,7 @@ export function StatusCell({
         disabled={mutation.isPending}
         onChange={(e) => mutation.mutate(e.target.value as TrackerStatus)}
         className="min-w-40"
-        aria-label="Application status"
+        aria-label="Status"
       >
         {current === "not_applied" && (
           <option value="not_applied" disabled>

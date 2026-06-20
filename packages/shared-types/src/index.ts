@@ -82,6 +82,8 @@ export interface MeResponse {
 export interface LoginRequest {
   email: string;
   password: string;
+  /** Required for VA accounts — the 6-character PIN from the invite. */
+  pin?: string;
 }
 
 /* --- Invite-gated signup --- */
@@ -92,7 +94,8 @@ export type InviteStatus = "pending" | "accepted" | "revoked";
 export interface RegisterRequest {
   email: string;
   password: string;
-  name: string;
+  /** Required for hunter/admin invites; omitted for VA signup. */
+  name?: string;
   key: string;
 }
 
@@ -131,7 +134,6 @@ export interface AdminOut {
 
 export interface VaInviteRequest {
   email: string;
-  va_name: string;
   whatsapp: string;
   track?: Track | null;
 }
@@ -142,7 +144,7 @@ export interface InviteOut {
   kind: InviteKind;
   status: InviteStatus;
   track?: Track | null;
-  va_name?: string | null;
+  whatsapp?: string | null;
   platform_id?: string | null;
   expires_at: string;
   created_at: string;
@@ -266,7 +268,9 @@ export interface MasterProfile {
 }
 
 export interface CoverLetterTemplate {
-  body: string;
+  body: string | null;
+  filename?: string | null;
+  name?: string | null;
 }
 
 /* ----------------------------------------------------------------------------

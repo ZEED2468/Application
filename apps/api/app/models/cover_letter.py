@@ -19,6 +19,8 @@ class CoverLetterTemplate(Base, TimestampMixin):
     user_id: Mapped[uuid.UUID] = user_fk()
     name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_file_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class CoverLetter(Base, TimestampMixin):

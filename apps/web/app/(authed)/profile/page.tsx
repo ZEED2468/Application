@@ -10,6 +10,7 @@ import { authService, onboardingService } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
+import { previewCoverLetterTemplate } from "@/lib/cover-letter-template";
 import { PageHeading, EmptyState } from "@/components/states";
 import {
   Card,
@@ -31,6 +32,10 @@ export default function ProfilePage() {
   const queryClient = useQueryClient();
   const [selectedTracks, setSelectedTracks] = React.useState<Track[]>([]);
   const [coverLetter, setCoverLetter] = React.useState("");
+  const [templateFilename, setTemplateFilename] = React.useState<string | null>(
+    null,
+  );
+  const [templateLoaded, setTemplateLoaded] = React.useState(false);
 
   const { data: me } = useQuery<MeResponse>({
     queryKey: queryKeys.me,
@@ -43,6 +48,27 @@ export default function ProfilePage() {
     queryKey: queryKeys.profiles,
     queryFn: () => onboardingService.profiles(),
   });
+
+  const templateQuery = useQuery({
+    queryKey: queryKeys.coverLetterTemplate,
+    queryFn: () => onboardingService.getCoverLetterTemplate(),
+    enabled: me?.type !== "va",
+  });
+
+  React.useEffect(() => {
+    if (templateLoaded || !templateQuery.data) return;
+    setCoverLetter(templateQuery.data.body ?? "");
+    setTemplateFilename(templateQuery.data.filename ?? null);
+    setTemplateLoaded(true);
+  }, [templateQuery.data, templateLoaded]);
+
+  const previewText = React.useMemo(
+    () =>
+      previewCoverLetterTemplate(coverLetter, {
+        name: me?.name ?? undefined,
+      }),
+    [coverLetter, me?.name],
+  );
 
   const profileByTrack = React.useMemo(() => {
     const map = new Map<Track, MasterProfile>();
@@ -66,10 +92,26 @@ export default function ProfilePage() {
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
 
+  const templateUploadMutation = useMutation({
+    mutationFn: (file: File) => onboardingService.uploadCoverLetterTemplate(file),
+    onSuccess: (data) => {
+      toast.success("Cover-letter file uploaded — text loaded into template");
+      setCoverLetter(data.body ?? "");
+      setTemplateFilename(data.filename ?? null);
+      setTemplateLoaded(true);
+      queryClient.invalidateQueries({ queryKey: queryKeys.coverLetterTemplate });
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
   const templateMutation = useMutation({
     mutationFn: (body: string) =>
       onboardingService.setCoverLetterTemplate(body),
-    onSuccess: () => toast.success("Cover-letter template saved"),
+    onSuccess: (data) => {
+      toast.success("Cover-letter template saved");
+      setTemplateFilename(data.filename ?? null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.coverLetterTemplate });
+    },
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
 
@@ -224,21 +266,85 @@ export default function ProfilePage() {
         <CardHeader>
           <CardTitle>3 · Cover-letter template</CardTitle>
           <CardDescription>
-            A base template for generated cover letters. Use placeholders like
-            {" {company} "} and {" {role} "}. Each application gets its own PDF.
+            Upload a Word or PDF file, or write a template directly. Use
+            placeholders like {" {company} "}, {" {role} "}, and {" {name} "}.
+            The preview shows how it will read for a sample job — each
+            application still gets its own tailored PDF.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="cover">Template body</Label>
-            <Textarea
-              id="cover"
-              value={coverLetter}
-              onChange={(e) => setCoverLetter(e.target.value)}
-              placeholder="Dear {company} team, I'm excited about the {role} role…"
-              className="min-h-40"
-            />
+        <CardContent className="space-y-6">
+          <div className="flex flex-col gap-3 rounded-md border border-coffee-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              {templateFilename ? (
+                <span className="flex min-w-0 items-center gap-1.5 text-sm text-coffee-700">
+                  <FileText className="size-4 shrink-0 text-coffee-500" />
+                  <span className="truncate" title={templateFilename}>
+                    {templateFilename}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-sm text-coffee-300">
+                  No template file uploaded
+                </span>
+              )}
+            </div>
+            <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-coffee-300 px-3 py-1.5 text-sm text-coffee-700 transition-colors hover:bg-coffee-100">
+              <UploadCloud className="size-4" />
+              {templateFilename ? "Replace file" : "Upload file"}
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                className="hidden"
+                disabled={templateUploadMutation.isPending}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) templateUploadMutation.mutate(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
           </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="cover">Template body</Label>
+              {templateQuery.isLoading ? (
+                <Skeleton className="min-h-52 w-full" />
+              ) : (
+                <Textarea
+                  id="cover"
+                  value={coverLetter}
+                  onChange={(e) => setCoverLetter(e.target.value)}
+                  placeholder="Dear {company} team, I'm excited about the {role} role…"
+                  className="min-h-52 font-mono text-sm leading-relaxed"
+                />
+              )}
+              <p className="text-xs text-coffee-400">
+                Edit freely after upload — this text is what the engine uses when
+                tailoring cover letters.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Preview</Label>
+              <div className="min-h-52 rounded-md border border-coffee-200 bg-coffee-50/40 px-4 py-3">
+                {previewText ? (
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-coffee-800">
+                    {previewText}
+                  </p>
+                ) : (
+                  <p className="text-sm text-coffee-300">
+                    Your template preview will appear here as you type or upload
+                    a file.
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-coffee-400">
+                Sample values: Acme Corp · Senior Engineer · your first name.
+              </p>
+            </div>
+          </div>
+
           <div className="flex justify-end">
             <Button
               variant="secondary"

@@ -73,6 +73,30 @@ class TemplateBody(BaseModel):
     name: str | None = None
 
 
+class CoverLetterTemplateOut(BaseModel):
+    body: str | None = None
+    filename: str | None = None
+    name: str | None = None
+
+
+async def _get_or_create_template(session: AsyncSession, user_id) -> CoverLetterTemplate:
+    tpl = (await session.execute(
+        select(CoverLetterTemplate).where(CoverLetterTemplate.user_id == user_id)
+    )).scalar_one_or_none()
+    if tpl is None:
+        tpl = CoverLetterTemplate(user_id=user_id)
+        session.add(tpl)
+    return tpl
+
+
+def _template_out(tpl: CoverLetterTemplate) -> CoverLetterTemplateOut:
+    return CoverLetterTemplateOut(
+        body=tpl.body,
+        filename=tpl.original_filename,
+        name=tpl.name,
+    )
+
+
 @router.get("/profiles", response_model=list[ProfileOut])
 async def list_profiles(
     user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
@@ -148,21 +172,48 @@ async def upload_role_cv(
             "skills_found": len(skills)}
 
 
-@router.put("/onboarding/cover-letter-template")
-async def set_template(
-    body: TemplateBody,
+@router.get("/onboarding/cover-letter-template", response_model=CoverLetterTemplateOut)
+async def get_template(
     user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> CoverLetterTemplateOut:
     tpl = (await session.execute(
         select(CoverLetterTemplate).where(CoverLetterTemplate.user_id == user.id)
     )).scalar_one_or_none()
     if tpl is None:
-        tpl = CoverLetterTemplate(user_id=user.id)
-        session.add(tpl)
+        return CoverLetterTemplateOut()
+    return _template_out(tpl)
+
+
+@router.post("/onboarding/cover-letter-template/upload")
+async def upload_template_file(
+    file: UploadFile = File(...),
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> CoverLetterTemplateOut:
+    data = await file.read()
+    filename = file.filename or "template.txt"
+    key = f"{user.id}/cover-letter-template/{filename}"
+    await r2.put_bytes(key, data, file.content_type or "application/octet-stream")
+
+    text = _extract_text(filename, data).strip()
+    tpl = await _get_or_create_template(session, user.id)
+    tpl.original_filename = filename
+    tpl.source_file_key = key
+    if text:
+        tpl.body = text
+    await session.flush()
+    return _template_out(tpl)
+
+
+@router.put("/onboarding/cover-letter-template", response_model=CoverLetterTemplateOut)
+async def set_template(
+    body: TemplateBody,
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> CoverLetterTemplateOut:
+    tpl = await _get_or_create_template(session, user.id)
     tpl.body = body.body
     tpl.name = body.name
     await session.flush()
-    return {"template_id": str(tpl.id)}
+    return _template_out(tpl)
 
 
 @router.post("/profiles/{track}/confirm")
