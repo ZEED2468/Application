@@ -58,6 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
 
   const navItems = React.useMemo(() => navFor(me), [me]);
+  const isJobsTracker = pathname === "/jobs";
 
   const logout = useMutation({
     mutationFn: () => authService.logout(),
@@ -105,8 +106,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-coffee-300 bg-cream/90 px-6 backdrop-blur">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between border-b border-coffee-300 bg-cream/90 px-6 backdrop-blur">
           <div className="flex items-center gap-2 md:hidden">
             <span className="text-lg font-semibold text-coffee-900">
               Outreach Desk
@@ -144,7 +145,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
+        <main
+          className={cn(
+            "mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden",
+            isJobsTracker ? "max-w-none px-4 py-4" : "max-w-6xl overflow-auto px-6 py-8",
+          )}
+        >
           {children}
         </main>
       </div>

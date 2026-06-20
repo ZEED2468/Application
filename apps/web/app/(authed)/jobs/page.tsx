@@ -14,14 +14,13 @@ import {
   STATUS_LABELS,
   TRACK_LABELS,
 } from "@/lib/status";
-import { PageHeading, EmptyState, ErrorState } from "@/components/states";
+import { EmptyState, ErrorState } from "@/components/states";
 import { DataTable, type Column } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Card } from "@/components/ui/card";
 import { StatusCell } from "./status-cell";
 import { JdCell } from "./jd-cell";
 import { DocLinkCell } from "./doc-link-cell";
@@ -114,100 +113,106 @@ export default function JobsPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <PageHeading
-        title="Jobs / Tracker"
-        description="Every discovered and manually-added application — tailored, scored, and tracked from first send to offer."
-        actions={
-          <a
-            href={applicationsService.exportUrl()}
-            download
-            className={buttonVariants({ variant: "secondary" })}
-          >
-            <Download className="size-4" />
-            Export .xlsx
-          </a>
-        }
-      />
-
-      <Card className="px-4 py-4">
-        <div className="flex flex-wrap items-end gap-4">
-          <FilterSelect
-            label="Track"
-            value={filter.track ?? ""}
-            onChange={(v) =>
-              setFilter((f) => ({ ...f, track: v as Track | "" }))
-            }
-            options={TRACKS.map((t) => ({ value: t, label: TRACK_LABELS[t] }))}
-          />
-          <FilterSelect
-            label="Application status"
-            value={filter.status ?? ""}
-            onChange={(v) =>
-              setFilter((f) => ({ ...f, status: v as TrackerStatus | "" }))
-            }
-            options={TRACKER_STATUSES.map((s) => ({
-              value: s,
-              label: STATUS_LABELS[s],
-            }))}
-          />
-          <FilterSelect
-            label="Origin"
-            value={filter.origin ?? ""}
-            onChange={(v) =>
-              setFilter((f) => ({ ...f, origin: v as Origin | "" }))
-            }
-            options={[
-              { value: "auto", label: "Auto" },
-              { value: "manual", label: "Manual" },
-            ]}
-          />
-          {(filter.track || filter.status || filter.origin) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                setFilter({ track: "", status: "", origin: "" })
-              }
-            >
-              Clear filters
-            </Button>
-          )}
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-4 border-b border-coffee-200 pb-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-coffee-900">
+            Jobs / Tracker
+          </h1>
+          <p className="text-sm text-coffee-500">
+            Every discovered and manually-added application — tailored, scored,
+            and tracked from first send to offer.
+          </p>
         </div>
-      </Card>
+        <a
+          href={applicationsService.exportUrl()}
+          download
+          className={buttonVariants({ variant: "secondary", size: "sm" })}
+        >
+          <Download className="size-4" />
+          Export .xlsx
+        </a>
+      </div>
 
-      <Card className="overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-end gap-4 rounded-lg border border-coffee-300 bg-white/80 px-4 py-3">
+        <FilterSelect
+          label="Track"
+          value={filter.track ?? ""}
+          onChange={(v) =>
+            setFilter((f) => ({ ...f, track: v as Track | "" }))
+          }
+          options={TRACKS.map((t) => ({ value: t, label: TRACK_LABELS[t] }))}
+        />
+        <FilterSelect
+          label="Application status"
+          value={filter.status ?? ""}
+          onChange={(v) =>
+            setFilter((f) => ({ ...f, status: v as TrackerStatus | "" }))
+          }
+          options={TRACKER_STATUSES.map((s) => ({
+            value: s,
+            label: STATUS_LABELS[s],
+          }))}
+        />
+        <FilterSelect
+          label="Origin"
+          value={filter.origin ?? ""}
+          onChange={(v) =>
+            setFilter((f) => ({ ...f, origin: v as Origin | "" }))
+          }
+          options={[
+            { value: "auto", label: "Auto" },
+            { value: "manual", label: "Manual" },
+          ]}
+        />
+        {(filter.track || filter.status || filter.origin) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFilter({ track: "", status: "", origin: "" })}
+          >
+            Clear filters
+          </Button>
+        )}
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-coffee-300 bg-white">
         {isError ? (
-          <div className="p-6">
+          <div className="flex flex-1 items-center justify-center p-8">
             <ErrorState
               description="We couldn't load your jobs. The backend may be offline."
               retry={() => refetch()}
             />
           </div>
         ) : (
-          <DataTable<JobOut>
-            columns={columns}
-            data={data}
-            isLoading={isLoading}
-            rowKey={(j) => j.id}
-            onRowClick={(j) => router.push(`/jobs/${j.id}`)}
-            emptyState={
-              <EmptyState
-                icon={<Briefcase className="size-8" />}
-                title="No jobs yet"
-                description="As the scheduler discovers and scores jobs, they'll appear here. You can also add one manually."
-                action={
-                  <Link href="/manual">
-                    <Button size="sm" variant="secondary">
-                      Add via Manual Apply
-                    </Button>
-                  </Link>
-                }
-              />
-            }
-          />
+          <div className="min-h-0 flex-1 overflow-auto">
+            <DataTable<JobOut>
+              columns={columns}
+              data={data}
+              isLoading={isLoading}
+              rowKey={(j) => j.id}
+              onRowClick={(j) => router.push(`/jobs/${j.id}`)}
+              skeletonRows={12}
+              stickyHeader
+              emptyState={
+                <EmptyState
+                  icon={<Briefcase className="size-8" />}
+                  title="No jobs yet"
+                  description="As the scheduler discovers and scores jobs, they'll appear here. You can also add one manually."
+                  className="min-h-[50vh] border-0 bg-transparent"
+                  action={
+                    <Link href="/manual">
+                      <Button size="sm" variant="secondary">
+                        Add via Manual Apply
+                      </Button>
+                    </Link>
+                  }
+                />
+              }
+            />
+          </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 }

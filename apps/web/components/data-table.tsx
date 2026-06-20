@@ -29,6 +29,8 @@ export interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   emptyState?: React.ReactNode;
   skeletonRows?: number;
+  /** Keep column headers visible while scrolling long tables. */
+  stickyHeader?: boolean;
 }
 
 export function DataTable<T>({
@@ -39,13 +41,21 @@ export function DataTable<T>({
   onRowClick,
   emptyState,
   skeletonRows = 6,
+  stickyHeader = false,
 }: DataTableProps<T>) {
   return (
     <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
           {columns.map((col) => (
-            <TableHead key={col.key} className={col.headClassName}>
+            <TableHead
+              key={col.key}
+              className={cn(
+                stickyHeader &&
+                  "sticky top-0 z-10 bg-white shadow-[0_1px_0_0_theme(colors.coffee.300)]",
+                col.headClassName,
+              )}
+            >
               {col.header}
             </TableHead>
           ))}
