@@ -53,7 +53,7 @@ export default function VaQueuePage() {
     <div className="space-y-6">
       <PageHeading
         title="VA Queue"
-        description="The human-in-the-loop desk — applications to submit, first-contact outreach to review before send, and replies to handle."
+        description="The human-in-the-loop desk, applications to submit, first-contact outreach to review before send, and replies to handle."
       />
 
       {isError ? (

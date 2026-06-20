@@ -32,7 +32,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
             color: "var(--coffee-900)",
             border: "1px solid var(--coffee-300)",
             fontFamily:
-              'var(--font-eb-garamond), "EB Garamond", Garamond, Georgia, serif',
+              'var(--font-poppins), Poppins, system-ui, sans-serif',
           },
         }}
       />

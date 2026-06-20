@@ -11,7 +11,7 @@ export function JdCell({ job }: { job: JobOut }) {
   const full = job.description?.trim();
 
   if (!full) {
-    return <span className="text-sm text-coffee-300">—</span>;
+    return null;
   }
 
   return (

@@ -40,7 +40,7 @@ async function copy(text: string) {
     await navigator.clipboard.writeText(text);
     toast.success("Invite link copied");
   } catch {
-    toast.error("Couldn't copy — select and copy manually");
+    toast.error("Couldn't copy, select and copy manually");
   }
 }
 
@@ -54,7 +54,7 @@ function CreatedInvite({ invite }: { invite: InviteCreatedResponse }) {
         Invite ready for {invite.email}
       </p>
       <p className="text-xs text-coffee-500">
-        Share this link — the PIN{" "}
+        Share this link, the PIN{" "}
         <span className="font-mono font-semibold tracking-widest text-coffee-900">
           {invite.key}
         </span>{" "}
@@ -116,7 +116,7 @@ function InviteVaCard() {
       <CardHeader>
         <CardTitle className="text-base">Invite a VA</CardTitle>
         <CardDescription>
-          Your assistant gets your dashboard to help with applications — but
+          Your assistant gets your dashboard to help with applications, but
           can't edit your CV / cover letter or invite anyone.
         </CardDescription>
       </CardHeader>

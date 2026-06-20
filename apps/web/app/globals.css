@@ -1,27 +1,24 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
- * Design system — Coffee-brown + cream, editorial / paper, EB Garamond.
- * Tokens live as CSS variables AND Tailwind v4 @theme tokens so utilities
- * like bg-cream, text-coffee-900, border-coffee-300 are available.
+ * Design system — neutral text on white, Poppins.
  * ------------------------------------------------------------------------- */
 
 :root {
-  --coffee-900: #3b2a1e; /* text / headers */
-  --coffee-700: #5a4233; /* primary */
-  --coffee-500: #7b5e45; /* accent / interactive */
-  --coffee-300: #b79a82; /* muted / borders */
-  --coffee-100: #efe7df; /* surfaces / hover */
-  --cream: #faf6f1; /* page background */
-  --white: #ffffff; /* cards */
+  --coffee-900: #1a1a1a;
+  --coffee-700: #333333;
+  --coffee-500: #555555;
+  --coffee-300: #a3a3a3;
+  --coffee-100: #f5f5f5;
+  --cream: #ffffff;
+  --white: #ffffff;
 
-  /* status tints — muted, layered on brown */
-  --status-not_applied: #c4b5a8; /* lighter coffee — pending */
-  --status-applied: #7b5e45; /* coffee-500 */
-  --status-no_response: #b79a82; /* coffee-300 */
-  --status-interviewed: #a6792e; /* warm amber-brown */
-  --status-offer: #5b6b4a; /* deep warm green-brown */
-  --status-rejection: #9c5b4a; /* muted clay */
+  --status-not_applied: #d4d4d4;
+  --status-applied: #525252;
+  --status-no_response: #a3a3a3;
+  --status-interviewed: #ca8a04;
+  --status-offer: #16a34a;
+  --status-rejection: #dc2626;
 }
 
 @theme inline {
@@ -40,9 +37,9 @@
   --color-status-offer: var(--status-offer);
   --color-status-rejection: var(--status-rejection);
 
-  --font-serif: var(--font-eb-garamond), "EB Garamond", Garamond, Georgia, serif;
+  --font-sans: var(--font-poppins), Poppins, system-ui, sans-serif;
 
-  --default-font-family: var(--font-serif);
+  --default-font-family: var(--font-sans);
 }
 
 * {
@@ -54,10 +51,9 @@ html {
 }
 
 body {
-  background-color: var(--cream);
+  background-color: #ffffff;
   color: var(--coffee-900);
-  font-family: var(--font-eb-garamond), "EB Garamond", Garamond, Georgia, serif;
-  font-feature-settings: "kern", "liga", "onum";
+  font-family: var(--font-poppins), Poppins, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -68,13 +64,12 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: var(--font-eb-garamond), "EB Garamond", Garamond, Georgia, serif;
+  font-family: var(--font-poppins), Poppins, system-ui, sans-serif;
   color: var(--coffee-900);
   letter-spacing: -0.01em;
   font-weight: 600;
 }
 
-/* subtle, paper-like focus ring instead of harsh blue */
 :focus-visible {
   outline: 2px solid var(--coffee-500);
   outline-offset: 2px;

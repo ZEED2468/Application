@@ -84,7 +84,7 @@ export function PromptCard({
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors disabled:opacity-60",
                     active
-                      ? "border-coffee-700 bg-coffee-700 text-cream"
+                      ? "border-coffee-700 bg-coffee-700 text-white"
                       : "border-coffee-300 bg-white text-coffee-700 hover:bg-coffee-100",
                   )}
                 >
@@ -98,7 +98,7 @@ export function PromptCard({
 
         <div className="space-y-1.5">
           <Textarea
-            placeholder="Add detail (optional) — a concrete example, metric, or context that makes this true for you."
+            placeholder="Add detail (optional), a concrete example, metric, or context that makes this true for you."
             value={value.detail}
             disabled={disabled}
             onChange={(e) => onChange({ ...value, detail: e.target.value })}

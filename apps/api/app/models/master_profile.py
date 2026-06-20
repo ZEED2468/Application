@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Enum, Text, UniqueConstraint
+from sqlalchemy import Boolean, Enum, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
@@ -31,3 +31,4 @@ class MasterProfile(Base, TimestampMixin):
     links: Mapped[dict] = mapped_column(JsonB, default=dict)
     # Ground truth that bounds tailoring — the LLM may only reframe what is here.
     truth_corpus: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

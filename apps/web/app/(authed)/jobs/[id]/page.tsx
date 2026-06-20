@@ -76,7 +76,7 @@ export default function JobDetailPage({
   const generateMutation = useMutation({
     mutationFn: () => jobsService.generate(id),
     onSuccess: () => {
-      toast.success("Generation started — refreshing");
+      toast.success("Generation started, refreshing");
       queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
@@ -196,7 +196,7 @@ export default function JobDetailPage({
             <CardHeader>
               <CardTitle>ATS match</CardTitle>
               <CardDescription>
-                Internal ATS match — optimized toward 90–95%. Not a guarantee in
+                Internal ATS match, optimized toward 90–95%. Not a guarantee in
                 any employer&apos;s applicant-tracking system.
               </CardDescription>
             </CardHeader>
@@ -338,7 +338,7 @@ export default function JobDetailPage({
             <CardContent>
               {!application ? (
                 <p className="text-sm text-coffee-300">
-                  No application yet — generate to create one.
+                  No application yet, generate to create one.
                 </p>
               ) : audit.isLoading ? (
                 <div className="space-y-2">

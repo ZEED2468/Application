@@ -13,7 +13,7 @@ export function DocLinkCell({
   const href = toGoogleDocsViewerUrl(url);
 
   if (!href) {
-    return <span className="text-sm text-coffee-300">—</span>;
+    return null;
   }
 
   return (

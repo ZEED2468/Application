@@ -62,7 +62,7 @@ function LoginForm() {
   });
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-cream px-4">
+    <div className="flex min-h-screen items-center justify-center bg-white px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-4xl font-semibold tracking-tight text-coffee-900">
@@ -107,7 +107,7 @@ function LoginForm() {
                 {...register("pin")}
               />
               <p className="text-xs text-coffee-400">
-                Required for VA accounts — use the PIN from your invite.
+                Required for VA accounts, use the PIN from your invite.
               </p>
               {errors.pin && (
                 <p className="text-sm text-status-rejected">
@@ -158,7 +158,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-cream text-coffee-500">
+        <div className="flex min-h-screen items-center justify-center bg-white text-coffee-500">
           Loading…
         </div>
       }

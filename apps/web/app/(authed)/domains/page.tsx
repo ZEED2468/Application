@@ -66,7 +66,7 @@ export default function DomainsPage() {
     <div className="space-y-8">
       <PageHeading
         title="Domains"
-        description="The nine sending domains' warm-up health and each hunter's weekly send quota. The warm-up governor protects deliverability in code — this panel is the read-out."
+        description="The nine sending domains' warm-up health and each hunter's weekly send quota. The warm-up governor protects deliverability in code, this panel is the read-out."
       />
 
       {/* Domain health */}

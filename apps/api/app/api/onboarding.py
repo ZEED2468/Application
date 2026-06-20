@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import ParseStatus, Track
+from app.core.errors import NotFoundError
 from app.db import get_session
 from app.deps import current_user
 from app.integrations import r2
@@ -119,7 +120,7 @@ async def list_profiles(
             headline=p.headline,
             summary=p.summary,
             skills=p.skills,
-            confirmed=bool(p.truth_corpus and parsed),
+            confirmed=bool(p.confirmed),
             role_cv=(
                 RoleCvOut(
                     filename=rc.original_filename,
@@ -167,6 +168,7 @@ async def upload_role_cv(
     profile.truth_corpus = text or profile.truth_corpus
     if skills:
         profile.skills = skills
+    profile.confirmed = False
     await session.flush()
     return {"role_cv_id": str(role_cv.id), "parse_status": role_cv.parse_status.value,
             "skills_found": len(skills)}
@@ -226,4 +228,13 @@ async def confirm_profile(
             MasterProfile.user_id == user.id, MasterProfile.track == track
         )
     )).scalar_one_or_none()
-    return {"confirmed": profile is not None, "track": track.value}
+    if profile is None:
+        raise NotFoundError("No profile for this track — upload a source CV first.")
+    role_cv = (await session.execute(
+        select(RoleCv).where(RoleCv.user_id == user.id, RoleCv.track == track)
+    )).scalar_one_or_none()
+    if role_cv is None or role_cv.parse_status is not ParseStatus.parsed:
+        raise NotFoundError("Upload and parse a source CV before confirming.")
+    profile.confirmed = True
+    await session.flush()
+    return {"confirmed": True, "track": track.value}

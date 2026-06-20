@@ -81,7 +81,7 @@ export default function JobsPage() {
       className: "text-right tabular-nums",
       cell: (job) =>
         job.ats_score === null ? (
-          <span className="text-coffee-300">—</span>
+          <span className="text-coffee-300" />
         ) : (
           <span className="font-medium text-coffee-900">{job.ats_score}</span>
         ),
@@ -124,7 +124,7 @@ export default function JobsPage() {
             Jobs / Tracker
           </h1>
           <p className="text-sm text-coffee-500">
-            Every discovered and manually-added application — tailored, scored,
+            Every discovered and manually-added application, tailored, scored,
             and tracked from first send to offer.
           </p>
         </div>
@@ -138,7 +138,7 @@ export default function JobsPage() {
         </a>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-end gap-4 rounded-lg border border-coffee-300 bg-white/80 px-4 py-3">
+      <div className="flex shrink-0 flex-wrap items-end gap-4 rounded-lg border border-coffee-300 bg-white px-4 py-3">
         <FilterSelect
           label="Track"
           value={filter.track ?? ""}

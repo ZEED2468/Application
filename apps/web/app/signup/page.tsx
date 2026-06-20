@@ -84,7 +84,7 @@ function SignupForm() {
   });
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-cream px-4">
+    <div className="flex min-h-screen items-center justify-center bg-white px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <h1 className="text-4xl font-semibold tracking-tight text-coffee-900">
@@ -92,7 +92,7 @@ function SignupForm() {
           </h1>
           <p className="mt-2 text-coffee-500">
             {isVaInvite
-              ? "Create your VA account — you'll use this PIN to sign in."
+              ? "Create your VA account, you'll use this PIN to sign in."
               : "Create your account from an invite."}
           </p>
         </div>
@@ -166,7 +166,7 @@ function SignupForm() {
               />
               {isVaInvite && (
                 <p className="text-xs text-coffee-400">
-                  Keep this PIN — you'll need it with your email and password
+                  Keep this PIN, you'll need it with your email and password
                   every time you sign in.
                 </p>
               )}
@@ -203,7 +203,7 @@ export default function SignupPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-cream text-coffee-500">
+        <div className="flex min-h-screen items-center justify-center bg-white text-coffee-500">
           Loading…
         </div>
       }

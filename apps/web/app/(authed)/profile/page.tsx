@@ -35,7 +35,7 @@ export default function ProfilePage() {
   const [templateFilename, setTemplateFilename] = React.useState<string | null>(
     null,
   );
-  const [templateLoaded, setTemplateLoaded] = React.useState(false);
+  const [uploadingTrack, setUploadingTrack] = React.useState<Track | null>(null);
 
   const { data: me } = useQuery<MeResponse>({
     queryKey: queryKeys.me,
@@ -85,17 +85,23 @@ export default function ProfilePage() {
   const uploadMutation = useMutation({
     mutationFn: ({ track, file }: { track: Track; file: File }) =>
       onboardingService.uploadRoleCv(track, file),
+    onMutate: ({ track }) => setUploadingTrack(track),
     onSuccess: (_data, vars) => {
-      toast.success(`Source CV saved for ${TRACK_LABELS[vars.track]}`);
+      toast.success(
+        profileByTrack.get(vars.track)?.role_cv
+          ? `${TRACK_LABELS[vars.track]} CV replaced, review and confirm again`
+          : `${TRACK_LABELS[vars.track]} source CV saved`,
+      );
       queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
+    onSettled: () => setUploadingTrack(null),
   });
 
   const templateUploadMutation = useMutation({
     mutationFn: (file: File) => onboardingService.uploadCoverLetterTemplate(file),
     onSuccess: (data) => {
-      toast.success("Cover-letter file uploaded — text loaded into template");
+      toast.success("Cover-letter file uploaded, text loaded into template");
       setCoverLetter(data.body ?? "");
       setTemplateFilename(data.filename ?? null);
       setTemplateLoaded(true);
@@ -138,7 +144,7 @@ export default function ProfilePage() {
     <div className="space-y-6">
       <PageHeading
         title="Profile"
-        description="Upload your source CV file once per track. The engine generates a new tailored CV and cover letter (PDF) for each job — your uploads are never overwritten."
+        description="Upload your source CV once per track. Replace it anytime, per-job applications still get newly tailored PDFs."
       />
 
       <Card>
@@ -162,7 +168,7 @@ export default function ProfilePage() {
                   className={cn(
                     "inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm transition-colors",
                     active
-                      ? "border-coffee-700 bg-coffee-700 text-cream"
+                      ? "border-coffee-700 bg-coffee-700 text-white"
                       : "border-coffee-300 bg-white text-coffee-700 hover:bg-coffee-100",
                   )}
                 >
@@ -182,9 +188,9 @@ export default function ProfilePage() {
         <CardHeader>
           <CardTitle>2 · Source CV file (one per track)</CardTitle>
           <CardDescription>
-            Upload a PDF or Word file — this is your master CV for the track. We
-            parse it into a structured profile (nothing fabricated). Per-job
-            applications get a newly generated, tailored PDF in the tracker.
+            Upload a PDF or Word file, this is your master CV for the track. You
+            can replace it at any time; after a new upload, confirm the profile
+            again before applications use it.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -228,20 +234,14 @@ export default function ProfilePage() {
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-coffee-300 px-3 py-1.5 text-sm text-coffee-700 transition-colors hover:bg-coffee-100">
-                      <UploadCloud className="size-4" />
-                      {profile?.role_cv ? "Replace file" : "Upload file"}
-                      <input
-                        type="file"
-                        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) uploadMutation.mutate({ track, file });
-                          e.target.value = "";
-                        }}
-                      />
-                    </label>
+                    <CvUploadButton
+                      track={track}
+                      hasFile={Boolean(profile?.role_cv)}
+                      isUploading={
+                        uploadMutation.isPending && uploadingTrack === track
+                      }
+                      onFile={(file) => uploadMutation.mutate({ track, file })}
+                    />
                     <Button
                       size="sm"
                       variant="secondary"
@@ -268,7 +268,7 @@ export default function ProfilePage() {
           <CardDescription>
             Upload a Word or PDF file, or write a template directly. Use
             placeholders like {" {company} "}, {" {role} "}, and {" {name} "}.
-            The preview shows how it will read for a sample job — each
+            The preview shows how it will read for a sample job, each
             application still gets its own tailored PDF.
           </CardDescription>
         </CardHeader>
@@ -320,7 +320,7 @@ export default function ProfilePage() {
                 />
               )}
               <p className="text-xs text-coffee-400">
-                Edit freely after upload — this text is what the engine uses when
+                Edit freely after upload, this text is what the engine uses when
                 tailoring cover letters.
               </p>
             </div>
@@ -359,5 +359,53 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+const CV_ACCEPT =
+  ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+function CvUploadButton({
+  track,
+  hasFile,
+  isUploading,
+  onFile,
+}: {
+  track: Track;
+  hasFile: boolean;
+  isUploading: boolean;
+  onFile: (file: File) => void;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={CV_ACCEPT}
+        className="hidden"
+        aria-label={`Upload CV for ${TRACK_LABELS[track]}`}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onFile(file);
+          e.target.value = "";
+        }}
+      />
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        disabled={isUploading}
+        onClick={() => inputRef.current?.click()}
+      >
+        <UploadCloud className="size-4" />
+        {isUploading
+          ? "Uploading…"
+          : hasFile
+            ? "Replace file"
+            : "Upload file"}
+      </Button>
+    </>
   );
 }

@@ -9,7 +9,7 @@ const badgeVariants = cva(
       variant: {
         default: "border-coffee-300 bg-coffee-100 text-coffee-700",
         outline: "border-coffee-300 bg-transparent text-coffee-700",
-        solid: "border-coffee-700 bg-coffee-700 text-cream",
+        solid: "border-coffee-700 bg-coffee-700 text-white",
         muted: "border-coffee-300 bg-white text-coffee-500",
       },
     },

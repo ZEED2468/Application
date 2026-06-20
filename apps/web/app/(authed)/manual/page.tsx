@@ -67,7 +67,7 @@ export default function ManualPage() {
       setSession(s);
       setAnswers({});
       setConfirmed({});
-      toast.success("Session started — review the matched CV and prompts.");
+      toast.success("Session started, review the matched CV and prompts.");
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
@@ -82,7 +82,7 @@ export default function ManualPage() {
     onSuccess: (s, vars) => {
       setSession(s);
       if (vars.trackChanged) {
-        // prompts changed for the new track — clear stale confirmations.
+        // prompts changed for the new track, clear stale confirmations.
         setAnswers({});
         setConfirmed({});
       }
@@ -155,7 +155,7 @@ export default function ManualPage() {
         <CardHeader>
           <CardTitle>Paste the job description</CardTitle>
           <CardDescription>
-            We never fabricate experience — these prompts only confirm what is
+            We never fabricate experience, these prompts only confirm what is
             already true for you.
           </CardDescription>
         </CardHeader>
@@ -204,7 +204,7 @@ export default function ManualPage() {
                   </div>
                 ) : (
                   <p className="text-coffee-300">
-                    No CV matched yet — add source CV files on your Profile page.
+                    No CV matched yet, add source CV files on your Profile page.
                   </p>
                 )}
               </CardContent>
@@ -231,7 +231,7 @@ export default function ManualPage() {
                 Job details
               </CardTitle>
               <CardDescription>
-                Auto-filled from the JD — correct them if needed. Changing the track
+                Auto-filled from the JD, correct them if needed. Changing the track
                 re-matches the CV and re-runs the prompts.
               </CardDescription>
             </CardHeader>
@@ -296,7 +296,7 @@ export default function ManualPage() {
             <CardHeader>
               <CardTitle>Skills you have</CardTitle>
               <CardDescription>
-                Add a real skill the JD didn&apos;t surface — truth-bounded, so only
+                Add a real skill the JD didn&apos;t surface, truth-bounded, so only
                 add what is genuinely true. These feed the tailored CV.
               </CardDescription>
             </CardHeader>

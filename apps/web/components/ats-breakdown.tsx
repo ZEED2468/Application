@@ -42,7 +42,7 @@ export function AtsScoreRing({
       </svg>
       <div className="absolute flex flex-col items-center">
         <span className="text-2xl font-semibold text-coffee-900">
-          {score === null ? "—" : Math.round(pct)}
+          {score === null ? "" : Math.round(pct)}
         </span>
         <span className="text-[0.65rem] uppercase tracking-wider text-coffee-500">
           ATS
@@ -104,7 +104,7 @@ export function AtsBreakdown({
           <p className="max-w-prose text-sm leading-relaxed text-coffee-500">
             This is our internal ATS match, optimized toward a 90–95% target. It
             estimates how well the tailored CV aligns with this job&apos;s
-            keywords and formatting — it is not a guarantee of any employer&apos;s
+            keywords and formatting, it is not a guarantee of any employer&apos;s
             applicant-tracking system.
           </p>
         </div>
@@ -145,7 +145,7 @@ export function AtsBreakdown({
         </div>
       ) : (
         <p className="text-sm text-coffee-300">
-          No breakdown available yet — generate the tailored CV to compute the
+          No breakdown available yet, generate the tailored CV to compute the
           ATS match.
         </p>
       )}

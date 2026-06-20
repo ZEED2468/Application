@@ -69,8 +69,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <div className="flex min-h-screen bg-cream">
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-coffee-300 bg-white/70 px-4 py-6 md:flex">
+    <div className="flex min-h-screen bg-white">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-coffee-300 bg-white px-4 py-6 md:flex">
         <div className="px-2">
           <Link href="/jobs" className="block">
             <p className="text-xl font-semibold tracking-tight text-coffee-900">
@@ -107,7 +107,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between border-b border-coffee-300 bg-cream/90 px-6 backdrop-blur">
+        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between border-b border-coffee-300 bg-white px-6">
           <div className="flex items-center gap-2 md:hidden">
             <span className="text-lg font-semibold text-coffee-900">
               Outreach Desk

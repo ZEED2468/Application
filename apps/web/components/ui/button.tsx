@@ -8,13 +8,13 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "bg-coffee-700 text-cream hover:bg-coffee-900 border border-coffee-700",
+          "bg-coffee-700 text-white hover:bg-coffee-900 border border-coffee-700",
         secondary:
           "bg-white text-coffee-900 border border-coffee-300 hover:bg-coffee-100",
         ghost:
           "bg-transparent text-coffee-700 hover:bg-coffee-100 border border-transparent",
         accent:
-          "bg-coffee-500 text-cream hover:bg-coffee-700 border border-coffee-500",
+          "bg-coffee-500 text-white hover:bg-coffee-700 border border-coffee-500",
         danger:
           "bg-white text-status-rejected border border-status-rejected hover:bg-coffee-100",
         link: "bg-transparent text-coffee-500 underline-offset-4 hover:underline border-none px-0",
