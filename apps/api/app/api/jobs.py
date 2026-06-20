@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import JobStatus, Origin, PrincipalType, Track
+from app.core.enums import JobStatus, Origin, PrincipalType, Track, TrackerStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.db import get_session
 from app.deps import (
@@ -53,8 +53,14 @@ async def _application_for(session, job_id):
 async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict:
     cv = await _cv_for(session, job.id)
     app = await _application_for(session, job.id)
+    application_status = (
+        app.tracker_status.value
+        if app is not None
+        else TrackerStatus.not_applied.value
+    )
     return {
         "id": str(job.id), "company": job.company, "title": job.title,
+        "role": job.role_title or job.title,
         "role_title": job.role_title, "location": job.location, "url": job.url,
         "track": (job.track.value if job.track else None),
         "track_override": (job.track_override.value if job.track_override else None),
@@ -62,7 +68,8 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
         "relevance_score": job.relevance_score,
         "ats_score": cv.ats_score if cv else None,
         "application_id": str(app.id) if app else None,
-        "tracker_status": app.tracker_status.value if app else None,
+        "application_status": application_status,
+        "tracker_status": application_status,
         # Populated only for VA callers (who may span several hunters' workspaces).
         "hunter_name": hunter_name,
         "created_at": job.created_at.isoformat() if job.created_at else None,
@@ -71,7 +78,9 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
 
 @router.get("")
 async def list_jobs(
-    status: JobStatus | None = Query(default=None),
+    status: TrackerStatus | None = Query(
+        default=None, description="Application tracker status filter"
+    ),
     track: Track | None = Query(default=None),
     origin: Origin | None = Query(default=None),
     principal: Principal = Depends(current_principal),
@@ -85,12 +94,15 @@ async def list_jobs(
     )
     rows: list[dict] = []
     for uid in user_ids:
-        for j in await jobs_repo.list_for_user(session, user_id=uid, status=status):
+        for j in await jobs_repo.list_for_user(session, user_id=uid):
             if track is not None and j.track != track:
                 continue
             if origin is not None and j.origin != origin:
                 continue
-            rows.append(await _job_row(session, j, hunter_name=names.get(uid)))
+            row = await _job_row(session, j, hunter_name=names.get(uid))
+            if status is not None and row["application_status"] != status.value:
+                continue
+            rows.append(row)
     rows.sort(key=lambda r: r["created_at"] or "", reverse=True)
     return rows
 
@@ -135,7 +147,8 @@ async def get_job(
                 "ats_breakdown": cv.ats_breakdown} if cv else None),
         "cover_letter": ({"pdf_url": cover.pdf_url, "body": cover.body} if cover else None),
         "application": ({"id": str(app.id), "status": app.status.value,
-                         "tracker_status": app.tracker_status.value} if app else None),
+                         "tracker_status": app.tracker_status.value,
+                         "application_status": app.tracker_status.value} if app else None),
         "outreach": [{"id": str(o.id), "step": o.sequence_step.value,
                       "status": o.status.value, "subject": o.subject} for o in outreach],
         "thread": thread_msgs,

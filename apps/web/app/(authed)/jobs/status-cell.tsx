@@ -4,7 +4,7 @@ import * as React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { JobOut, TrackerStatus } from "@jd/shared-types";
-import { TRACKER_STATUSES } from "@jd/shared-types";
+import { TRACKER_STATUSES_POST_SUBMIT } from "@jd/shared-types";
 import { applicationsService, type JobsFilter } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { STATUS_LABELS, STATUS_TINT } from "@/lib/status";
@@ -20,6 +20,10 @@ export function StatusCell({
 }) {
   const queryClient = useQueryClient();
   const jobsKey = ["jobs", filter] as const;
+
+  const current: TrackerStatus =
+    job.application_status ?? "not_applied";
+  const hasApplication = Boolean(job.application_id);
 
   const mutation = useMutation({
     mutationFn: async (status: TrackerStatus) => {
@@ -42,11 +46,7 @@ export function StatusCell({
     onError: async (err, _status, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(jobsKey, ctx.prev);
       const e = await toApiError(err);
-      toast.error(
-        e.status === 0 && !job.application_id
-          ? "This job has no application yet — generate it first."
-          : `Couldn't update status: ${e.message}`,
-      );
+      toast.error(`Couldn't update status: ${e.message}`);
     },
     onSuccess: (status) => {
       toast.success(`Marked as ${STATUS_LABELS[status]}`);
@@ -56,33 +56,39 @@ export function StatusCell({
     },
   });
 
-  const current = job.application_status;
-  const disabled = !job.application_id || mutation.isPending;
+  if (!hasApplication) {
+    return (
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            STATUS_TINT.not_applied.dot,
+          )}
+        />
+        <span className="text-sm text-coffee-500">
+          {STATUS_LABELS.not_applied}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div
       className="flex items-center gap-2"
       onClick={(e) => e.stopPropagation()}
     >
-      {current && (
-        <span
-          className={cn("size-2 shrink-0 rounded-full", STATUS_TINT[current].dot)}
-        />
-      )}
+      <span
+        className={cn("size-2 shrink-0 rounded-full", STATUS_TINT[current].dot)}
+      />
       <Select
         selectSize="sm"
-        value={current ?? ""}
-        disabled={disabled}
+        value={current}
+        disabled={mutation.isPending}
         onChange={(e) => mutation.mutate(e.target.value as TrackerStatus)}
         className="min-w-36"
         aria-label="Application status"
       >
-        {!current && (
-          <option value="" disabled>
-            —
-          </option>
-        )}
-        {TRACKER_STATUSES.map((s) => (
+        {TRACKER_STATUSES_POST_SUBMIT.map((s) => (
           <option key={s} value={s}>
             {STATUS_LABELS[s]}
           </option>

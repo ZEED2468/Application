@@ -16,11 +16,12 @@
   --white: #ffffff; /* cards */
 
   /* status tints — muted, layered on brown */
+  --status-not_applied: #c4b5a8; /* lighter coffee — pending */
   --status-applied: #7b5e45; /* coffee-500 */
-  --status-interviewed: #a6792e; /* warm amber-brown */
-  --status-rejected: #9c5b4a; /* muted clay */
   --status-no_response: #b79a82; /* coffee-300 */
-  --status-accepted: #5b6b4a; /* deep warm green-brown */
+  --status-interviewed: #a6792e; /* warm amber-brown */
+  --status-offer: #5b6b4a; /* deep warm green-brown */
+  --status-rejection: #9c5b4a; /* muted clay */
 }
 
 @theme inline {
@@ -32,11 +33,12 @@
   --color-cream: var(--cream);
   --color-white: var(--white);
 
+  --color-status-not_applied: var(--status-not_applied);
   --color-status-applied: var(--status-applied);
-  --color-status-interviewed: var(--status-interviewed);
-  --color-status-rejected: var(--status-rejected);
   --color-status-no_response: var(--status-no_response);
-  --color-status-accepted: var(--status-accepted);
+  --color-status-interviewed: var(--status-interviewed);
+  --color-status-offer: var(--status-offer);
+  --color-status-rejection: var(--status-rejection);
 
   --font-serif: var(--font-eb-garamond), "EB Garamond", Garamond, Georgia, serif;
 

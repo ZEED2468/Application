@@ -117,13 +117,14 @@ class Origin(str, enum.Enum):
 
 
 class TrackerStatus(str, enum.Enum):
-    """The unified tracker status the VA sets from the dashboard dropdown."""
+    """Application tracker status — the dashboard dropdown (VA / hunter)."""
 
+    not_applied = "not_applied"
     applied = "applied"
-    interviewed = "interviewed"
-    rejected = "rejected"
     no_response = "no_response"
-    accepted = "accepted"
+    interviewed = "interviewed"
+    offer = "offer"
+    rejection = "rejection"
 
 
 class ParseStatus(str, enum.Enum):

@@ -6,27 +6,32 @@ import type {
 } from "@jd/shared-types";
 
 export const STATUS_LABELS: Record<TrackerStatus, string> = {
+  not_applied: "Not applied",
   applied: "Applied",
-  interviewed: "Interviewed",
-  rejected: "Rejected",
   no_response: "No response",
-  accepted: "Accepted",
+  interviewed: "Interviewed",
+  offer: "Offer",
+  rejection: "Rejection",
 };
 
 /** Tailwind utility classes keyed to the status tint tokens. */
 export const STATUS_TINT: Record<TrackerStatus, { dot: string; text: string }> =
   {
-    applied: { dot: "bg-status-applied", text: "text-status-applied" },
-    interviewed: {
-      dot: "bg-status-interviewed",
-      text: "text-status-interviewed",
+    not_applied: {
+      dot: "bg-status-not_applied",
+      text: "text-status-not_applied",
     },
-    rejected: { dot: "bg-status-rejected", text: "text-status-rejected" },
+    applied: { dot: "bg-status-applied", text: "text-status-applied" },
     no_response: {
       dot: "bg-status-no_response",
       text: "text-status-no_response",
     },
-    accepted: { dot: "bg-status-accepted", text: "text-status-accepted" },
+    interviewed: {
+      dot: "bg-status-interviewed",
+      text: "text-status-interviewed",
+    },
+    offer: { dot: "bg-status-offer", text: "text-status-offer" },
+    rejection: { dot: "bg-status-rejection", text: "text-status-rejection" },
   };
 
 export const TRACK_LABELS: Record<Track, string> = {

@@ -12,20 +12,31 @@ export type Track = "frontend" | "backend" | "general";
 
 export type Origin = "auto" | "manual";
 
-/** application.status — the tracker status surfaced in the UI */
+/** Application tracker status — the dashboard dropdown */
 export type TrackerStatus =
+  | "not_applied"
   | "applied"
-  | "interviewed"
-  | "rejected"
   | "no_response"
-  | "accepted";
+  | "interviewed"
+  | "offer"
+  | "rejection";
 
 export const TRACKER_STATUSES: TrackerStatus[] = [
+  "not_applied",
   "applied",
-  "interviewed",
-  "rejected",
   "no_response",
-  "accepted",
+  "interviewed",
+  "offer",
+  "rejection",
+];
+
+/** Statuses selectable once an application record exists (post-submit). */
+export const TRACKER_STATUSES_POST_SUBMIT: TrackerStatus[] = [
+  "applied",
+  "no_response",
+  "interviewed",
+  "offer",
+  "rejection",
 ];
 
 export const TRACKS: Track[] = ["frontend", "backend", "general"];

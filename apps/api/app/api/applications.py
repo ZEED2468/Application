@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import PrincipalType, TrackerStatus
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.db import get_session
 from app.deps import Principal, authorize_owner, current_principal, scoped_user_ids
 from app.models.application import Application
@@ -57,6 +57,10 @@ async def update_status(
     app = await session.get(Application, application_id)
     if app is None:
         raise NotFoundError("Application not found")
+    if body.status is TrackerStatus.not_applied:
+        raise ConflictError(
+            "not_applied is only shown for jobs that have not been submitted yet"
+        )
     await authorize_owner(session, principal, app.user_id)
     await app_repo.set_tracker_status(
         session, application=app, status=body.status, actor=_actor(principal)
