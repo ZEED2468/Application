@@ -11,7 +11,6 @@ from app.core.enums import InviteKind, InviteStatus, Track
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-    pin: str | None = Field(default=None, min_length=4, max_length=16)
 
 
 class MeResponse(BaseModel):

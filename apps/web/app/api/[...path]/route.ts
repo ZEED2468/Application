@@ -3,14 +3,16 @@ import { BACKEND_URL } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+/** Allow Render cold starts (requires Vercel Pro for >10s on some plans). */
+export const maxDuration = 60;
 
 /**
  * Catch-all proxy: browser → /api/<path>  ⇒  FastAPI <BACKEND_URL>/api/<path>.
  * Forwards cookies in both directions so the httpOnly access/refresh cookies
  * set by FastAPI on the login/refresh flow travel through to the browser.
- * Handles GET/POST/PATCH/PUT/DELETE and multipart bodies (we stream the raw
- * body and copy content-type, so FormData/file uploads pass through).
  */
+
+const UPSTREAM_TIMEOUT_MS = 55_000;
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -54,21 +56,32 @@ async function handle(req: NextRequest, segments: string[]): Promise<Response> {
     method,
     headers,
     redirect: "manual",
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   };
 
   if (hasBody) {
-    // stream the raw body (works for JSON and multipart alike)
-    init.body = req.body;
-    init.duplex = "half";
+    const contentType = req.headers.get("content-type") ?? "";
+    // JSON and small bodies: buffer explicitly (duplex streaming is flaky on Vercel).
+    if (contentType.includes("multipart/form-data")) {
+      init.body = req.body;
+      init.duplex = "half";
+    } else {
+      init.body = await req.arrayBuffer();
+    }
   }
 
   let upstream: Response;
   try {
     upstream = await fetch(target, init);
-  } catch {
+  } catch (err) {
+    const reason =
+      err instanceof Error && err.name === "TimeoutError"
+        ? "Backend timed out (Render may be waking up — wait a minute and retry)."
+        : "Could not connect to the API server.";
     return new Response(
       JSON.stringify({
         detail: "Upstream backend unavailable.",
+        hint: `${reason} On Vercel, set BACKEND_URL to your Render API URL (e.g. https://application-yye1.onrender.com) and redeploy.`,
       }),
       {
         status: 502,

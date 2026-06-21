@@ -88,11 +88,17 @@ export default function ProfilePage() {
       onboardingService.uploadRoleCv(track, file),
     onMutate: ({ track }) => setUploadingTrack(track),
     onSuccess: (_data, vars) => {
-      toast.success(
-        profileByTrack.get(vars.track)?.role_cv
-          ? `${TRACK_LABELS[vars.track]} CV replaced, review and confirm again`
-          : `${TRACK_LABELS[vars.track]} source CV saved`,
-      );
+      const structured = _data as {
+        structured_by?: string;
+        experience_entries?: number;
+      };
+      const detail =
+        structured.structured_by === "llm"
+          ? `Structured with AI (${structured.experience_entries ?? 0} experience blocks). Review and confirm.`
+          : profileByTrack.get(vars.track)?.role_cv
+            ? `${TRACK_LABELS[vars.track]} CV replaced, review and confirm again`
+            : `${TRACK_LABELS[vars.track]} source CV saved`;
+      toast.success(detail);
       queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
@@ -189,9 +195,9 @@ export default function ProfilePage() {
         <CardHeader>
           <CardTitle>2 · Source CV file (one per track)</CardTitle>
           <CardDescription>
-            Upload a PDF or Word file, this is your master CV for the track. You
-            can replace it at any time; after a new upload, confirm the profile
-            again before applications use it.
+            Upload a PDF or Word file — we extract text and structure skills and
+            experience (AI when configured on the API). Replace anytime; confirm
+            again after re-upload.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

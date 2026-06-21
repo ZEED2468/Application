@@ -99,10 +99,6 @@ async def login(
         await session.execute(select(Va).where(Va.email == body.email))
     ).scalar_one_or_none()
     if va and verify_password(body.password, va.password_hash):
-        if not body.pin or not va.pin_hash:
-            raise AuthError("Invalid credentials")
-        if hash_refresh_token(body.pin.strip().upper()) != va.pin_hash:
-            raise AuthError("Invalid credentials")
         await _issue_session(
             response, session, subject_id=va.id, principal=PrincipalType.va,
             role="va", track_scope=[],
@@ -133,8 +129,7 @@ async def register(
     password_hash = hash_password(body.password)
 
     if invite.kind is InviteKind.va:
-        pin_hash = hash_refresh_token(key)
-        va = await _create_va(session, invite, email, password_hash, pin_hash)
+        va = await _create_va(session, invite, email, password_hash)
         invite.status = InviteStatus.accepted
         invite.accepted_at = datetime.now(timezone.utc)
         await _issue_session(
@@ -143,14 +138,13 @@ async def register(
         )
         return MeResponse(id=va.id, type="va", email=email, name=va.name, role="va")
 
-    if not body.name or not body.name.strip():
-        raise AuthError("Name is required for this invite.")
+    display = (body.name or "").strip() or email.split("@", 1)[0] or "User"
 
     # hunter or admin -> a User; an admin carries the invite's platform.
     new_role = UserRole.admin if invite.kind is InviteKind.admin else UserRole.hunter
     platform_id = invite.platform_id if invite.kind is InviteKind.admin else None
     user = await _create_user(
-        session, email, body.name.strip(), password_hash, role=new_role, platform_id=platform_id
+        session, email, display, password_hash, role=new_role, platform_id=platform_id
     )
     invite.status = InviteStatus.accepted
     invite.accepted_at = datetime.now(timezone.utc)
@@ -170,14 +164,14 @@ async def _create_user(session, email, name, password_hash, *, role: UserRole, p
 
 
 async def _create_va(
-    session, invite: Invite, email, password_hash, pin_hash: str,
+    session, invite: Invite, email, password_hash,
 ) -> Va:
     display = email.split("@", 1)[0] or "VA"
     va = Va(
         name=display,
         email=email,
         password_hash=password_hash,
-        pin_hash=pin_hash,
+        pin_hash=None,
         whatsapp_jid=invite.va_whatsapp_jid or f"{email}@s.whatsapp.net",
     )
     session.add(va)

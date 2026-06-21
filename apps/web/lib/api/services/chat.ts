@@ -40,4 +40,10 @@ export const chatService = {
       .post(path(`/api/chat/sessions/${id}/generate`))
       .json<ChatGenerateResult>();
   },
+
+  async vetGaps(id: string): Promise<ChatSession> {
+    return api
+      .post(path(`/api/chat/sessions/${id}/vet-gaps`))
+      .json<ChatSession>();
+  },
 };

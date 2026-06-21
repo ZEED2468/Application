@@ -3,6 +3,7 @@ export { jobsService, type JobsFilter } from "./jobs";
 export { applicationsService } from "./applications";
 export { onboardingService } from "./onboarding";
 export { chatService } from "./chat";
+export { atsService } from "./ats";
 export { vaService } from "./va";
 export { adminService } from "./admin";
 export { invitesService } from "./invites";

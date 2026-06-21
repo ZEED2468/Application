@@ -21,7 +21,6 @@ export const dynamic = "force-dynamic";
 const schema = z.object({
   email: z.string().email("Enter a valid email"),
   password: z.string().min(1, "Password is required"),
-  pin: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -38,16 +37,11 @@ function LoginForm() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: "", password: "", pin: "" },
+    defaultValues: { email: "", password: "" },
   });
 
   const login = useMutation({
-    mutationFn: (values: FormValues) =>
-      authService.login({
-        email: values.email,
-        password: values.password,
-        pin: values.pin?.trim() || undefined,
-      }),
+    mutationFn: (values: FormValues) => authService.login(values),
     onSuccess: (me) => {
       queryClient.setQueryData(queryKeys.me, me);
       toast.success(`Welcome back, ${me.name || me.email}`);
@@ -56,7 +50,7 @@ function LoginForm() {
     onError: async (err) => {
       const e = await toApiError(err);
       toast.error(
-        e.status === 401 ? "Invalid email, PIN, or password." : e.message,
+        e.status === 401 ? "Invalid email or password." : e.message,
       );
     },
   });
@@ -91,27 +85,6 @@ function LoginForm() {
               {errors.email && (
                 <p className="text-sm text-status-rejected">
                   {errors.email.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="pin">PIN</Label>
-              <Input
-                id="pin"
-                type="text"
-                autoCapitalize="characters"
-                autoComplete="one-time-code"
-                placeholder="6-character code"
-                className="uppercase tracking-[0.3em]"
-                {...register("pin")}
-              />
-              <p className="text-xs text-coffee-400">
-                Required for VA accounts, use the PIN from your invite.
-              </p>
-              {errors.pin && (
-                <p className="text-sm text-status-rejected">
-                  {errors.pin.message}
                 </p>
               )}
             </div>

@@ -82,8 +82,6 @@ export interface MeResponse {
 export interface LoginRequest {
   email: string;
   password: string;
-  /** Required for VA accounts — the 6-character PIN from the invite. */
-  pin?: string;
 }
 
 /* --- Invite-gated signup --- */
@@ -94,8 +92,6 @@ export type InviteStatus = "pending" | "accepted" | "revoked";
 export interface RegisterRequest {
   email: string;
   password: string;
-  /** Required for hunter/admin invites; omitted for VA signup. */
-  name?: string;
   key: string;
 }
 
@@ -163,9 +159,49 @@ export interface InviteCreatedResponse extends InviteOut {
 export interface AtsBreakdown {
   matched_keywords: string[];
   missing_keywords: string[];
-  format_flags: string[];
-  /** optional sub-scores 0..100 keyed by category */
-  sections?: Record<string, number>;
+  format_flags: Record<string, boolean> | string[];
+  coverage?: number;
+  title_alignment?: number;
+  framing?: string;
+  /** set after optional AI vet pass */
+  ai_vetted?: boolean;
+  ai_removed?: string[];
+  ai_notes?: string;
+  track_match?: {
+    track: Track;
+    method: string;
+    reason: string;
+  };
+}
+
+export interface AtsAiGap {
+  skill: string;
+  severity: string;
+  reason: string;
+}
+
+export interface AtsAiAnalysis {
+  fit_score: number | null;
+  fit_summary: string;
+  strengths: string[];
+  gaps: AtsAiGap[];
+  recommendations: string[];
+  false_positives: string[];
+  verdict: string;
+  ai_powered?: boolean;
+}
+
+/** Global ATS checker: any CV vs any JD. */
+export interface AtsCheckResult {
+  role_title: string;
+  cv_filename: string | null;
+  cv_word_count: number;
+  rule_based: {
+    score: number;
+    breakdown: AtsBreakdown;
+    gaps: string[];
+  };
+  ai: AtsAiAnalysis | null;
 }
 
 export interface GeneratedCv {
@@ -299,6 +335,12 @@ export interface ChatSession {
   company?: string | null;
   role_title?: string | null;
   track?: Track | null;
+  /** How the backend CV was chosen for this JD */
+  track_match?: {
+    track: Track;
+    method: string;
+    reason: string;
+  } | null;
   matched_cv: {
     track: Track;
     filename?: string | null;

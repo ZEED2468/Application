@@ -76,6 +76,7 @@ async def _session_dto(session, chat: ChatSession, prompts: list[ChatPrompt]) ->
     return {
         "session_id": str(chat.id), "state": chat.state.value,
         "track": chat.track.value if chat.track else None,
+        "track_match": (chat.ats_breakdown or {}).get("track_match"),
         "company": chat.company, "role_title": chat.role_title,
         "matched_cv": matched_cv,
         "ats": {"score": chat.ats_score, "breakdown": chat.ats_breakdown},
@@ -153,6 +154,13 @@ async def update_session(
     if body.track is not None and body.track != chat.track:
         chat.track = body.track
         await service.reanalyze(session, chat=chat)
+        breakdown = dict(chat.ats_breakdown or {})
+        breakdown["track_match"] = {
+            "track": chat.track.value,
+            "method": "manual",
+            "reason": "Track selected manually on job details.",
+        }
+        chat.ats_breakdown = breakdown
     await session.flush()
     return await _session_dto_for(session, chat)
 
@@ -167,6 +175,18 @@ async def add_fact(
     chat = await _owned_chat(session, principal, session_id)
     await service.add_confirmed_fact(session, chat=chat, skill=body.skill)
     return await _session_dto_for(session, chat)
+
+
+@router.post("/sessions/{session_id}/vet-gaps")
+async def vet_gaps(
+    session_id: UUID,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """AI-review rule-based gap prompts and replace unresolved skill confirmations."""
+    chat = await _owned_chat(session, principal, session_id)
+    prompts = await service.vet_gaps_with_ai(session, chat=chat)
+    return await _session_dto(session, chat, prompts)
 
 
 @router.post("/sessions/{session_id}/generate")

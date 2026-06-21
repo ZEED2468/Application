@@ -17,7 +17,10 @@ from app.config import settings
 from app.llm.providers import get as get_provider
 
 # Features that may be LLM-backed (each can override the global default).
-FEATURES = {"tailoring", "cover_letter", "hookfinder", "draft_email", "classify_reply"}
+FEATURES = {
+    "tailoring", "cover_letter", "hookfinder", "draft_email", "classify_reply",
+    "ats_vet", "ats_analyze", "cv_structure", "track_classify",
+}
 
 
 @dataclass(slots=True)

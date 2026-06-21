@@ -124,7 +124,15 @@ export function AtsBreakdown({
             </p>
             <KeywordChips items={breakdown.missing_keywords} tone="missing" />
           </div>
-          {breakdown.format_flags.length > 0 && (
+          {breakdown.ai_vetted && (
+            <p className="text-xs text-coffee-500 sm:col-span-2">
+              AI-vetted gap list
+              {breakdown.ai_removed && breakdown.ai_removed.length > 0
+                ? ` (removed: ${breakdown.ai_removed.join(", ")})`
+                : ""}
+            </p>
+          )}
+          {Array.isArray(breakdown.format_flags) && breakdown.format_flags.length > 0 && (
             <div className="space-y-2 sm:col-span-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
                 Format flags

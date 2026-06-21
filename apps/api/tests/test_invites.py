@@ -167,19 +167,13 @@ async def test_hunter_invites_va_creates_assignment(ctx):
 
 
 @pytest.mark.asyncio
-async def test_va_login_requires_pin(ctx):
+async def test_va_login_password_only(ctx):
     client, _ = ctx
     await _make_hunter(client)
-    _, key, password = await _make_va(client, "pinva@example.com")
-    assert (
-        await client.post(
-            "/api/auth/login",
-            json={"email": "pinva@example.com", "password": password},
-        )
-    ).status_code == 401
+    _, _key, password = await _make_va(client, "pinva@example.com")
     ok = await client.post(
         "/api/auth/login",
-        json={"email": "pinva@example.com", "password": password, "pin": key},
+        json={"email": "pinva@example.com", "password": password},
     )
     assert ok.status_code == 200, ok.text
 

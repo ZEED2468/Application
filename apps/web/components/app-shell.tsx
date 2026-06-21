@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
   MessageSquareText,
+  ScanSearch,
   Inbox,
   Globe,
   UploadCloud,
@@ -31,6 +32,7 @@ interface NavItem {
 function navFor(me?: MeResponse): NavItem[] {
   const items: NavItem[] = [
     { href: "/jobs", label: "Jobs / Tracker", icon: Briefcase },
+    { href: "/ats-checker", label: "ATS Checker", icon: ScanSearch },
     { href: "/manual", label: "Manual Apply", icon: MessageSquareText },
     { href: "/va", label: "VA Queue", icon: Inbox },
   ];

@@ -37,6 +37,7 @@ from app.events.contracts import (
 )
 from app.llm import track_classify
 from app.llm import tailoring
+from app.llm import ats_vet
 from app.models.application import Application
 from app.models.chat import ChatPrompt, ChatSession
 from app.models.job import Job
@@ -47,6 +48,7 @@ from app.pipelines.apply import ats
 from app.pipelines import generation
 from app.repositories import applications as app_repo
 from app.repositories import profiles as profiles_repo
+from app.repositories import track_match as track_match_repo
 
 log = structlog.get_logger(__name__)
 
@@ -67,7 +69,9 @@ def extract_company(jd_text: str) -> str:
     return " ".join(m.group(1).split()[:4]).strip()
 
 
-async def _analyze(session, *, chat: ChatSession, emit=_real_emit) -> list[ChatPrompt]:
+async def _analyze(
+    session, *, chat: ChatSession, track_match=None, emit=_real_emit,
+) -> list[ChatPrompt]:
     """(Re)compute the role-CV match, ATS preview, and confirm-true prompts for the
     session's current track. Reused by start_session and the track-override path."""
     user_id = chat.user_id
@@ -92,6 +96,12 @@ async def _analyze(session, *, chat: ChatSession, emit=_real_emit) -> list[ChatP
         profile_dict, job_title=role_title, job_description=jd_text
     )
     breakdown = ats.score(cv_json=cv_json, jd_text=jd_text, role_title=role_title)
+    if track_match is not None:
+        breakdown["track_match"] = {
+            "track": track_match.track.value,
+            "method": track_match.method,
+            "reason": track_match.reason,
+        }
     chat.ats_score = breakdown["score"]
     chat.ats_breakdown = breakdown
 
@@ -100,8 +110,8 @@ async def _analyze(session, *, chat: ChatSession, emit=_real_emit) -> list[ChatP
         p = ChatPrompt(
             user_id=user_id, chat_session_id=chat.id,
             kind=ChatPromptKind.missing_skill_confirm,
-            question=(f"The JD emphasizes \"{skill}\" but it isn't in the profile. "
-                      f"Does the hunter genuinely have {skill} experience?"),
+            question=(f"The JD calls for \"{skill}\" but it is not reflected in the profile. "
+                      f"Does the hunter have genuine {skill} experience?"),
             options=["Yes — add it (true)", "No — leave it out"],
         )
         session.add(p)
@@ -119,7 +129,11 @@ async def start_session(
 ) -> tuple[ChatSession, list[ChatPrompt]]:
     """Create a chat session: match a CV, run ATS, and raise gap prompts."""
     role_title = extract_role_title(jd_text)
-    track = track_classify.classify(title=role_title, description=jd_text)
+    available = await track_match_repo.available_track_previews(session, user_id=user_id)
+    match = await track_classify.classify_best(
+        title=role_title, description=jd_text, available=available,
+    )
+    track = match.track
 
     chat = ChatSession(
         user_id=user_id, va_id=va_id, surface=surface, jd_text=jd_text,
@@ -130,8 +144,11 @@ async def start_session(
     await session.flush()
     emit(names.CHAT_SESSION_STARTED, ChatSessionStarted(user_id=user_id, chat_session_id=chat.id))
 
-    prompts = await _analyze(session, chat=chat, emit=emit)
-    log.info("manual.session", chat=str(chat.id), track=track.value, prompts=len(prompts))
+    prompts = await _analyze(session, chat=chat, track_match=match, emit=emit)
+    log.info(
+        "manual.session", chat=str(chat.id), track=track.value,
+        track_method=match.method, prompts=len(prompts),
+    )
     return chat, prompts
 
 
@@ -146,6 +163,79 @@ async def reanalyze(session, *, chat: ChatSession, emit=_real_emit) -> list[Chat
         await session.delete(p)
     await session.flush()
     return await _analyze(session, chat=chat, emit=emit)
+
+
+async def vet_gaps_with_ai(
+    session, *, chat: ChatSession, emit=_real_emit,
+) -> list[ChatPrompt]:
+    """Re-review rule-based gap prompts with AI (or offline vet in fake mode)."""
+    user_id = chat.user_id
+    track = chat.track or Track.general
+    profile = await profiles_repo.get_by_user_track(session, user_id=user_id, track=track)
+    profile_dict = profiles_repo.profile_to_dict(profile) if profile else {"skills": []}
+    breakdown = dict(chat.ats_breakdown or {})
+    candidate_gaps = ats.gap_skills(breakdown, limit=10)
+    missing = breakdown.get("missing_keywords") or []
+    matched = breakdown.get("matched_keywords") or []
+
+    result = await ats_vet.vet_gaps(
+        profile=profile_dict,
+        jd_text=chat.jd_text or "",
+        role_title=chat.role_title or "Role",
+        candidate_gaps=candidate_gaps,
+        missing_keywords=missing,
+        matched_keywords=matched,
+    )
+
+    existing = (
+        await session.execute(
+            select(ChatPrompt).where(ChatPrompt.chat_session_id == chat.id)
+        )
+    ).scalars().all()
+    kept: list[ChatPrompt] = []
+    for p in existing:
+        if p.resolved or p.kind is not ChatPromptKind.missing_skill_confirm:
+            kept.append(p)
+            continue
+        await session.delete(p)
+
+    new_prompts: list[ChatPrompt] = []
+    for gap in result.gaps:
+        p = ChatPrompt(
+            user_id=user_id,
+            chat_session_id=chat.id,
+            kind=ChatPromptKind.missing_skill_confirm,
+            question=gap.question,
+            options=["Yes — add it (true)", "No — leave it out"],
+        )
+        session.add(p)
+        new_prompts.append(p)
+
+    breakdown["ai_vetted"] = True
+    breakdown["ai_removed"] = result.removed
+    if result.notes:
+        breakdown["ai_notes"] = result.notes
+    chat.ats_breakdown = breakdown
+
+    all_prompts = kept + new_prompts
+    await session.flush()
+    chat.state = (
+        ChatState.prompts_raised if all_prompts else ChatState.ready
+    )
+    emit(
+        names.CHAT_PROMPTS_RAISED,
+        ChatPromptsRaised(
+            user_id=user_id, chat_session_id=chat.id, prompt_count=len(all_prompts)
+        ),
+    )
+    log.info(
+        "manual.ai_vet",
+        chat=str(chat.id),
+        kept=len(kept),
+        new=len(new_prompts),
+        removed=len(result.removed),
+    )
+    return all_prompts
 
 
 async def add_confirmed_fact(session, *, chat: ChatSession, skill: str) -> ChatSession:

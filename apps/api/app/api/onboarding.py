@@ -6,8 +6,6 @@ skills) -> hunter reviews/corrects/confirms.
 
 from __future__ import annotations
 
-import re
-
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -23,36 +21,18 @@ from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
 
-router = APIRouter(tags=["onboarding"])
+from app.llm import cv_structure
+from app.pipelines.apply.cv_parse import extract_text_from_bytes, naive_skills
 
-_SKILL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+#.\-]{2,}")
+router = APIRouter(tags=["onboarding"])
 
 
 def _extract_text(filename: str, data: bytes) -> str:
-    name = (filename or "").lower()
-    try:
-        if name.endswith(".pdf"):
-            import io
-
-            from pypdf import PdfReader
-            reader = PdfReader(io.BytesIO(data))
-            return "\n".join((p.extract_text() or "") for p in reader.pages)
-        if name.endswith(".docx"):
-            import io
-
-            import docx
-            d = docx.Document(io.BytesIO(data))
-            return "\n".join(p.text for p in d.paragraphs)
-    except Exception:
-        return ""
-    return data.decode("utf-8", errors="ignore")
+    return extract_text_from_bytes(filename, data)
 
 
 def _naive_skills(text: str, *, top: int = 30) -> list[str]:
-    counts: dict[str, int] = {}
-    for tok in _SKILL_RE.findall(text):
-        counts[tok] = counts.get(tok, 0) + 1
-    return [w for w, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:top]]
+    return naive_skills(text, top=top)
 
 
 class RoleCvOut(BaseModel):
@@ -166,12 +146,20 @@ async def upload_role_cv(
                                 education=[], links={})
         session.add(profile)
     profile.truth_corpus = text or profile.truth_corpus
-    if skills:
+    structured = await cv_structure.structure_cv(text, track=track.value)
+    cv_structure.apply_to_profile(profile, structured)
+    if not profile.skills and skills:
         profile.skills = skills
     profile.confirmed = False
     await session.flush()
-    return {"role_cv_id": str(role_cv.id), "parse_status": role_cv.parse_status.value,
-            "skills_found": len(skills)}
+    exp_count = len(profile.experience or [])
+    return {
+        "role_cv_id": str(role_cv.id),
+        "parse_status": role_cv.parse_status.value,
+        "skills_found": len(profile.skills) if isinstance(profile.skills, list) else len(skills),
+        "structured_by": structured.structured_by,
+        "experience_entries": exp_count,
+    }
 
 
 @router.get("/onboarding/cover-letter-template", response_model=CoverLetterTemplateOut)

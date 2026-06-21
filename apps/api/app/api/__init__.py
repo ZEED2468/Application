@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api import (
     admin_email,
     applications,
+    ats_checker,
     auth,
     chat,
     invites,
@@ -20,6 +21,7 @@ api_router.include_router(auth.router)
 api_router.include_router(jobs.router)
 api_router.include_router(applications.router)
 api_router.include_router(onboarding.router)
+api_router.include_router(ats_checker.router)
 api_router.include_router(chat.router)
 api_router.include_router(va.router)
 api_router.include_router(invites.router)

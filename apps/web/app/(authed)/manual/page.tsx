@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Sparkles, FileText, ArrowRight, Plus, Pencil } from "lucide-react";
+import { Sparkles, FileText, ArrowRight, Plus, Pencil, Wand2 } from "lucide-react";
 import type {
   ChatSession,
   ChatGenerateResult,
@@ -48,6 +48,8 @@ export default function ManualPage() {
   });
   const [newSkill, setNewSkill] = React.useState("");
 
+  const [aiVetted, setAiVetted] = React.useState(false);
+
   // Sync the editable fields when a NEW session starts (same id keeps user edits).
   const sessionId = session?.session_id;
   React.useEffect(() => {
@@ -67,6 +69,7 @@ export default function ManualPage() {
       setSession(s);
       setAnswers({});
       setConfirmed({});
+      setAiVetted(false);
       toast.success("Session started, review the matched CV and prompts.");
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
@@ -121,6 +124,23 @@ export default function ManualPage() {
     onSuccess: (s, vars) => {
       setSession(s);
       setConfirmed((c) => ({ ...c, [vars.promptId]: true }));
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
+  const vetGaps = useMutation({
+    mutationFn: () => chatService.vetGaps(session!.session_id),
+    onSuccess: (s) => {
+      setSession(s);
+      setAnswers({});
+      setConfirmed({});
+      setAiVetted(Boolean(s.ats?.breakdown?.ai_vetted));
+      const removed = s.ats?.breakdown?.ai_removed?.length ?? 0;
+      toast.success(
+        removed > 0
+          ? `AI vet complete. ${removed} noise gap(s) removed, prompts updated.`
+          : "AI vet complete. Prompts updated.",
+      );
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
@@ -196,6 +216,12 @@ export default function ManualPage() {
                     <Badge variant="outline">
                       {TRACK_LABELS[session.matched_cv.track]}
                     </Badge>
+                    {session.track_match?.reason && (
+                      <p className="text-xs text-coffee-500">
+                        {session.track_match.method === "ai" ? "AI: " : ""}
+                        {session.track_match.reason}
+                      </p>
+                    )}
                     {session.matched_cv.filename && (
                       <p className="text-sm text-coffee-700">
                         {session.matched_cv.filename}
@@ -211,10 +237,34 @@ export default function ManualPage() {
             </Card>
 
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
                 <CardTitle>ATS gaps</CardTitle>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={vetGaps.isPending}
+                  onClick={() => vetGaps.mutate()}
+                >
+                  <Wand2 className="size-4" />
+                  {vetGaps.isPending ? "Vetting…" : "Vet with AI"}
+                </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                {aiVetted || session.ats?.breakdown?.ai_vetted ? (
+                  <p className="text-xs text-coffee-500">
+                    Gaps reviewed with AI. Confirm prompts below reflect real
+                    missing skills only.
+                    {session.ats?.breakdown?.ai_notes
+                      ? ` ${session.ats.breakdown.ai_notes}`
+                      : ""}
+                  </p>
+                ) : (
+                  <p className="text-xs text-coffee-500">
+                    Rule-based scan complete. Use &quot;Vet with AI&quot; to filter
+                    noise and refine confirm prompts (requires LLM configured on
+                    the API).
+                  </p>
+                )}
                 <AtsBreakdown
                   score={session.ats?.score ?? null}
                   breakdown={session.ats?.breakdown ?? null}
@@ -231,8 +281,9 @@ export default function ManualPage() {
                 Job details
               </CardTitle>
               <CardDescription>
-                Auto-filled from the JD, correct them if needed. Changing the track
-                re-matches the CV and re-runs the prompts.
+                Auto-filled from the JD. Track picks the best uploaded CV (AI when
+                configured). Change it if needed — changing track re-matches and
+                re-runs prompts.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

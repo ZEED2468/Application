@@ -54,7 +54,7 @@ function CreatedInvite({ invite }: { invite: InviteCreatedResponse }) {
         Invite ready for {invite.email}
       </p>
       <p className="text-xs text-coffee-500">
-        Share this link, the PIN{" "}
+        Share this link. The invite key{" "}
         <span className="font-mono font-semibold tracking-widest text-coffee-900">
           {invite.key}
         </span>{" "}
@@ -63,7 +63,7 @@ function CreatedInvite({ invite }: { invite: InviteCreatedResponse }) {
           ? ` WhatsApp on file: ${invite.whatsapp}.`
           : ""}
         {isVa
-          ? " The VA uses email + PIN + password to sign in."
+          ? " The VA uses email + password to sign in after signup."
           : ""}
       </p>
       <div className="flex items-center gap-2">

@@ -21,11 +21,22 @@ async def get_by_user_track(
 
 
 def profile_to_dict(profile: MasterProfile) -> dict:
+    experience = profile.experience or []
+    summary = profile.summary
+    # Upload path stores raw CV text in truth_corpus; use it when structured fields are empty.
+    if profile.truth_corpus:
+        if not summary:
+            summary = profile.truth_corpus[:4000]
+        if not experience:
+            lines = [ln.strip() for ln in profile.truth_corpus.splitlines() if ln.strip()]
+            if lines:
+                experience = [{"bullets": lines[:80]}]
+
     return {
         "headline": profile.headline,
-        "summary": profile.summary,
+        "summary": summary,
         "skills": profile.skills,
-        "experience": profile.experience,
+        "experience": experience,
         "education": profile.education,
         "projects": profile.projects,
         "links": profile.links,

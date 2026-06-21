@@ -40,6 +40,7 @@ TAGS_METADATA = [
     {"name": "jobs", "description": "Jobs list + the tracker; track override, generate, VA submit."},
     {"name": "applications", "description": "Tracker status dropdown, audit trail, and `.xlsx` export."},
     {"name": "onboarding", "description": "Profile: source CV file upload per track, review, cover-letter template."},
+    {"name": "ats", "description": "Global ATS checker: any CV vs any JD with optional AI review."},
     {"name": "chat", "description": "Manual application chatbot (paste JD → prompts → generate)."},
     {"name": "va", "description": "VA work queue: submit, first-contact review, replies."},
     {"name": "admin", "description": "9-domain health panel + per-hunter weekly quota (admin only)."},
