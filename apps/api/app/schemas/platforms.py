@@ -1,9 +1,11 @@
-"""Platform + admin-account DTOs."""
+"""Platform + admin-account + source-board DTOs."""
 
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.core.enums import JobSourceName
 
 
 class PlatformCreate(BaseModel):
@@ -33,3 +35,24 @@ class AdminOut(BaseModel):
     is_active: bool
     platform_id: UUID | None = None
     platform_name: str | None = None
+
+
+# Board scrapers (Greenhouse/Lever/Ashby) are the only board sources.
+_BOARD_SOURCES = {JobSourceName.greenhouse, JobSourceName.lever, JobSourceName.ashby}
+
+
+class SourceBoardCreate(BaseModel):
+    source: JobSourceName
+    token: str = Field(min_length=1, max_length=200)
+    label: str | None = Field(default=None, max_length=200)
+
+
+class SourceBoardOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    source: JobSourceName
+    token: str
+    label: str | None = None
+    is_active: bool
+    created_at: datetime

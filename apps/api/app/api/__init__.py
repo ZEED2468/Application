@@ -12,6 +12,7 @@ from app.api import (
     jobs,
     onboarding,
     platforms,
+    sources,
     va,
 )
 from app.api.webhooks import webhooks_router
@@ -26,5 +27,6 @@ api_router.include_router(chat.router)
 api_router.include_router(va.router)
 api_router.include_router(invites.router)
 api_router.include_router(platforms.router)
+api_router.include_router(sources.router)
 api_router.include_router(admin_email.router)
 api_router.include_router(webhooks_router)

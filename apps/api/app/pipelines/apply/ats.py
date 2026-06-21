@@ -30,6 +30,8 @@ _GENERIC_STOP = frozenset({
     "learning", "professional", "international", "required", "preferred",
     "responsibilities", "requirements", "qualifications", "description", "about",
     "aboutus", "must", "should", "need", "needs", "ideal", "candidate",
+    "strongly", "recommended", "mandatory", "essential", "expertise", "extensive",
+    "desired", "desirable", "nice",
 })
 # Generic nouns/adjectives common in JD marketing copy — not actionable skills.
 _GENERIC_NOUNS = frozenset({
@@ -76,6 +78,14 @@ _NON_REQUIREMENT_HEADER = re.compile(
 )
 
 TARGET_BAND = (90, 95)
+
+# JD phrases that mark a technology as critical / strongly-recommended (drives the
+# explicit achievement reframe + prioritizes confirm-true prompts).
+_EMPHASIS = re.compile(
+    r"(?i)(?:strongly\s+recommended|must[\-\s]have|\bmust\b|\brequired\b|essential|"
+    r"mandatory|expert|proficien|deep\s+(?:experience|knowledge|understanding)|"
+    r"extensive|strong\s+(?:experience|background|proficiency|knowledge)|\bcritical\b)"
+)
 
 
 def _normalize_token(tok: str) -> str:
@@ -196,6 +206,8 @@ def _fallback_skill_phrases(jd_text: str) -> list[str]:
     phrases: list[str] = []
     for match in re.finditer(
         r"(?i)(?:experience\s+(?:with|in)|proficien(?:t|cy)\s+(?:with|in)|"
+        r"strong\s+(?:in|with)|skilled\s+(?:in|with)|expertise\s+(?:in|with)|"
+        r"strength\s+in|background\s+in|"
         r"including|using|with|know(?:ledge)?\s+of|stack\s*[:])\s*([^.;\n]+)",
         jd_text or "",
     ):
@@ -254,6 +266,33 @@ def extract_keywords(jd_text: str, *, top: int = 25) -> list[str]:
     return [display[norm] for norm, _ in ranked[:top]]
 
 
+def critical_keywords(jd_text: str) -> list[str]:
+    """Technologies the JD marks as strongly-recommended / must-have.
+
+    A tech is critical if it appears in a line/sentence carrying an emphasis marker
+    (e.g. "Kafka is strongly recommended", "must have React"). Detected directly from
+    the JD (independent of the top-keyword extraction) so an emphasized tech is caught
+    even when it isn't in a Requirements list. Deterministic — works in fake + live;
+    drives the explicit achievement reframe and prioritizes confirm-true prompts.
+    """
+    crit: list[str] = []
+    seen: set[str] = set()
+    for seg in re.split(r"[\n.;]", jd_text or ""):
+        if not _EMPHASIS.search(seg):
+            continue
+        for raw in _TOKEN.findall(seg):
+            tok = raw.strip(".,;:!?\"'()[]")
+            # _has_tech_shape (non-strict) catches Kafka, React, Node.js, C#, aws…;
+            # _is_soft_fluff drops marker/filler words (must, you, strongly, …).
+            if _is_soft_fluff(tok) or not _has_tech_shape(tok):
+                continue
+            norm = _normalize_token(tok)
+            if norm and norm not in seen:
+                seen.add(norm)
+                crit.append(tok.lower())
+    return crit
+
+
 def _cv_text(cv_json: dict) -> str:
     parts: list[str] = []
 
@@ -287,6 +326,9 @@ def score(*, cv_json: dict, jd_text: str, role_title: str | None = None) -> dict
     missing = [k for k in keywords if k not in matched]
     coverage = len(matched) / len(keywords) if keywords else 1.0
 
+    critical = critical_keywords(jd_text)
+    missing_critical = [k for k in critical if not _keyword_matches(k, text, cv_tokens)]
+
     title_tokens = [
         t for t in _TOKEN.findall((role_title or "").lower())
         if _is_skill_token(t, in_requirement_zone=True)
@@ -306,6 +348,8 @@ def score(*, cv_json: dict, jd_text: str, role_title: str | None = None) -> dict
         "score": value,
         "matched_keywords": matched,
         "missing_keywords": missing,
+        "critical_keywords": critical,
+        "missing_critical": missing_critical,
         "title_alignment": round(title_alignment, 2),
         "format_flags": format_flags,
         "coverage": round(coverage, 2),
@@ -314,9 +358,18 @@ def score(*, cv_json: dict, jd_text: str, role_title: str | None = None) -> dict
 
 
 def gap_skills(breakdown: dict, *, limit: int = 5) -> list[str]:
-    """Missing keywords worth asking the VA to confirm (manual path prompts)."""
+    """Missing keywords worth asking the VA to confirm (manual path prompts).
+
+    Strongly-recommended / must-have gaps come first so the VA confirms the
+    JD-critical techs before the rest.
+    """
+    missing = breakdown.get("missing_keywords", [])
+    missing_critical = breakdown.get("missing_critical", [])
+    # Strongly-recommended gaps first (even if not in the top extracted keywords),
+    # then the rest; dedupe preserving order.
+    ordered = list(dict.fromkeys([*missing_critical, *missing]))
     gaps: list[str] = []
-    for kw in breakdown.get("missing_keywords", []):
+    for kw in ordered:
         if not _is_actionable_skill(kw):
             continue
         gaps.append(kw)

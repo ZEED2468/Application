@@ -30,6 +30,7 @@ from app.models.user import User
 from app.pipelines.apply import render
 from app.repositories import jobs as jobs_repo
 from app.repositories import profiles as profiles_repo
+from app.repositories import source_boards as boards_repo
 from app.sources import active_sources
 from app.sources.base import SourceQuery
 from app.sources.normalize import to_job_fields
@@ -51,10 +52,16 @@ async def discover_for_user(
         keywords=_emphasis_keywords(profile),
         boards=boards or [],
     )
+    # Board scrapers (Greenhouse/Lever/Ashby) pull per-company tokens. When the caller
+    # didn't pass an explicit `boards` override, load the admin-configured ones per
+    # source. Aggregators (Adzuna/SerpApi) and the fake source ignore `boards`.
+    by_source = {} if boards else await boards_repo.active_by_source(session)
     new_jobs: list[Job] = []
     for source in active_sources():
         if not source.supports(profile.track):
             continue
+        if boards is None:
+            query.boards = by_source.get(source.name, [])
         async for raw in source.fetch(query):
             job = await jobs_repo.insert_if_new(
                 session, user_id=user_id, fields=to_job_fields(raw)

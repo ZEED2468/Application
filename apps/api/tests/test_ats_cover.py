@@ -113,6 +113,31 @@ def test_ats_keywords_from_inline_requirements_colon():
     assert "terraform" in lowered
 
 
+def test_ats_detects_strongly_recommended_as_critical():
+    cv_json = {"skills": ["Go"]}
+    jd = (
+        "Backend Engineer.\n"
+        "Kafka is strongly recommended. You must have React experience.\n"
+        "Nice to have: Terraform.\n"
+    )
+    result = ats.score(cv_json=cv_json, jd_text=jd, role_title="Backend Engineer")
+    crit = [c.lower() for c in result["critical_keywords"]]
+    assert "kafka" in crit and "react" in crit
+    # only "nice to have" -> not flagged critical
+    assert "terraform" not in crit
+    # both are absent from the CV -> they're missing_critical
+    assert "kafka" in [m.lower() for m in result["missing_critical"]]
+
+
+def test_gap_skills_prioritizes_critical():
+    cv_json = {"skills": ["Go"]}
+    jd = "Requirements: Docker, Redis.\nKafka is strongly recommended.\n"
+    result = ats.score(cv_json=cv_json, jd_text=jd, role_title="Engineer")
+    gaps = ats.gap_skills(result, limit=5)
+    # the strongly-recommended gap (kafka) is surfaced before non-critical ones
+    assert gaps and gaps[0].lower() == "kafka"
+
+
 def test_cover_letter_is_three_paragraphs_and_truthful():
     profile = {
         "summary": "I build backend systems.",

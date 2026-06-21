@@ -128,6 +128,27 @@ export interface AdminOut {
   platform_name?: string | null;
 }
 
+/* --- Job-board scrapers (Greenhouse/Lever/Ashby company tokens) --- */
+
+export type BoardSource = "greenhouse" | "lever" | "ashby";
+
+export const BOARD_SOURCES: BoardSource[] = ["greenhouse", "lever", "ashby"];
+
+export interface SourceBoard {
+  id: string;
+  source: BoardSource;
+  token: string;
+  label?: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface SourceBoardCreate {
+  source: BoardSource;
+  token: string;
+  label?: string;
+}
+
 export interface VaInviteRequest {
   email: string;
   whatsapp: string;

@@ -20,6 +20,7 @@ from app.models.platform import Platform
 from app.models.reply import Reply
 from app.models.role_cv import RoleCv
 from app.models.sending_domain import SendingDomain
+from app.models.source_board import SourceBoard
 from app.models.thread import Thread
 from app.models.user import RefreshToken, User
 from app.models.va import Va
@@ -50,4 +51,5 @@ __all__ = [
     "ApplicationEvent",
     "Invite",
     "Platform",
+    "SourceBoard",
 ]

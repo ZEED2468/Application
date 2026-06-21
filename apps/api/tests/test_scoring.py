@@ -59,3 +59,22 @@ def test_truth_guard_rejects_fabrication():
     fabricated = {"skills": ["Go", "Rust"]}  # Rust not in profile
     with pytest.raises(ValueError):
         tailoring.assert_truth_bounded(profile, fabricated)
+
+
+@pytest.mark.asyncio
+async def test_tailor_threads_priority_techs_and_stays_bounded():
+    profile = {
+        "headline": "Backend engineer", "summary": "I build backend systems.",
+        "skills": ["Go", "Kubernetes"],
+        "experience": [{"title": "Backend Engineer", "company": "Streamline",
+                        "bullets": ["Built Go microservices"]}],
+        "projects": [], "education": [], "links": {},
+    }
+    # Fake mode (default in tests): deterministic + provably truth-bounded, and the
+    # requested priority techs are recorded for the live reframe.
+    cv, diff = await tailoring.tailor(
+        profile, job_title="Go Backend Engineer", job_description="Go microservices",
+        priority_techs=["Kafka"],
+    )
+    tailoring.assert_truth_bounded(profile, cv)
+    assert diff["priority_techs"] == ["Kafka"]

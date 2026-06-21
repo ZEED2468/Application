@@ -153,7 +153,7 @@ async def test_duplicate_email_invite_conflicts(ctx):
 async def test_hunter_invites_va_creates_assignment(ctx):
     client, maker = ctx
     hunter_id = await _make_hunter(client)
-    va_id = await _make_va(client)[0]
+    va_id = (await _make_va(client))[0]
 
     me = await client.get("/api/auth/me")
     assert me.json()["type"] == "va"

@@ -6,16 +6,20 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Copy, Layers, ShieldPlus, UserPlus } from "lucide-react";
+import { Copy, Layers, ShieldPlus, UserPlus, Globe } from "lucide-react";
 import type {
+  BoardSource,
   InviteCreatedResponse,
   MeResponse,
   Platform,
+  SourceBoard,
 } from "@jd/shared-types";
+import { BOARD_SOURCES } from "@jd/shared-types";
 import {
   authService,
   invitesService,
   platformsService,
+  sourceBoardsService,
 } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
@@ -291,6 +295,133 @@ function AdminsList() {
   );
 }
 
+const boardSchema = z.object({
+  source: z.enum(["greenhouse", "lever", "ashby"]),
+  token: z.string().min(1, "Token is required"),
+  label: z.string().optional(),
+});
+type BoardForm = z.infer<typeof boardSchema>;
+
+function JobBoardsCard() {
+  const queryClient = useQueryClient();
+  const boardsQuery = useQuery({
+    queryKey: queryKeys.sourceBoards,
+    queryFn: () => sourceBoardsService.list(),
+  });
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<BoardForm>({
+    resolver: zodResolver(boardSchema),
+    defaultValues: { source: "greenhouse", token: "", label: "" },
+  });
+
+  const create = useMutation({
+    mutationFn: (v: BoardForm) =>
+      sourceBoardsService.create({
+        source: v.source as BoardSource,
+        token: v.token,
+        label: v.label || undefined,
+      }),
+    onSuccess: () => {
+      reset();
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourceBoards });
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
+  const toggle = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      sourceBoardsService.setActive(id, active),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourceBoards }),
+  });
+
+  const boards = boardsQuery.data ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Globe className="size-4 text-coffee-500" />
+          Job boards
+        </CardTitle>
+        <CardDescription>
+          Company tokens the Greenhouse / Lever / Ashby scrapers pull from (the
+          board slug in the company&apos;s careers URL). Aggregators (Adzuna,
+          SerpApi) search by keyword and don&apos;t need these.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <form
+          onSubmit={handleSubmit((v) => create.mutate(v))}
+          className="flex flex-col gap-3 sm:flex-row sm:items-end"
+          noValidate
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor="board-source">Source</Label>
+            <Select id="board-source" {...register("source")}>
+              {BOARD_SOURCES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex-1 space-y-1.5">
+            <Label htmlFor="board-token">Board token</Label>
+            <Input id="board-token" placeholder="e.g. airbnb" {...register("token")} />
+            {errors.token && (
+              <p className="text-sm text-status-rejected">{errors.token.message}</p>
+            )}
+          </div>
+          <div className="flex-1 space-y-1.5">
+            <Label htmlFor="board-label">Label (optional)</Label>
+            <Input id="board-label" placeholder="Airbnb" {...register("label")} />
+          </div>
+          <Button type="submit" disabled={create.isPending}>
+            {create.isPending ? "Adding…" : "Add board"}
+          </Button>
+        </form>
+
+        {boards.length === 0 ? (
+          <p className="text-sm text-coffee-500">No board tokens yet.</p>
+        ) : (
+          <div className="divide-y divide-coffee-100 rounded-md border border-coffee-300">
+            {boards.map((b: SourceBoard) => (
+              <div key={b.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-coffee-900">
+                    {b.label || b.token}
+                  </p>
+                  <p className="truncate text-xs text-coffee-500">
+                    {b.source} · {b.token}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Badge variant={b.is_active ? "default" : "muted"}>
+                    {b.is_active ? "active" : "inactive"}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={() => toggle.mutate({ id: b.id, active: !b.is_active })}
+                    disabled={toggle.isPending}
+                    className="text-sm text-coffee-500 underline underline-offset-4 hover:text-coffee-900 disabled:opacity-60"
+                  >
+                    {b.is_active ? "Deactivate" : "Activate"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminPage() {
   const { data: me, isLoading } = useQuery<MeResponse>({
     queryKey: queryKeys.me,
@@ -326,6 +457,10 @@ export default function AdminPage() {
         <PlatformsCard platforms={platforms} />
         <InviteAdminCard platforms={platforms} />
       </div>
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold text-coffee-900">Job sources</h2>
+        <JobBoardsCard />
+      </section>
       <section className="space-y-4">
         <h2 className="text-xl font-semibold text-coffee-900">Admins</h2>
         <AdminsList />

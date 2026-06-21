@@ -1,13 +1,16 @@
-"""Source normalization + the fake source + dedupe-aware insert."""
+"""Source normalization + the fake source + dedupe-aware insert + board tokens."""
 
 import pytest
 
 from app.core.enums import JobSourceName, Track
 from app.core.ids import new_id
+from app.pipelines.apply import service
 from app.repositories import jobs as jobs_repo
+from app.repositories import source_boards as boards_repo
 from app.sources.base import RawJob, SourceQuery
 from app.sources.fake import FakeSource
 from app.sources.normalize import dedupe_key, to_job_fields
+from tests.helpers import EventSink, seed_hunter
 
 
 def _raw(company="Acme", title="Backend Engineer", location="Remote"):
@@ -43,3 +46,48 @@ async def test_insert_if_new_dedupes_per_hunter(session):
 
     other = await jobs_repo.insert_if_new(session, user_id=new_id(), fields=fields)
     assert other is not None  # different hunter -> allowed
+
+
+@pytest.mark.asyncio
+async def test_source_boards_active_by_source_groups(session):
+    await boards_repo.create(session, source=JobSourceName.greenhouse, token="airbnb", label="Airbnb")
+    await boards_repo.create(session, source=JobSourceName.greenhouse, token="stripe", label=None)
+    await boards_repo.create(session, source=JobSourceName.lever, token="netflix", label=None)
+    inactive = await boards_repo.create(session, source=JobSourceName.lever, token="dead", label=None)
+    inactive.is_active = False
+    await session.flush()
+
+    grouped = await boards_repo.active_by_source(session)
+    assert set(grouped[JobSourceName.greenhouse]) == {"airbnb", "stripe"}
+    assert grouped[JobSourceName.lever] == ["netflix"]  # inactive excluded
+
+
+class _RecordingSource:
+    """A board source that records the tokens it was handed."""
+
+    name = JobSourceName.greenhouse
+
+    def __init__(self):
+        self.seen: list[str] = []
+
+    def supports(self, track):
+        return True
+
+    async def fetch(self, query):
+        self.seen = list(query.boards)
+        return
+        yield  # unreachable — marks this as an async generator
+
+
+@pytest.mark.asyncio
+async def test_discover_passes_per_source_board_tokens(session, monkeypatch):
+    user, profile = await seed_hunter(session)
+    await boards_repo.create(session, source=JobSourceName.greenhouse, token="airbnb", label=None)
+    await boards_repo.create(session, source=JobSourceName.lever, token="netflix", label=None)
+
+    rec = _RecordingSource()
+    monkeypatch.setattr(service, "active_sources", lambda: [rec])
+    await service.discover_for_user(session, user_id=user.id, profile=profile, emit=EventSink())
+
+    # the greenhouse source receives only greenhouse tokens, not lever's
+    assert rec.seen == ["airbnb"]

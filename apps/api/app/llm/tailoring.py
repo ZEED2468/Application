@@ -96,31 +96,58 @@ def assert_truth_bounded(profile: dict, cv_json: dict) -> None:
             raise ValueError(f"Tailoring fabricated a fact not in the profile: {s!r}")
 
 
-async def tailor(profile: dict, *, job_title: str, job_description: str | None) -> tuple[dict, dict]:
-    """Public entry. Deterministic in fake mode; constrained LLM call otherwise."""
+async def tailor(
+    profile: dict, *, job_title: str, job_description: str | None,
+    priority_techs: list[str] | None = None,
+) -> tuple[dict, dict]:
+    """Public entry. Deterministic in fake mode; constrained LLM call otherwise.
+
+    `priority_techs` are JD-critical technologies (strongly-recommended/must-have).
+    In the live path the model is told to make those EXPLICIT in achievement format
+    — but only when the profile already supports them (no fabrication).
+    """
     from app.llm import client
 
     if not client.is_live("tailoring"):
+        # Deterministic path can't reframe (it would invent text); it stays a pure,
+        # provably truth-bounded selection/reorder. Record the requested priorities.
         cv_json, diff = tailor_fake(
             profile, job_title=job_title, job_description=job_description
         )
         assert_truth_bounded(profile, cv_json)
+        diff["priority_techs"] = priority_techs or []
         return cv_json, diff
 
     import json
 
     system = (
         "You tailor a CV to a job. STRICT RULE: use ONLY facts present in the "
-        "provided master profile. Reorder and reframe for relevance; never invent "
-        "employers, dates, skills, or achievements. Return JSON with keys: "
-        "headline, summary, skills, experience, projects, education, links."
+        "provided master profile (its skills, experience, projects, and summary/CV "
+        "text). Reorder and reframe for relevance; never invent employers, dates, "
+        "skills, achievements, or metrics.\n"
+        "ACHIEVEMENT FORMAT: where the profile shows the candidate actually used a "
+        "technology, state it EXPLICITLY in an experience bullet as 'Used <tech> to "
+        "<do X>, achieving <Y>' so an ATS parses the skill in context. Draw <X>/<Y> "
+        "only from real outcomes in the profile; if no outcome is stated, omit the "
+        "achieving clause rather than invent one.\n"
+        "Return JSON with keys: headline, summary, skills, experience, projects, "
+        "education, links."
     )
+    priority_line = ""
+    if priority_techs:
+        priority_line = (
+            "JD-CRITICAL TECHNOLOGIES (make these explicit in achievement format ONLY "
+            "if the profile genuinely supports them; never claim one it does not): "
+            f"{', '.join(priority_techs)}\n\n"
+        )
     prompt = (
         f"MASTER PROFILE (the only allowed facts):\n{json.dumps(profile)}\n\n"
+        f"{priority_line}"
         f"JOB TITLE: {job_title}\nJOB DESCRIPTION: {job_description or ''}\n\n"
         "Return only the JSON object."
     )
     text = await client.complete_text(system, prompt, max_tokens=2500, feature="tailoring")
     cv_json = json.loads(text)
-    diff = {"strategy": "llm", "model": True}
+    diff = {"strategy": "llm", "model": True, "achievement_format": True,
+            "priority_techs": priority_techs or []}
     return cv_json, diff

@@ -54,8 +54,12 @@ async def generate_cv_and_cover(
     )
 
     # --- Tailored CV (truth-bounded) ---
+    # JD-critical techs drive an explicit achievement reframe of the candidate's REAL
+    # experience (computed from the JD alone, so it's valid pre-tailoring).
+    priority_techs = ats.critical_keywords(job.description or "")
     cv_json, diff = await tailoring.tailor(
-        profile_dict, job_title=job.title, job_description=job.description
+        profile_dict, job_title=job.title, job_description=job.description,
+        priority_techs=priority_techs,
     )
     breakdown = ats.score(
         cv_json=cv_json, jd_text=job.description or "", role_title=job.role_title or job.title
