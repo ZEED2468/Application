@@ -29,7 +29,9 @@ class AdzunaSource:
         params = {
             "app_id": settings.adzuna_app_id,
             "app_key": settings.adzuna_app_key,
-            "what": " ".join(query.keywords) or query.track.value,
+            # `what_or` = match ANY of the terms (AND-style `what` over 6 skills
+            # returns almost nothing).
+            "what_or": " ".join(query.keywords) or query.track.value,
             "results_per_page": min(query.limit, 50),
         }
         if query.location:

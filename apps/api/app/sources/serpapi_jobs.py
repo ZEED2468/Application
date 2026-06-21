@@ -24,7 +24,8 @@ class SerpApiSource:
     async def fetch(self, query: SourceQuery) -> AsyncIterator[RawJob]:
         if not settings.serpapi_api_key:
             return  # no creds -> no-op
-        q = " ".join(query.keywords) or query.track.value
+        # Google Jobs narrows hard with many terms — use the top few skills only.
+        q = " ".join(query.keywords[:3]) or query.track.value
         if not query.location:
             q = f"{q} remote"  # remote/global default when no location is set
         params = {
@@ -48,9 +49,14 @@ class SerpApiSource:
                 log.warning("serpapi.request_failed", error=str(exc))
                 raise RuntimeError(f"serpapi request failed: {exc}") from exc
             data = resp.json()
-            if data.get("error"):  # SerpApi reports bad key / no credits in a 200 body
-                log.warning("serpapi.api_error", error=str(data["error"])[:300])
-                raise RuntimeError(f"serpapi: {str(data['error'])[:120]}")
+            err = data.get("error")
+            if err:  # SerpApi reports bad key / no credits / no-results in a 200 body
+                low = str(err).lower()
+                if "returned any results" in low or "no results" in low:
+                    log.info("serpapi.no_results", q=q)  # benign: just an empty search
+                    return
+                log.warning("serpapi.api_error", error=str(err)[:300])
+                raise RuntimeError(f"serpapi: {str(err)[:120]}")
             for job in data.get("jobs_results", [])[: query.limit]:
                 yield RawJob(
                     source=self.name,

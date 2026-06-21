@@ -142,12 +142,16 @@ async def discover(
         total += len(new_jobs)
         for r in report:
             a = agg.setdefault(
-                r["source"], {"source": r["source"], "found": 0, "inserted": 0, "error": None}
+                r["source"],
+                {"source": r["source"], "found": 0, "inserted": 0,
+                 "error": None, "note": None},
             )
             a["found"] += r["found"]
             a["inserted"] += r["inserted"]
             if r["error"] and not a["error"]:
                 a["error"] = r["error"]
+            if r.get("note") and not a["note"]:
+                a["note"] = r["note"]
     result = {
         "discovered": total,
         "fake_mode": settings.use_fake_integrations,
@@ -157,7 +161,7 @@ async def discover(
     log.info("discover.result", user_id=str(user.id), discovered=total,
              profiles=len(profiles),
              sources={s["source"]: {"found": s["found"], "inserted": s["inserted"],
-                                    "error": s["error"], "note": s["note"]}
+                                    "error": s["error"], "note": s.get("note")}
                       for s in agg.values()})
     return result
 
