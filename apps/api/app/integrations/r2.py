@@ -14,6 +14,7 @@ from pathlib import Path
 import structlog
 
 from app.config import settings
+from app.core.errors import DomainError
 
 log = structlog.get_logger(__name__)
 
@@ -52,7 +53,16 @@ async def put_bytes(key: str, data: bytes, content_type: str = "application/octe
             Bucket=settings.r2_bucket, Key=key, Body=data, ContentType=content_type
         )
 
-    await asyncio.to_thread(_put)  # boto3 is blocking — keep the event loop free
+    try:
+        await asyncio.to_thread(_put)  # boto3 is blocking — keep the event loop free
+    except Exception as exc:  # noqa: BLE001 — surface a clean, diagnosable error
+        log.warning("r2.put_failed", key=key, bucket=settings.r2_bucket,
+                    endpoint=settings.r2_endpoint, error=str(exc),
+                    exc_type=type(exc).__name__)
+        raise DomainError(
+            f"Storage upload failed ({type(exc).__name__}): {str(exc)[:200]}. "
+            "Check the R2 bucket name, endpoint, and access keys."
+        ) from exc
     return f"{settings.r2_endpoint}/{settings.r2_bucket}/{key}"
 
 
