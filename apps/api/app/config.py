@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     apollo_api_key: str = ""
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
+    adzuna_country: str = "gb"  # Adzuna is per-country; "gb","us",… (no Nigeria coverage)
     serpapi_api_key: str = ""
 
     # --- R2 / S3 ---

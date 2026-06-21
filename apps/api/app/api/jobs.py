@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.enums import ApplicationStatus, JobStatus, Origin, PrincipalType, Track, TrackerStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.db import get_session
@@ -19,12 +20,14 @@ from app.deps import (
     Principal,
     authorize_owner,
     current_principal,
+    current_user,
     scoped_user_ids,
 )
 from app.models.application import Application
 from app.models.cover_letter import CoverLetter
 from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
+from app.models.master_profile import MasterProfile
 from app.models.outreach import Outreach
 from app.models.reply import Reply
 from app.models.thread import Thread
@@ -112,6 +115,41 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
         "cover_letter_doc_url": _gdocs_viewer_url(cover.pdf_url if cover else None),
         "hunter_name": hunter_name,
         "created_at": job.created_at.isoformat() if job.created_at else None,
+    }
+
+
+@router.post("/discover")
+async def discover(
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Run job discovery NOW for the hunter's profiles (no 30-min beat wait) and
+    return a per-source report. Newly-found jobs appear in the list immediately."""
+    profiles = (
+        await session.execute(
+            select(MasterProfile).where(MasterProfile.user_id == user.id)
+        )
+    ).scalars().all()
+    agg: dict[str, dict] = {}
+    total = 0
+    for profile in profiles:
+        new_jobs, report = await service._run_sources(
+            session, user_id=user.id, profile=profile
+        )
+        total += len(new_jobs)
+        for r in report:
+            a = agg.setdefault(
+                r["source"], {"source": r["source"], "found": 0, "inserted": 0, "error": None}
+            )
+            a["found"] += r["found"]
+            a["inserted"] += r["inserted"]
+            if r["error"] and not a["error"]:
+                a["error"] = r["error"]
+    return {
+        "discovered": total,
+        "fake_mode": settings.use_fake_integrations,
+        "profiles": len(profiles),
+        "sources": list(agg.values()),
     }
 
 

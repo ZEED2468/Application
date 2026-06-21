@@ -283,6 +283,20 @@ export interface JobOut {
   cover_letter_doc_url?: string | null;
 }
 
+export interface SourceDiscoverResult {
+  source: string;
+  found: number;
+  inserted: number;
+  error?: string | null;
+}
+
+export interface DiscoverReport {
+  discovered: number;
+  fake_mode: boolean;
+  profiles: number;
+  sources: SourceDiscoverResult[];
+}
+
 export interface ApplicationSummary {
   id: string;
   status: TrackerStatus;

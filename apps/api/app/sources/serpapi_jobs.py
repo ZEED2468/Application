@@ -5,10 +5,13 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import httpx
+import structlog
 
 from app.config import settings
 from app.core.enums import JobSourceName, Track
 from app.sources.base import RawJob, SourceQuery, register
+
+log = structlog.get_logger(__name__)
 
 
 @register
@@ -21,9 +24,12 @@ class SerpApiSource:
     async def fetch(self, query: SourceQuery) -> AsyncIterator[RawJob]:
         if not settings.serpapi_api_key:
             return  # no creds -> no-op
+        q = " ".join(query.keywords) or query.track.value
+        if not query.location:
+            q = f"{q} remote"  # remote/global default when no location is set
         params = {
             "engine": "google_jobs",
-            "q": " ".join(query.keywords) or query.track.value,
+            "q": q,
             "api_key": settings.serpapi_api_key,
         }
         if query.location:
@@ -32,7 +38,12 @@ class SerpApiSource:
             try:
                 resp = await client.get("https://serpapi.com/search", params=params)
                 resp.raise_for_status()
-            except httpx.HTTPError:
+            except httpx.HTTPStatusError as exc:
+                log.warning("serpapi.http_error", status=exc.response.status_code,
+                            body=exc.response.text[:300])
+                return
+            except httpx.HTTPError as exc:
+                log.warning("serpapi.request_failed", error=str(exc))
                 return
             for job in resp.json().get("jobs_results", [])[: query.limit]:
                 yield RawJob(

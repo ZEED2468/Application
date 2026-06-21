@@ -3,11 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { Download, Briefcase } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Download, Briefcase, Search } from "lucide-react";
 import type { JobOut, Origin, Track, TrackerStatus } from "@jd/shared-types";
 import { TRACKER_STATUSES, TRACKS } from "@jd/shared-types";
 import { jobsService, applicationsService, type JobsFilter } from "@/lib/api/services";
+import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import {
   ORIGIN_LABELS,
@@ -38,6 +40,31 @@ export default function JobsPage() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.jobs(filter),
     queryFn: () => jobsService.list(filter),
+  });
+
+  const discover = useMutation({
+    mutationFn: () => jobsService.discover(),
+    onSuccess: (rep) => {
+      const summary = rep.sources
+        .map((s) => (s.error ? `${s.source}: error` : `${s.source}: ${s.inserted}`))
+        .join(", ");
+      toast.success(
+        `${rep.discovered} new job${rep.discovered === 1 ? "" : "s"}` +
+          (summary ? ` — ${summary}` : ""),
+      );
+      if (rep.fake_mode) {
+        toast.message(
+          "Running in fake mode — set USE_FAKE_INTEGRATIONS=false (+ source keys) for real jobs.",
+        );
+      }
+      const firstErr = rep.sources.find((s) => s.error);
+      if (firstErr) toast.error(`${firstErr.source}: ${firstErr.error}`);
+      if (rep.profiles === 0) {
+        toast.error("No profile yet — finish Onboarding so discovery has skills to search.");
+      }
+      refetch();
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
   });
 
   const columns: Column<JobOut>[] = [
@@ -128,14 +155,25 @@ export default function JobsPage() {
             and tracked from first send to offer.
           </p>
         </div>
-        <a
-          href={applicationsService.exportUrl()}
-          download
-          className={buttonVariants({ variant: "secondary", size: "sm" })}
-        >
-          <Download className="size-4" />
-          Export .xlsx
-        </a>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => discover.mutate()}
+            disabled={discover.isPending}
+          >
+            <Search className="size-4" />
+            {discover.isPending ? "Finding…" : "Find jobs now"}
+          </Button>
+          <a
+            href={applicationsService.exportUrl()}
+            download
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            <Download className="size-4" />
+            Export .xlsx
+          </a>
+        </div>
       </div>
 
       <div className="flex shrink-0 flex-wrap items-end gap-4 rounded-lg border border-coffee-300 bg-white px-4 py-3">

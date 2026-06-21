@@ -42,34 +42,67 @@ def _emphasis_keywords(profile: MasterProfile) -> list[str]:
     return tailoring._flatten_skills(profile.skills)[:8]
 
 
-async def discover_for_user(
+async def _run_sources(
     session, *, user_id: UUID, profile: MasterProfile, boards: list[str] | None = None,
     emit=_real_emit,
-) -> list[Job]:
-    """Run active sources for the hunter's track, dedupe-insert, emit job.discovered."""
+) -> tuple[list[Job], list[dict]]:
+    """Run active sources for the hunter's track; dedupe-insert; emit job.discovered.
+
+    Each source is isolated in try/except so one failing source (or a missing
+    `source_board` table) can never kill the whole run. Returns the new jobs plus a
+    per-source report for the on-demand diagnostics endpoint.
+    """
     query = SourceQuery(
         track=profile.track,
         keywords=_emphasis_keywords(profile),
         boards=boards or [],
     )
-    # Board scrapers (Greenhouse/Lever/Ashby) pull per-company tokens. When the caller
-    # didn't pass an explicit `boards` override, load the admin-configured ones per
-    # source. Aggregators (Adzuna/SerpApi) and the fake source ignore `boards`.
-    by_source = {} if boards else await boards_repo.active_by_source(session)
+    # Board scrapers (Greenhouse/Lever/Ashby) pull per-company tokens. Resilient: a
+    # missing/un-migrated `source_board` table must not break discovery.
+    by_source: dict = {}
+    if boards is None:
+        try:
+            by_source = await boards_repo.active_by_source(session)
+        except Exception as exc:  # noqa: BLE001 — degrade gracefully
+            log.warning("apply.boards_lookup_failed", error=str(exc),
+                        exc_type=type(exc).__name__)
+
     new_jobs: list[Job] = []
+    report: list[dict] = []
     for source in active_sources():
         if not source.supports(profile.track):
             continue
         if boards is None:
             query.boards = by_source.get(source.name, [])
-        async for raw in source.fetch(query):
-            job = await jobs_repo.insert_if_new(
-                session, user_id=user_id, fields=to_job_fields(raw)
-            )
-            if job is not None:
-                new_jobs.append(job)
-                emit(names.JOB_DISCOVERED,
-                     JobDiscovered(user_id=user_id, job_id=job.id, source=job.source.value))
+        found = inserted = 0
+        error: str | None = None
+        try:
+            async for raw in source.fetch(query):
+                found += 1
+                job = await jobs_repo.insert_if_new(
+                    session, user_id=user_id, fields=to_job_fields(raw)
+                )
+                if job is not None:
+                    inserted += 1
+                    new_jobs.append(job)
+                    emit(names.JOB_DISCOVERED,
+                         JobDiscovered(user_id=user_id, job_id=job.id, source=job.source.value))
+        except Exception as exc:  # noqa: BLE001 — one bad source shouldn't stop the rest
+            error = f"{type(exc).__name__}: {exc}"
+            log.warning("apply.source_failed", source=source.name.value, error=error)
+        report.append({"source": source.name.value, "found": found,
+                       "inserted": inserted, "error": error})
+    return new_jobs, report
+
+
+async def discover_for_user(
+    session, *, user_id: UUID, profile: MasterProfile, boards: list[str] | None = None,
+    emit=_real_emit,
+) -> list[Job]:
+    """Run active sources for the hunter's track, dedupe-insert, emit job.discovered."""
+    new_jobs, _ = await _run_sources(
+        session, user_id=user_id, profile=profile, boards=boards, emit=emit
+    )
     log.info("apply.discovered", count=len(new_jobs), track=profile.track.value)
     return new_jobs
 

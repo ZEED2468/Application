@@ -91,3 +91,31 @@ async def test_discover_passes_per_source_board_tokens(session, monkeypatch):
 
     # the greenhouse source receives only greenhouse tokens, not lever's
     assert rec.seen == ["airbnb"]
+
+
+@pytest.mark.asyncio
+async def test_run_sources_returns_per_source_report(session):
+    user, profile = await seed_hunter(session)
+    new_jobs, report = await service._run_sources(
+        session, user_id=user.id, profile=profile, emit=EventSink()
+    )
+    assert new_jobs  # fake source yields jobs in test mode
+    assert report and all(
+        {"source", "found", "inserted", "error"} <= r.keys() for r in report
+    )
+    assert sum(r["inserted"] for r in report) == len(new_jobs)
+
+
+@pytest.mark.asyncio
+async def test_discovery_resilient_to_board_lookup_failure(session, monkeypatch):
+    user, profile = await seed_hunter(session)
+
+    async def _boom(_session):
+        raise RuntimeError("source_board table missing")
+
+    monkeypatch.setattr(boards_repo, "active_by_source", _boom)
+    # must NOT raise — a missing/un-migrated source_board table degrades gracefully
+    new_jobs, report = await service._run_sources(
+        session, user_id=user.id, profile=profile, emit=EventSink()
+    )
+    assert report  # sources still ran despite the board lookup failing

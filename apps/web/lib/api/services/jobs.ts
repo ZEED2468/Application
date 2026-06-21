@@ -1,4 +1,5 @@
 import type {
+  DiscoverReport,
   JobDetail,
   JobOut,
   Origin,
@@ -67,6 +68,13 @@ export const jobsService = {
     return api
       .get(path(`/api/jobs${qs ? `?${qs}` : ""}`))
       .json<JobOut[]>();
+  },
+
+  async discover(): Promise<DiscoverReport> {
+    // 60s: discovery makes live HTTP calls to each source.
+    return api
+      .post(path("/api/jobs/discover"), { timeout: 60000 })
+      .json<DiscoverReport>();
   },
 
   async detail(id: string): Promise<JobDetail> {
