@@ -191,11 +191,31 @@ export interface AtsAiAnalysis {
   ai_powered?: boolean;
 }
 
+export interface AtsProfileSource {
+  track: Track;
+  filename: string | null;
+  word_count: number;
+  confirmed: boolean;
+}
+
+export interface AtsSources {
+  tracks: AtsProfileSource[];
+  cover_letter_template: CoverLetterTemplate | null;
+}
+
 /** Global ATS checker: any CV vs any JD. */
 export interface AtsCheckResult {
   role_title: string;
+  track?: Track | null;
+  cv_source?: "profile" | "upload" | "paste";
   cv_filename: string | null;
   cv_word_count: number;
+  track_match?: {
+    track: Track;
+    method: string;
+    reason: string;
+  } | null;
+  cover_letter_template?: CoverLetterTemplate | null;
   rule_based: {
     score: number;
     breakdown: AtsBreakdown;

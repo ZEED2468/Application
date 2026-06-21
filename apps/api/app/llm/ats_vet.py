@@ -202,7 +202,15 @@ async def vet_gaps(
         },
         indent=2,
     )
-    raw = await client.complete_text(system, prompt, max_tokens=1200, feature="ats_vet")
+    raw = await client.try_complete_text(system, prompt, max_tokens=1200, feature="ats_vet")
+    if raw is None:
+        return vet_gaps_offline(
+            profile=profile,
+            jd_text=jd_text,
+            candidate_gaps=candidate_gaps,
+            missing_keywords=missing_keywords,
+            limit=limit,
+        )
     try:
         return _parse_vet_response(
             raw,

@@ -130,7 +130,11 @@ async def classify_best(
         },
         indent=2,
     )
-    raw = await client.complete_text(system, prompt, max_tokens=400, feature="track_classify")
+    raw = await client.try_complete_text(system, prompt, max_tokens=400, feature="track_classify")
+    if raw is None:
+        if rule_track in available:
+            return TrackMatch(track=rule_track, method="rules", reason=reason)
+        return _pick_by_overlap(jd_tokens, available, fallback=rule_track)
     try:
         text = raw.strip()
         if text.startswith("```"):

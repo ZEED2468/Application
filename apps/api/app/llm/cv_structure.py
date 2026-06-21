@@ -89,7 +89,9 @@ async def structure_cv(text: str, *, track: str | None = None) -> StructuredProf
         "Bullets must be exact phrases or sentences from the source text."
     )
     prompt = f"TRACK LENS: {track or 'general'}\n\nCV TEXT:\n{body[:14000]}"
-    raw = await client.complete_text(system, prompt, max_tokens=2500, feature="cv_structure")
+    raw = await client.try_complete_text(system, prompt, max_tokens=2500, feature="cv_structure")
+    if raw is None:
+        return structure_offline(body, track=track)
     try:
         data = _parse_llm_json(raw)
         structured = {

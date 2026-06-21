@@ -39,3 +39,21 @@ async def complete_text(
         system=system, prompt=prompt, model=resolved.model,
         api_key=resolved.api_key, base_url=resolved.base_url, max_tokens=max_tokens,
     )
+
+
+async def try_complete_text(
+    system: str, prompt: str, *, max_tokens: int = 1500, feature: str | None = None
+) -> str | None:
+    """Like `complete_text`, but returns None when the provider call fails."""
+    try:
+        return await complete_text(
+            system, prompt, max_tokens=max_tokens, feature=feature,
+        )
+    except Exception as exc:
+        log.warning(
+            "llm.complete_failed",
+            feature=feature,
+            error=str(exc),
+            exc_type=type(exc).__name__,
+        )
+        return None

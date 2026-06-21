@@ -68,3 +68,21 @@ async def test_classify_best_fallback_when_jd_track_missing():
     )
     assert match.track is Track.general
     assert "backend" in match.reason.lower() or "general" in match.reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_classify_best_falls_back_when_llm_fails(monkeypatch):
+    async def _fail(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr("app.llm.client.try_complete_text", _fail)
+    match = await track_classify.classify_best(
+        title="Senior React Engineer",
+        description="React TypeScript frontend UI",
+        available={
+            Track.frontend: "React TypeScript CSS frontend mobile",
+            Track.backend: "Go Kubernetes PostgreSQL APIs",
+        },
+    )
+    assert match.track is Track.frontend
+    assert match.method == "rules"

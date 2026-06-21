@@ -150,7 +150,15 @@ async def analyze(
         },
         indent=2,
     )
-    raw = await client.complete_text(system, prompt, max_tokens=2000, feature="ats_analyze")
+    raw = await client.try_complete_text(system, prompt, max_tokens=2000, feature="ats_analyze")
+    if raw is None:
+        return _offline_analysis(
+            cv_text=cv_text,
+            jd_text=jd_text,
+            role_title=role_title,
+            rule_score=rule_score,
+            breakdown=breakdown,
+        )
     try:
         return _parse_ai_response(raw, rule_score=rule_score)
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):

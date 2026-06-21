@@ -14,4 +14,5 @@ export const queryKeys = {
   platforms: ["platforms"] as const,
   admins: ["admins"] as const,
   coverLetterTemplate: ["cover-letter-template"] as const,
+  atsSources: ["ats-sources"] as const,
 };
