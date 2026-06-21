@@ -41,10 +41,13 @@ class AdzunaSource:
             except httpx.HTTPStatusError as exc:
                 log.warning("adzuna.http_error", status=exc.response.status_code,
                             body=exc.response.text[:300], country=country)
-                return
+                # surface in the discover report (run_sources records the message)
+                raise RuntimeError(
+                    f"adzuna {exc.response.status_code}: {exc.response.text[:120]}"
+                ) from exc
             except httpx.HTTPError as exc:
                 log.warning("adzuna.request_failed", error=str(exc))
-                return
+                raise RuntimeError(f"adzuna request failed: {exc}") from exc
             for job in resp.json().get("results", []):
                 yield RawJob(
                     source=self.name,

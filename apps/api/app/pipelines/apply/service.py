@@ -73,6 +73,11 @@ async def _run_sources(
         keywords=_emphasis_keywords(profile),
         boards=boards or [],
     )
+    actives = [s for s in active_sources() if s.supports(profile.track)]
+    log.info("discover.start", user_id=str(user_id), track=profile.track.value,
+             keywords=query.keywords, fake_mode=settings.use_fake_integrations,
+             sources=[s.name.value for s in actives])
+
     # Board scrapers (Greenhouse/Lever/Ashby) pull per-company tokens. Resilient: a
     # missing/un-migrated `source_board` table must not break discovery.
     by_source: dict = {}
@@ -80,19 +85,25 @@ async def _run_sources(
         try:
             by_source = await boards_repo.active_by_source(session)
         except Exception as exc:  # noqa: BLE001 — degrade gracefully
-            log.warning("apply.boards_lookup_failed", error=str(exc),
+            log.warning("discover.boards_lookup_failed", error=str(exc),
                         exc_type=type(exc).__name__)
 
     new_jobs: list[Job] = []
     report: list[dict] = []
-    for source in active_sources():
-        if not source.supports(profile.track):
-            continue
+    for source in actives:
+        name = source.name.value
         if boards is None:
             query.boards = by_source.get(source.name, [])
+        # Notes are diagnostic and only meaningful with real integrations.
+        note = (
+            None if settings.use_fake_integrations
+            else _config_note(source.name, query.boards)
+        )
         found = inserted = 0
         error: str | None = None
+        log.info("discover.source.fetch", source=name, boards=query.boards or None, note=note)
         try:
+            # Unconfigured adapters (no key / no board tokens) no-op immediately.
             async for raw in source.fetch(query):
                 found += 1
                 job = await jobs_repo.insert_if_new(
@@ -102,13 +113,16 @@ async def _run_sources(
                     inserted += 1
                     new_jobs.append(job)
                     emit(names.JOB_DISCOVERED,
-                         JobDiscovered(user_id=user_id, job_id=job.id, source=job.source.value))
+                         JobDiscovered(user_id=user_id, job_id=job.id, source=name))
         except Exception as exc:  # noqa: BLE001 — one bad source shouldn't stop the rest
             error = f"{type(exc).__name__}: {exc}"
-            log.warning("apply.source_failed", source=source.name.value, error=error)
-        report.append({"source": source.name.value, "found": found,
-                       "inserted": inserted, "error": error,
-                       "note": _config_note(source.name, query.boards)})
+            log.warning("discover.source.failed", source=name, error=error)
+        log.info("discover.source.done", source=name, found=found, inserted=inserted,
+                 error=error, note=note)
+        report.append({"source": name, "found": found, "inserted": inserted,
+                       "error": error, "note": note})
+    log.info("discover.done", user_id=str(user_id), track=profile.track.value,
+             new=len(new_jobs))
     return new_jobs, report
 
 

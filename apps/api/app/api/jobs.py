@@ -7,6 +7,7 @@ from uuid import UUID
 
 from urllib.parse import quote
 
+import structlog
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -43,6 +44,7 @@ from app.schemas.jobs import (
 )
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+log = structlog.get_logger(__name__)
 
 
 class ApplicationStatusUpdate(BaseModel):
@@ -125,6 +127,7 @@ async def discover(
 ) -> dict:
     """Run job discovery NOW for the hunter's profiles (no 30-min beat wait) and
     return a per-source report. Newly-found jobs appear in the list immediately."""
+    log.info("discover.requested", user_id=str(user.id), email=user.email)
     profiles = (
         await session.execute(
             select(MasterProfile).where(MasterProfile.user_id == user.id)
@@ -145,12 +148,18 @@ async def discover(
             a["inserted"] += r["inserted"]
             if r["error"] and not a["error"]:
                 a["error"] = r["error"]
-    return {
+    result = {
         "discovered": total,
         "fake_mode": settings.use_fake_integrations,
         "profiles": len(profiles),
         "sources": list(agg.values()),
     }
+    log.info("discover.result", user_id=str(user.id), discovered=total,
+             profiles=len(profiles),
+             sources={s["source"]: {"found": s["found"], "inserted": s["inserted"],
+                                    "error": s["error"], "note": s["note"]}
+                      for s in agg.values()})
+    return result
 
 
 @router.get("")

@@ -41,11 +41,17 @@ class SerpApiSource:
             except httpx.HTTPStatusError as exc:
                 log.warning("serpapi.http_error", status=exc.response.status_code,
                             body=exc.response.text[:300])
-                return
+                raise RuntimeError(
+                    f"serpapi {exc.response.status_code}: {exc.response.text[:120]}"
+                ) from exc
             except httpx.HTTPError as exc:
                 log.warning("serpapi.request_failed", error=str(exc))
-                return
-            for job in resp.json().get("jobs_results", [])[: query.limit]:
+                raise RuntimeError(f"serpapi request failed: {exc}") from exc
+            data = resp.json()
+            if data.get("error"):  # SerpApi reports bad key / no credits in a 200 body
+                log.warning("serpapi.api_error", error=str(data["error"])[:300])
+                raise RuntimeError(f"serpapi: {str(data['error'])[:120]}")
+            for job in data.get("jobs_results", [])[: query.limit]:
                 yield RawJob(
                     source=self.name,
                     source_job_id=job.get("job_id"),
