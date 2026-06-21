@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     r2_secret_access_key: str = ""
     r2_bucket: str = "jd-cvs"
     r2_endpoint: str = ""
+    # Optional: a public bucket domain (R2.dev / custom). If set, downloads use it
+    # directly instead of presigning. Leave blank to keep objects private + presigned.
+    r2_public_base_url: str = ""
 
     # --- Bridge ---
     bridge_base_url: str = "http://localhost:8081"

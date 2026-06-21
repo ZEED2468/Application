@@ -247,12 +247,15 @@ export interface AtsCheckResult {
 
 export interface GeneratedCv {
   pdf_url: string | null;
+  /** auth-scoped download endpoint (presigned R2 redirect) */
+  download_url?: string | null;
   ats_score: number | null;
   ats_breakdown: AtsBreakdown | null;
 }
 
 export interface CoverLetter {
   pdf_url: string | null;
+  download_url?: string | null;
 }
 
 /* ----------------------------------------------------------------------------

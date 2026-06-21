@@ -27,7 +27,7 @@ import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { formatDateTime } from "@/lib/utils";
-import { toGoogleDocsViewerUrl } from "@/lib/docs-links";
+import { absoluteApiUrl } from "@/lib/api/client";
 import { PageHeading, ErrorState } from "@/components/states";
 import { AtsBreakdown } from "@/components/ats-breakdown";
 import { StatusCell } from "../status-cell";
@@ -318,11 +318,11 @@ export default function JobDetailPage({
             <CardContent className="space-y-3">
               <DocLink
                 label="Tailored CV"
-                href={generated_cv?.pdf_url ?? null}
+                href={generated_cv?.download_url ?? null}
               />
               <DocLink
                 label="Cover letter"
-                href={cover_letter?.pdf_url ?? null}
+                href={cover_letter?.download_url ?? null}
               />
             </CardContent>
           </Card>
@@ -384,7 +384,7 @@ function BackLink() {
 }
 
 function DocLink({ label, href }: { label: string; href: string | null }) {
-  const docHref = toGoogleDocsViewerUrl(href);
+  const docHref = absoluteApiUrl(href);
   if (!docHref) {
     return (
       <div className="flex items-center justify-between rounded-md border border-coffee-100 px-3 py-2.5">
@@ -407,7 +407,7 @@ function DocLink({ label, href }: { label: string; href: string | null }) {
         <FileText className="size-4 text-coffee-500" />
         {label}
       </span>
-      <span className="text-xs text-coffee-500">Google Doc</span>
+      <span className="text-xs text-coffee-500">Open</span>
     </a>
   );
 }

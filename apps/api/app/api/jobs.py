@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from urllib.parse import quote
-
 import structlog
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -33,6 +31,7 @@ from app.models.outreach import Outreach
 from app.models.reply import Reply
 from app.models.thread import Thread
 from app.models.user import User
+from app.api._files import serve_key
 from app.pipelines.apply import service
 from app.repositories import applications as app_repo
 from app.repositories import jobs as jobs_repo
@@ -54,12 +53,6 @@ class ApplicationStatusUpdate(BaseModel):
 def _actor(principal: Principal) -> str:
     kind = "va" if principal.type is PrincipalType.va else "hunter"
     return f"{kind}:{principal.id}"
-
-
-def _gdocs_viewer_url(pdf_url: str | None) -> str | None:
-    if not pdf_url:
-        return None
-    return f"https://docs.google.com/viewer?url={quote(pdf_url, safe='')}"
 
 
 def _jd_preview(text: str | None, *, max_len: int = 100) -> str | None:
@@ -113,8 +106,9 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
         "tracker_status": application_status,
         "description": description,
         "jd_preview": _jd_preview(description),
-        "resume_doc_url": _gdocs_viewer_url(cv.pdf_url if cv else None),
-        "cover_letter_doc_url": _gdocs_viewer_url(cover.pdf_url if cover else None),
+        # Auth-scoped download endpoints (307 -> presigned R2); null until generated.
+        "resume_doc_url": f"/api/jobs/{job.id}/cv" if (cv and cv.pdf_key) else None,
+        "cover_letter_doc_url": f"/api/jobs/{job.id}/cover" if (cover and cover.pdf_key) else None,
         "hunter_name": hunter_name,
         "created_at": job.created_at.isoformat() if job.created_at else None,
     }
@@ -233,9 +227,13 @@ async def get_job(
 
     row.update({
         "description": job.description,
-        "cv": ({"pdf_url": cv.pdf_url, "ats_score": cv.ats_score,
+        "cv": ({"pdf_url": cv.pdf_url,
+                "download_url": f"/api/jobs/{job.id}/cv" if cv.pdf_key else None,
+                "ats_score": cv.ats_score,
                 "ats_breakdown": cv.ats_breakdown} if cv else None),
-        "cover_letter": ({"pdf_url": cover.pdf_url, "body": cover.body} if cover else None),
+        "cover_letter": ({"pdf_url": cover.pdf_url,
+                          "download_url": f"/api/jobs/{job.id}/cover" if cover.pdf_key else None,
+                          "body": cover.body} if cover else None),
         "application": ({"id": str(app.id), "status": app.status.value,
                          "tracker_status": app.tracker_status.value,
                          "application_status": app.tracker_status.value,
@@ -365,3 +363,37 @@ async def submit(
         session, user_id=job.user_id, job=job, generated_cv=cv, va_id=va_id
     )
     return SubmitResponse(application_id=application.id, status=application.status.value)
+
+
+@router.get("/{job_id}/cv")
+async def download_cv(
+    job_id: UUID,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """Serve the tailored CV PDF (presigned R2 redirect, or streamed in dev)."""
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    cv = await _cv_for(session, job.id)
+    return await serve_key(
+        cv.pdf_key if cv else None, filename=f"cv-{job_id}.pdf"
+    )
+
+
+@router.get("/{job_id}/cover")
+async def download_cover(
+    job_id: UUID,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """Serve the cover-letter PDF (presigned R2 redirect, or streamed in dev)."""
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    cover = await _cover_for(session, job.id)
+    return await serve_key(
+        cover.pdf_key if cover else None, filename=f"cover-{job_id}.pdf"
+    )

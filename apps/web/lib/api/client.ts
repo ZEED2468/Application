@@ -121,3 +121,16 @@ export async function toApiError(err: unknown): Promise<ApiError> {
 export function path(p: string): string {
   return p.replace(/^\/?api\/?/, "");
 }
+
+/**
+ * Absolute URL for a browser download `<a href>` (file downloads, presigned-redirect
+ * endpoints). Respects proxy vs direct mode: same-origin `/api/...` under the proxy,
+ * or the backend origin in direct mode (so the first-party backend cookie travels).
+ * Pass an already-absolute URL through unchanged.
+ */
+export function absoluteApiUrl(pathOrUrl: string | null | undefined): string | null {
+  if (!pathOrUrl) return null;
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  const p = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  return `${API_ROOT}${p}`;
+}

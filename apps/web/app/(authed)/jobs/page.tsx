@@ -75,11 +75,17 @@ export default function JobsPage() {
     {
       key: "company",
       header: "Company",
+      headClassName: "w-[14%] min-w-[9rem]",
+      className: "align-top",
       cell: (job) => (
         <div className="leading-tight">
-          <div className="font-medium text-coffee-900">{job.company}</div>
+          <div className="line-clamp-2 font-medium text-coffee-900" title={job.company}>
+            {job.company}
+          </div>
           {job.location && (
-            <div className="text-xs text-coffee-300">{job.location}</div>
+            <div className="truncate text-xs text-coffee-300" title={job.location}>
+              {job.location}
+            </div>
           )}
         </div>
       ),
@@ -87,11 +93,19 @@ export default function JobsPage() {
     {
       key: "role",
       header: "Role",
-      cell: (job) => <span className="text-coffee-700">{job.role}</span>,
+      headClassName: "w-[17%] min-w-[11rem]",
+      className: "align-top",
+      cell: (job) => (
+        <div className="line-clamp-2 text-coffee-700" title={job.role}>
+          {job.role}
+        </div>
+      ),
     },
     {
       key: "track",
       header: "Track",
+      headClassName: "w-[7%] min-w-[5rem]",
+      className: "align-top",
       cell: (job) => (
         <Badge variant="outline">{TRACK_LABELS[job.track]}</Badge>
       ),
@@ -99,6 +113,8 @@ export default function JobsPage() {
     {
       key: "origin",
       header: "Origin",
+      headClassName: "w-[7%] min-w-[5rem]",
+      className: "align-top",
       cell: (job) => (
         <Badge variant={job.origin === "manual" ? "default" : "muted"}>
           {ORIGIN_LABELS[job.origin]}
@@ -108,11 +124,11 @@ export default function JobsPage() {
     {
       key: "ats",
       header: "ATS",
-      headClassName: "text-right",
-      className: "text-right tabular-nums",
+      headClassName: "w-[5%] min-w-[3.5rem] text-right",
+      className: "align-top text-right tabular-nums",
       cell: (job) =>
         job.ats_score === null ? (
-          <span className="text-coffee-300" />
+          <span className="text-coffee-300">—</span>
         ) : (
           <span className="font-medium text-coffee-900">{job.ats_score}</span>
         ),
@@ -120,13 +136,15 @@ export default function JobsPage() {
     {
       key: "jd",
       header: "JD",
-      headClassName: "min-w-[20rem] w-[26%]",
-      className: "min-w-[20rem] w-[26%] align-top",
+      headClassName: "w-[22%] min-w-[16rem]",
+      className: "min-w-[16rem] align-top",
       cell: (job) => <JdCell job={job} />,
     },
     {
       key: "resume",
       header: "Resume",
+      headClassName: "w-[8%] min-w-[6rem]",
+      className: "align-top",
       cell: (job) => (
         <DocLinkCell url={job.resume_doc_url} label="tailored resume" />
       ),
@@ -134,6 +152,8 @@ export default function JobsPage() {
     {
       key: "cover_letter",
       header: "Cover letter",
+      headClassName: "w-[9%] min-w-[6.5rem]",
+      className: "align-top",
       cell: (job) => (
         <DocLinkCell url={job.cover_letter_doc_url} label="cover letter" />
       ),
@@ -141,8 +161,8 @@ export default function JobsPage() {
     {
       key: "status",
       header: "Status",
-      headClassName: "min-w-[11rem]",
-      className: "min-w-[11rem]",
+      headClassName: "w-[11%] min-w-[10rem]",
+      className: "align-top min-w-[10rem]",
       cell: (job) => <StatusCell job={job} filter={filter} />,
     },
   ];
@@ -241,7 +261,7 @@ export default function JobsPage() {
               skeletonRows={12}
               stickyHeader
               columnBorders
-              tableClassName="table-fixed"
+              tableClassName="table-fixed min-w-[70rem]"
               emptyState={
                 <EmptyState
                   icon={<Briefcase className="size-8" />}

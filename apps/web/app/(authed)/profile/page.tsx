@@ -7,7 +7,7 @@ import { UploadCloud, Check, FileText, Lock } from "lucide-react";
 import type { MasterProfile, MeResponse, Track } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
 import { authService, onboardingService } from "@/lib/api/services";
-import { toApiError } from "@/lib/api/client";
+import { absoluteApiUrl, toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { previewCoverLetterTemplate } from "@/lib/cover-letter-template";
@@ -233,6 +233,14 @@ export default function ProfilePage() {
                             parsed
                           </span>
                         )}
+                        <a
+                          href={absoluteApiUrl(`/api/onboarding/role-cv/${track}/file`) ?? "#"}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="shrink-0 text-xs text-coffee-500 underline underline-offset-2 hover:text-coffee-900"
+                        >
+                          Download
+                        </a>
                       </span>
                     ) : (
                       <span className="text-sm text-coffee-300">
@@ -288,6 +296,14 @@ export default function ProfilePage() {
                   <span className="truncate" title={templateFilename}>
                     {templateFilename}
                   </span>
+                  <a
+                    href={absoluteApiUrl("/api/onboarding/cover-letter-template/file") ?? "#"}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="shrink-0 text-xs text-coffee-500 underline underline-offset-2 hover:text-coffee-900"
+                  >
+                    Download
+                  </a>
                 </span>
               ) : (
                 <span className="text-sm text-coffee-300">

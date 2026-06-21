@@ -5,14 +5,62 @@ context. The repo is the **Job Application & Outreach Engine** (FastAPI + Celery
 in `apps/api`, Next.js dashboard in `apps/web`, Go WhatsApp bridge in `apps/wa-bridge`,
 shared TS types in `packages/shared-types`).
 
-**State at last update:** working tree clean (all committed; HEAD `d57484e feat:ats system
-reconfig`). Backend `uv run python -m pytest -q` → **81 passed**. `pnpm --filter web build`
-→ green. Alembic head → **`c9d0e1f2a3b4`** (`source_board`).
+**State at last update:** Backend `uv run python -m pytest -q` → **88 passed**.
+`pnpm --filter web build` → green. The storage + discovery work below is in the working
+tree — **commit + redeploy (`api` + `web`) to ship**. Reminder: secrets (Adzuna/SerpApi,
+**R2**) live in the **Render dashboard env** (the local `.env` is ignored by Render); the
+deploy must run `alembic upgrade head`.
 
 > **The #1 non-negotiable is the TRUTH BOUNDARY**: generation only reorders/reframes
 > facts already in the master profile / `truth_corpus` or VA-confirmed-true. Never
 > fabricate. `tailoring.assert_truth_bounded` proves it on the deterministic path; the
 > live LLM path is constrained by prompt. Every feature below respects this.
+
+---
+
+## Most recent (this session)
+
+### Cloudflare R2 storage made real — uploads in, presigned downloads out
+**Why:** files were uploaded to R2 (keys persisted) but the stored `pdf_url` was the
+**private** S3 URL, the frontend opened PDFs via Google Docs Viewer (can't fetch a
+private/authed URL), and there was **no download mechanism** — files went in but couldn't
+come out.
+- `app/integrations/r2.py`: hardened the boto3 client (`region_name="auto"`, s3v4), ran
+  blocking calls via `asyncio.to_thread`, added **`presigned_url()`** (short-lived GET URL;
+  honors optional `R2_PUBLIC_BASE_URL`) and **`get_bytes()`**.
+- `app/api/_files.py` `serve_key()`: serve an object as a **307 → presigned redirect**
+  (live) or **streamed bytes** (fake/dev); 404 if missing.
+- Auth-scoped download routes: `GET /api/jobs/{id}/cv` + `/cover` (authorize_owner),
+  `GET /api/onboarding/role-cv/{track}/file` + `/cover-letter-template/file` (current_user).
+- `app/api/jobs.py`: `resume_doc_url`/`cover_letter_doc_url` (and detail `download_url`) now
+  point at those endpoints; dropped `_gdocs_viewer_url`.
+- Uploads ([onboarding.py](apps/api/app/api/onboarding.py)): validate ext (pdf/doc/docx[/txt])
+  + ≤10 MB → 400; **stable keys** (`{user}/role-cv/{track}/source.{ext}`) so re-uploads
+  overwrite (no orphans). Keys remain the DB recovery handle.
+- Frontend: `lib/api/client.ts` `absoluteApiUrl()` (proxy-vs-direct safe); `DocLinkCell` +
+  job-detail `DocLink` link straight to the download endpoint; `/profile` gains **Download**
+  links for the uploaded source CV + cover-letter file. Tests: `tests/test_storage.py`.
+- ⚠️ R2 creds (`R2_ACCOUNT_ID/ACCESS_KEY_ID/SECRET_ACCESS_KEY/BUCKET/ENDPOINT`) must be in
+  the **Render** env; `R2_ENDPOINT = https://<account_id>.r2.cloudflarestorage.com`.
+
+### On-demand job discovery + diagnostics
+**Why:** discovery was a 30-min beat with no trigger/visibility; real jobs weren't appearing.
+- `POST /api/jobs/discover` + a **"Find jobs now"** button on the Jobs page — runs discovery
+  in-request (no beat/worker dependency) and returns a **per-source report**
+  (`found/inserted/error/note`). `app/pipelines/apply/service.py` `_run_sources` isolates each
+  source in try/except (a missing `source_board` table can't kill discovery) and emits rich
+  `discover.*` structured logs (visible in Render).
+- Source failures now **surface** (Adzuna/SerpApi log + raise → shown in the report/logs);
+  SerpApi's "no results in a 200 body" is treated as benign empty, real errors raised.
+- Query tuning for remote/global: **Adzuna `what_or`** (was AND-joining 6 skills → 0),
+  **SerpApi top-3 skills + "remote"**, `ADZUNA_COUNTRY` configurable (default `gb`).
+
+### Manual-apply 500 fix + jobs-table readability
+- `app/llm/tailoring.py`: the live tailoring path now **parses tolerantly** (strips ```json
+  fences) and **falls back to the deterministic, truth-bounded path** on any LLM/parse error
+  — fixed the 500 on `POST /api/chat/sessions` (Analyze).
+- `apps/web/app/(authed)/jobs/page.tsx`: per-column widths + 2-line clamp on Role/Company
+  (tooltips), top-aligned cells, table `min-w` for horizontal scroll on small screens.
 
 ---
 

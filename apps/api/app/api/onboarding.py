@@ -6,16 +6,44 @@ skills) -> hunter reviews/corrects/confirms.
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._files import serve_key
 from app.core.enums import ParseStatus, Track
-from app.core.errors import NotFoundError
+from app.core.errors import DomainError, NotFoundError
 from app.db import get_session
 from app.deps import current_user
 from app.integrations import r2
+
+_ALLOWED_CV_EXT = {".pdf", ".doc", ".docx"}
+_ALLOWED_TEMPLATE_EXT = _ALLOWED_CV_EXT | {".txt"}
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _validate_upload(filename: str | None, data: bytes, allowed: set[str]) -> str:
+    """Return the lowercased extension after checking type + size, else raise 400."""
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext not in allowed:
+        raise DomainError(
+            f"Unsupported file type '{ext or '?'}'. Allowed: {', '.join(sorted(allowed))}."
+        )
+    if not data:
+        raise DomainError("Empty file.")
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise DomainError("File too large (max 10 MB).")
+    return ext
+
+
+def _serve_extras(ext: str) -> tuple[str, bool]:
+    """(content_type, inline) for serving an uploaded source file by extension."""
+    if ext == ".pdf":
+        return "application/pdf", True
+    return "application/octet-stream", False
 from app.models.cover_letter import CoverLetterTemplate
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
@@ -119,7 +147,9 @@ async def upload_role_cv(
     user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
 ) -> dict:
     data = await file.read()
-    key = f"{user.id}/role-cv/{track.value}/{file.filename}"
+    ext = _validate_upload(file.filename, data, _ALLOWED_CV_EXT)
+    # Stable key so a re-upload overwrites (no orphaned objects); keep filename for display.
+    key = f"{user.id}/role-cv/{track.value}/source{ext}"
     await r2.put_bytes(key, data, file.content_type or "application/octet-stream")
 
     text = _extract_text(file.filename or "", data)
@@ -181,7 +211,8 @@ async def upload_template_file(
 ) -> CoverLetterTemplateOut:
     data = await file.read()
     filename = file.filename or "template.txt"
-    key = f"{user.id}/cover-letter-template/{filename}"
+    ext = _validate_upload(filename, data, _ALLOWED_TEMPLATE_EXT)
+    key = f"{user.id}/cover-letter-template/source{ext}"
     await r2.put_bytes(key, data, file.content_type or "application/octet-stream")
 
     text = _extract_text(filename, data).strip()
@@ -226,3 +257,40 @@ async def confirm_profile(
     profile.confirmed = True
     await session.flush()
     return {"confirmed": True, "track": track.value}
+
+
+@router.get("/onboarding/role-cv/{track}/file")
+async def download_role_cv(
+    track: Track,
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+):
+    """Re-download the hunter's uploaded source CV for a track (safe recovery)."""
+    rc = (await session.execute(
+        select(RoleCv).where(RoleCv.user_id == user.id, RoleCv.track == track)
+    )).scalar_one_or_none()
+    if rc is None or not rc.source_file_key:
+        raise NotFoundError("No source CV uploaded for this track.")
+    ext = os.path.splitext(rc.source_file_key)[1].lower()
+    content_type, inline = _serve_extras(ext)
+    return await serve_key(
+        rc.source_file_key, filename=rc.original_filename or f"cv-{track.value}{ext}",
+        content_type=content_type, inline=inline,
+    )
+
+
+@router.get("/onboarding/cover-letter-template/file")
+async def download_template_file(
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+):
+    """Re-download the hunter's uploaded cover-letter template source file."""
+    tpl = (await session.execute(
+        select(CoverLetterTemplate).where(CoverLetterTemplate.user_id == user.id)
+    )).scalar_one_or_none()
+    if tpl is None or not tpl.source_file_key:
+        raise NotFoundError("No template file uploaded.")
+    ext = os.path.splitext(tpl.source_file_key)[1].lower()
+    content_type, inline = _serve_extras(ext)
+    return await serve_key(
+        tpl.source_file_key, filename=tpl.original_filename or f"cover-letter-template{ext}",
+        content_type=content_type, inline=inline,
+    )
