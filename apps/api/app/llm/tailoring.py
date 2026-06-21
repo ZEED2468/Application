@@ -9,9 +9,31 @@ the model to the profile as its only source and stores a diff for VA review.
 
 from __future__ import annotations
 
+import json
 import re
 
+import structlog
+
+log = structlog.get_logger(__name__)
+
 _TOKEN = re.compile(r"[a-z0-9+#.]+")
+
+
+def _parse_cv_json(text: str) -> dict:
+    """Parse the model's tailoring output, tolerating ```json fences / surrounding
+    prose. Raises if no JSON object can be recovered."""
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```(?:json)?\s*", "", s)
+        s = re.sub(r"\s*```$", "", s).strip()
+    if not s.startswith("{"):
+        start, end = s.find("{"), s.rfind("}")
+        if start != -1 and end > start:
+            s = s[start : end + 1]
+    data = json.loads(s)
+    if not isinstance(data, dict):
+        raise ValueError("tailoring did not return a JSON object")
+    return data
 
 
 def _tokens(text: str) -> set[str]:
@@ -118,8 +140,6 @@ async def tailor(
         diff["priority_techs"] = priority_techs or []
         return cv_json, diff
 
-    import json
-
     system = (
         "You tailor a CV to a job. STRICT RULE: use ONLY facts present in the "
         "provided master profile (its skills, experience, projects, and summary/CV "
@@ -146,8 +166,20 @@ async def tailor(
         f"JOB TITLE: {job_title}\nJOB DESCRIPTION: {job_description or ''}\n\n"
         "Return only the JSON object."
     )
-    text = await client.complete_text(system, prompt, max_tokens=2500, feature="tailoring")
-    cv_json = json.loads(text)
-    diff = {"strategy": "llm", "model": True, "achievement_format": True,
-            "priority_techs": priority_techs or []}
-    return cv_json, diff
+    try:
+        text = await client.complete_text(system, prompt, max_tokens=2500, feature="tailoring")
+        cv_json = _parse_cv_json(text)
+        diff = {"strategy": "llm", "model": True, "achievement_format": True,
+                "priority_techs": priority_techs or []}
+        return cv_json, diff
+    except Exception as exc:
+        # Live tailoring must never break generation (a bad/non-JSON model reply or
+        # an API error). Fall back to the deterministic, provably truth-bounded path.
+        log.warning("tailoring.live_failed", error=str(exc), exc_type=type(exc).__name__)
+        cv_json, diff = tailor_fake(
+            profile, job_title=job_title, job_description=job_description
+        )
+        assert_truth_bounded(profile, cv_json)
+        diff["priority_techs"] = priority_techs or []
+        diff["fell_back"] = "llm_failed"
+        return cv_json, diff

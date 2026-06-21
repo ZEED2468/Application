@@ -78,3 +78,45 @@ async def test_tailor_threads_priority_techs_and_stays_bounded():
     )
     tailoring.assert_truth_bounded(profile, cv)
     assert diff["priority_techs"] == ["Kafka"]
+
+
+@pytest.mark.asyncio
+async def test_tailor_parses_fenced_json(monkeypatch):
+    from app.llm import client
+
+    monkeypatch.setattr(client, "is_live", lambda feature=None: True)
+    payload = (
+        '```json\n{"headline":"H","summary":"S","skills":["Go"],'
+        '"experience":[],"projects":[],"education":[],"links":{}}\n```'
+    )
+
+    async def _ok(*a, **k):
+        return payload
+
+    monkeypatch.setattr(client, "complete_text", _ok)
+    cv, diff = await tailoring.tailor(
+        {"skills": ["Go"]}, job_title="Backend", job_description="Go"
+    )
+    assert cv["headline"] == "H" and diff["strategy"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_tailor_falls_back_on_live_failure(monkeypatch):
+    """A non-JSON model reply or API error must never 500 — fall back to the
+    deterministic, truth-bounded path."""
+    from app.llm import client
+
+    monkeypatch.setattr(client, "is_live", lambda feature=None: True)
+
+    async def _bad(*a, **k):
+        return "Sure! Here's the CV:\n```json\n{ not valid json"
+
+    monkeypatch.setattr(client, "complete_text", _bad)
+    profile = {
+        "headline": "h", "summary": "s", "skills": ["Go"],
+        "experience": [{"bullets": ["Built Go services"]}],
+        "projects": [], "education": [], "links": {},
+    }
+    cv, diff = await tailoring.tailor(profile, job_title="Backend", job_description="Go")
+    tailoring.assert_truth_bounded(profile, cv)
+    assert diff.get("fell_back") == "llm_failed"
