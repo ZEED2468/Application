@@ -81,6 +81,38 @@ def test_ats_scores_tailored_profile_against_jd():
         assert all(ats._is_actionable_skill(g) for g in gaps)
 
 
+def test_ats_keywords_from_requirements_not_marketing_copy():
+    jd = """
+    Sproxil Brand Engineering
+    We are a consumer-focused company building advanced technologies.
+    Our product team works closely with candidates on clean architecture.
+
+    Requirements:
+    Node.js, TypeScript, NestJS, RESTful APIs, microservices, Azure, Git,
+    security, Java, Jest, MySQL, Linux, PostgreSQL
+    """
+    keywords = ats.extract_keywords(jd)
+    lowered = [k.lower() for k in keywords]
+    assert "azure" in lowered
+    assert "typescript" in lowered or "nestjs" in lowered
+    assert "technologies" not in lowered
+    assert "consumer" not in lowered
+    assert "advanced" not in lowered
+    assert "candidates" not in lowered
+    assert "sproxil" not in lowered
+    assert "closely" not in lowered
+    assert "clean" not in lowered
+
+
+def test_ats_keywords_from_inline_requirements_colon():
+    jd = "About us: great team. Requirements: Rust, Kafka, Terraform, Go."
+    keywords = ats.extract_keywords(jd)
+    lowered = [k.lower() for k in keywords]
+    assert "rust" in lowered
+    assert "kafka" in lowered
+    assert "terraform" in lowered
+
+
 def test_cover_letter_is_three_paragraphs_and_truthful():
     profile = {
         "summary": "I build backend systems.",
