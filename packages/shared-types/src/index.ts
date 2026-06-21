@@ -288,6 +288,8 @@ export interface SourceDiscoverResult {
   found: number;
   inserted: number;
   error?: string | null;
+  /** why a source found nothing (e.g. "no SERPAPI_API_KEY in this environment") */
+  note?: string | null;
 }
 
 export interface DiscoverReport {

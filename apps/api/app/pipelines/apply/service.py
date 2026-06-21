@@ -12,7 +12,8 @@ from uuid import UUID
 
 import structlog
 
-from app.core.enums import ApplicationStatus, CvStatus, JobStatus
+from app.config import settings
+from app.core.enums import ApplicationStatus, CvStatus, JobSourceName, JobStatus
 from app.events import names
 from app.events.bus import emit as _real_emit
 from app.events.contracts import (
@@ -40,6 +41,21 @@ log = structlog.get_logger(__name__)
 
 def _emphasis_keywords(profile: MasterProfile) -> list[str]:
     return tailoring._flatten_skills(profile.skills)[:8]
+
+
+_BOARD_SOURCE_NAMES = {JobSourceName.greenhouse, JobSourceName.lever, JobSourceName.ashby}
+
+
+def _config_note(name: JobSourceName, boards: list[str]) -> str | None:
+    """Why a source found nothing, config-wise — so the diagnostics distinguish
+    'skipped: not configured' from 'ran: 0 results'."""
+    if name is JobSourceName.adzuna and not (settings.adzuna_app_id and settings.adzuna_app_key):
+        return "no ADZUNA_APP_ID/ADZUNA_APP_KEY in this environment"
+    if name is JobSourceName.serpapi and not settings.serpapi_api_key:
+        return "no SERPAPI_API_KEY in this environment"
+    if name in _BOARD_SOURCE_NAMES and not boards:
+        return "no board tokens — add company slugs in Admin -> Job boards"
+    return None
 
 
 async def _run_sources(
@@ -91,7 +107,8 @@ async def _run_sources(
             error = f"{type(exc).__name__}: {exc}"
             log.warning("apply.source_failed", source=source.name.value, error=error)
         report.append({"source": source.name.value, "found": found,
-                       "inserted": inserted, "error": error})
+                       "inserted": inserted, "error": error,
+                       "note": _config_note(source.name, query.boards)})
     return new_jobs, report
 
 
