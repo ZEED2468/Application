@@ -29,6 +29,8 @@ class MasterProfile(Base, TimestampMixin):
     education: Mapped[list] = mapped_column(JsonB, default=list)
     projects: Mapped[list] = mapped_column(JsonB, default=list)
     links: Mapped[dict] = mapped_column(JsonB, default=dict)
+    # Explicit job titles the hunter wants — discovery filters scraped jobs to these.
+    target_roles: Mapped[list] = mapped_column(JsonB, default=list)
     # Ground truth that bounds tailoring — the LLM may only reframe what is here.
     truth_corpus: Mapped[str | None] = mapped_column(Text, nullable=True)
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

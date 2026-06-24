@@ -32,6 +32,7 @@ from app.models.reply import Reply
 from app.models.thread import Thread
 from app.models.user import User
 from app.api._files import serve_key
+from app.api._pagination import PageParam, PageSizeParam, paginate
 from app.pipelines.apply import service
 from app.repositories import applications as app_repo
 from app.repositories import jobs as jobs_repo
@@ -138,10 +139,11 @@ async def discover(
             a = agg.setdefault(
                 r["source"],
                 {"source": r["source"], "found": 0, "inserted": 0,
-                 "error": None, "note": None},
+                 "off_target": 0, "error": None, "note": None},
             )
             a["found"] += r["found"]
             a["inserted"] += r["inserted"]
+            a["off_target"] += r.get("off_target", 0)
             if r["error"] and not a["error"]:
                 a["error"] = r["error"]
             if r.get("note") and not a["note"]:
@@ -167,9 +169,11 @@ async def list_jobs(
     ),
     track: Track | None = Query(default=None),
     origin: Origin | None = Query(default=None),
+    page: int = PageParam,
+    page_size: int = PageSizeParam,
     principal: Principal = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
-) -> list[dict]:
+) -> dict:
     # A hunter sees their own jobs; a VA sees jobs across every assigned hunter.
     user_ids = await scoped_user_ids(session, principal)
     is_va = principal.type is PrincipalType.va
@@ -188,7 +192,7 @@ async def list_jobs(
                 continue
             rows.append(row)
     rows.sort(key=lambda r: r["created_at"] or "", reverse=True)
-    return rows
+    return paginate(rows, page, page_size)
 
 
 @router.get("/{job_id}")
@@ -363,6 +367,38 @@ async def submit(
         session, user_id=job.user_id, job=job, generated_cv=cv, va_id=va_id
     )
     return SubmitResponse(application_id=application.id, status=application.status.value)
+
+
+@router.post("/{job_id}/apply")
+async def apply(
+    job_id: UUID,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """The VA's final action: record the application (applied) + trigger outreach, and
+    return the apply link + the CV/cover to attach on the employer's site."""
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    cv = await _cv_for(session, job.id)
+    if cv is None:
+        raise ConflictError("Generate the tailored CV before applying.")
+    app = await _application_for(session, job.id)
+    if app is None:
+        if job.status not in (JobStatus.ready, JobStatus.scored, JobStatus.submitted):
+            raise ConflictError(f"Job not ready to apply (status={job.status.value})")
+        va_id = principal.id if principal.type is PrincipalType.va else None
+        app = await service.submit_application(
+            session, user_id=job.user_id, job=job, generated_cv=cv, va_id=va_id
+        )
+    cover = await _cover_for(session, job.id)
+    return {
+        "application_id": str(app.id),
+        "apply_url": job.url,
+        "cv_url": f"/api/jobs/{job.id}/cv" if cv.pdf_key else None,
+        "cover_url": f"/api/jobs/{job.id}/cover" if (cover and cover.pdf_key) else None,
+    }
 
 
 @router.get("/{job_id}/cv")

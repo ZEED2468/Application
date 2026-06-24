@@ -1,8 +1,10 @@
 import type {
+  ApplyResult,
   DiscoverReport,
   JobDetail,
   JobOut,
   Origin,
+  Paginated,
   Track,
   TrackerStatus,
 } from "@jd/shared-types";
@@ -59,15 +61,20 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
 }
 
 export const jobsService = {
-  async list(filter: JobsFilter = {}): Promise<JobOut[]> {
+  async list(
+    filter: JobsFilter = {},
+    page = 1,
+    pageSize = 25,
+  ): Promise<Paginated<JobOut>> {
     const searchParams = new URLSearchParams();
     if (filter.status) searchParams.set("status", filter.status);
     if (filter.track) searchParams.set("track", filter.track);
     if (filter.origin) searchParams.set("origin", filter.origin);
-    const qs = searchParams.toString();
+    searchParams.set("page", String(page));
+    searchParams.set("page_size", String(pageSize));
     return api
-      .get(path(`/api/jobs${qs ? `?${qs}` : ""}`))
-      .json<JobOut[]>();
+      .get(path(`/api/jobs?${searchParams.toString()}`))
+      .json<Paginated<JobOut>>();
   },
 
   async discover(): Promise<DiscoverReport> {
@@ -92,6 +99,11 @@ export const jobsService = {
 
   async submit(id: string): Promise<void> {
     await api.post(path(`/api/jobs/${id}/submit`));
+  },
+
+  /** VA's final action: record the application + get the apply link + docs to attach. */
+  async apply(id: string): Promise<ApplyResult> {
+    return api.post(path(`/api/jobs/${id}/apply`)).json<ApplyResult>();
   },
 
   async setApplicationStatus(

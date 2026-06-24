@@ -227,5 +227,5 @@ async def test_va_sees_assigned_hunter_jobs_only(ctx):
     await _make_va(client)  # assigned to hunter_id (all tracks), cookie = VA
     jobs = await client.get("/api/jobs")
     assert jobs.status_code == 200
-    companies = {j["company"] for j in jobs.json()}
+    companies = {j["company"] for j in jobs.json()["items"]}
     assert companies == {"Acme"}  # never sees Globex (other hunter)

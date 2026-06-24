@@ -196,10 +196,11 @@ async def generate(
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     chat = await _owned_chat(session, principal, session_id)
-    application = await service.generate_application(
+    job = await service.generate_application(
         session, user_id=chat.user_id, chat_session_id=session_id
     )
-    return {"application_id": str(application.id), "job_id": str(application.job_id)}
+    # No application yet — the VA reviews + applies on the job detail page.
+    return {"job_id": str(job.id)}
 
 
 @router.get("/sessions/{session_id}")

@@ -20,6 +20,28 @@ deploy must run `alembic upgrade head`.
 
 ## Most recent (this session)
 
+### Job-application flow epic (role-targeted scraping → review/apply → previews, pagination, tracker)
+Priority-ordered, all phases shipped. Backend **92 tests**; web build green; migration head `d0e1f2a3b4c5`.
+- **Role-targeted discovery** — `MasterProfile.target_roles` (migration `d0e1f2a3b4c5`) +
+  `SourceQuery.role_titles`; `_run_sources` post-fetch-filters every source to the hunter's
+  target titles (`title_matches_roles`) and sets `Job.role_title`; SerpApi queries by role
+  (surfaces LinkedIn). `PUT /api/profiles/{track}/target-roles` + Profile-page chips.
+  (Apollo stays people-only — it has no job-postings API.)
+- **Decoupled review→apply flow** — manual `generate_application` now leaves the job `ready`
+  (no auto-submit); **`POST /api/jobs/{id}/apply`** is the VA's final action: records the
+  Application (`applied` + audit), triggers outreach, and returns the apply link + CV/cover
+  urls. Job detail = the shared "last page": smart **Generate→Apply** CTA + a status
+  **stepper** (discovered→tailored→ready→applied). Manual lands there for the final call.
+- **In-app PDF preview** — `PdfPreviewModal` (iframe over the inline presigned download)
+  on the jobs table, job detail, and tracker — review CV/cover without a new tab.
+- **Pagination** — `_pagination.paginate` wrapper (`{items,total,page,page_size}`) on
+  `/jobs`, `/applications`, `/va/queue`; shared `<Pagination>` component wired into the
+  Jobs, VA-queue, and Tracker pages.
+- **In-app read-only Tracker** (`/applications`) — the live, tamper-proof version of the
+  `.xlsx`, with **VA-credibility signals** per row: ATS score, relevance, submitted-by VA +
+  when, CV/cover preview, and a **truthful-profile** badge. New **Tracker** nav item.
+
+
 ### Cloudflare R2 storage made real — uploads in, presigned downloads out
 **Why:** files were uploaded to R2 (keys persisted) but the stored `pdf_url` was the
 **private** S3 URL, the frontend opened PDFs via Google Docs Viewer (can't fetch a

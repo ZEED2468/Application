@@ -11,6 +11,8 @@ import {
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  Check,
+  Eye,
   FileText,
   Sparkles,
   Send,
@@ -26,9 +28,10 @@ import {
 import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, cn } from "@/lib/utils";
 import { absoluteApiUrl } from "@/lib/api/client";
 import { PageHeading, ErrorState } from "@/components/states";
+import { PdfPreviewModal } from "@/components/pdf-preview-modal";
 import { AtsBreakdown } from "@/components/ats-breakdown";
 import { StatusCell } from "../status-cell";
 import {
@@ -52,6 +55,9 @@ export default function JobDetailPage({
 }) {
   const { id } = use(params);
   const queryClient = useQueryClient();
+  const [preview, setPreview] = React.useState<{ url: string; title: string } | null>(
+    null,
+  );
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.job(id),
@@ -82,10 +88,15 @@ export default function JobDetailPage({
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
 
-  const submitMutation = useMutation({
-    mutationFn: () => jobsService.submit(id),
-    onSuccess: () => {
-      toast.success("Submitted to outreach");
+  const applyMutation = useMutation({
+    mutationFn: () => jobsService.apply(id),
+    onSuccess: (res) => {
+      if (res.apply_url) window.open(res.apply_url, "_blank", "noopener,noreferrer");
+      toast.success(
+        res.apply_url
+          ? "Marked applied — opening the posting. Attach the CV/cover below."
+          : "Marked applied. Attach the CV/cover below.",
+      );
       queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
@@ -124,29 +135,47 @@ export default function JobDetailPage({
     <div className="space-y-6">
       <BackLink />
 
+      <PdfPreviewModal
+        open={preview !== null}
+        onClose={() => setPreview(null)}
+        title={preview?.title ?? ""}
+        url={preview?.url}
+      />
+
       <PageHeading
         title={job.role}
         description={`${job.company}${job.location ? ` · ${job.location}` : ""}`}
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              variant="accent"
-              onClick={() => generateMutation.mutate()}
-              disabled={generateMutation.isPending}
-            >
-              <Sparkles className="size-4" />
-              {generateMutation.isPending ? "Generating…" : "Generate"}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => submitMutation.mutate()}
-              disabled={submitMutation.isPending}
-            >
-              <Send className="size-4" />
-              Submit
-            </Button>
+            {!generated_cv ? (
+              <Button
+                variant="accent"
+                onClick={() => generateMutation.mutate()}
+                disabled={generateMutation.isPending}
+              >
+                <Sparkles className="size-4" />
+                {generateMutation.isPending ? "Generating…" : "Generate CV"}
+              </Button>
+            ) : !application ? (
+              <Button
+                variant="primary"
+                onClick={() => applyMutation.mutate()}
+                disabled={applyMutation.isPending}
+              >
+                <Send className="size-4" />
+                {applyMutation.isPending ? "Applying…" : "Apply"}
+              </Button>
+            ) : (
+              <Badge variant="default" className="px-3 py-1.5 text-sm">
+                Applied
+              </Badge>
+            )}
           </div>
         }
+      />
+
+      <JobStepper
+        current={application ? 3 : generated_cv ? 2 : job.status === "discovered" ? 0 : 1}
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -316,13 +345,19 @@ export default function JobDetailPage({
               <CardTitle>Documents</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <DocLink
+              <DocRow
                 label="Tailored CV"
                 href={generated_cv?.download_url ?? null}
+                onPreview={(u) =>
+                  setPreview({ url: u, title: `Tailored CV — ${job.company}` })
+                }
               />
-              <DocLink
+              <DocRow
                 label="Cover letter"
                 href={cover_letter?.download_url ?? null}
+                onPreview={(u) =>
+                  setPreview({ url: u, title: `Cover letter — ${job.company}` })
+                }
               />
             </CardContent>
           </Card>
@@ -383,9 +418,40 @@ function BackLink() {
   );
 }
 
-function DocLink({ label, href }: { label: string; href: string | null }) {
-  const docHref = absoluteApiUrl(href);
-  if (!docHref) {
+function JobStepper({ current }: { current: number }) {
+  const steps = ["Discovered", "Tailored", "Ready", "Applied"];
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      {steps.map((s, i) => (
+        <React.Fragment key={s}>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2.5 py-1",
+              i < current && "bg-coffee-100 text-coffee-500",
+              i === current && "bg-coffee-700 font-medium text-cream",
+              i > current && "border border-coffee-100 text-coffee-300",
+            )}
+          >
+            {i < current && <Check className="size-3" />}
+            {s}
+          </span>
+          {i < steps.length - 1 && <span className="h-px w-4 bg-coffee-200" />}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function DocRow({
+  label,
+  href,
+  onPreview,
+}: {
+  label: string;
+  href: string | null;
+  onPreview: (url: string) => void;
+}) {
+  if (!href) {
     return (
       <div className="flex items-center justify-between rounded-md border border-coffee-100 px-3 py-2.5">
         <span className="flex items-center gap-2 text-sm text-coffee-300">
@@ -397,17 +463,29 @@ function DocLink({ label, href }: { label: string; href: string | null }) {
     );
   }
   return (
-    <a
-      href={docHref}
-      target="_blank"
-      rel="noreferrer noopener"
-      className="flex items-center justify-between rounded-md border border-coffee-300 px-3 py-2.5 transition-colors hover:bg-coffee-100"
-    >
+    <div className="flex items-center justify-between rounded-md border border-coffee-300 px-3 py-2.5">
       <span className="flex items-center gap-2 text-sm font-medium text-coffee-900">
         <FileText className="size-4 text-coffee-500" />
         {label}
       </span>
-      <span className="text-xs text-coffee-500">Open</span>
-    </a>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => onPreview(href)}
+          className="inline-flex items-center gap-1 text-xs text-coffee-700 underline underline-offset-2 hover:text-coffee-900"
+        >
+          <Eye className="size-3.5" />
+          Preview
+        </button>
+        <a
+          href={absoluteApiUrl(href) ?? "#"}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="text-xs text-coffee-500 underline underline-offset-2 hover:text-coffee-900"
+        >
+          Open
+        </a>
+      </div>
+    </div>
   );
 }

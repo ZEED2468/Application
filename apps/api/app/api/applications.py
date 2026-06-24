@@ -13,12 +13,17 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._pagination import PageParam, PageSizeParam, paginate
 from app.core.enums import PrincipalType, TrackerStatus
 from app.core.errors import ConflictError, NotFoundError
 from app.db import get_session
 from app.deps import Principal, authorize_owner, current_principal, scoped_user_ids
 from app.models.application import Application
+from app.models.cover_letter import CoverLetter
+from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
+from app.models.master_profile import MasterProfile
+from app.models.va import Va
 from app.repositories import applications as app_repo
 from app.schemas.applications import ApplicationOut, AuditEventOut
 
@@ -34,18 +39,41 @@ def _actor(principal: Principal) -> str:
     return f"{kind}:{principal.id}"
 
 
-@router.get("/applications", response_model=list[ApplicationOut])
+@router.get("/applications")
 async def list_applications(
+    page: int = PageParam,
+    page_size: int = PageSizeParam,
     principal: Principal = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
-) -> list[ApplicationOut]:
+) -> dict:
+    """The in-app, read-only tracker — same data as the .xlsx, plus VA-credibility
+    signals (ATS, relevance, who submitted, the docs used, truthful-profile)."""
     out: list[ApplicationOut] = []
     for uid in await scoped_user_ids(session, principal):
         for a in await app_repo.list_for_user(session, user_id=uid):
             job = await session.get(Job, a.job_id)
-            out.append(ApplicationOut.from_models(a, job))
+            cv = (await session.execute(
+                select(GeneratedCv).where(GeneratedCv.job_id == a.job_id)
+            )).scalar_one_or_none()
+            cover = (await session.execute(
+                select(CoverLetter).where(CoverLetter.job_id == a.job_id)
+            )).scalar_one_or_none()
+            va = await session.get(Va, a.va_id) if a.va_id else None
+            truthful = False
+            if job is not None and job.track is not None:
+                profile = (await session.execute(
+                    select(MasterProfile).where(
+                        MasterProfile.user_id == a.user_id,
+                        MasterProfile.track == job.track,
+                    )
+                )).scalar_one_or_none()
+                truthful = bool(profile and profile.confirmed)
+            out.append(ApplicationOut.from_models(
+                a, job, cv=cv, cover=cover,
+                va_name=va.name if va else None, truthful=truthful,
+            ))
     out.sort(key=lambda o: str(o.submitted_at or ""), reverse=True)
-    return out
+    return paginate(out, page, page_size)
 
 
 @router.patch("/applications/{application_id}/status", response_model=ApplicationOut)

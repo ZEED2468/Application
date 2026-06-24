@@ -20,6 +20,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -218,8 +219,9 @@ export default function ProfilePage() {
               return (
                 <div
                   key={track}
-                  className="flex flex-col gap-3 rounded-md border border-coffee-100 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="space-y-3 rounded-md border border-coffee-100 p-4"
                 >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-center gap-3">
                     <Badge variant="outline">{TRACK_LABELS[track]}</Badge>
                     {profile?.role_cv?.filename ? (
@@ -270,6 +272,11 @@ export default function ProfilePage() {
                       {profile?.confirmed ? "Confirmed" : "Confirm profile"}
                     </Button>
                   </div>
+                  </div>
+                  <TargetRolesEditor
+                    track={track}
+                    initial={profile?.target_roles ?? []}
+                  />
                 </div>
               );
             })
@@ -430,5 +437,92 @@ function CvUploadButton({
             : "Upload file"}
       </Button>
     </>
+  );
+}
+
+function TargetRolesEditor({
+  track,
+  initial,
+}: {
+  track: Track;
+  initial: string[];
+}) {
+  const [roles, setRoles] = React.useState<string[]>(initial);
+  const [input, setInput] = React.useState("");
+  const key = initial.join("|");
+  React.useEffect(() => {
+    setRoles(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  const save = useMutation({
+    mutationFn: (next: string[]) => onboardingService.setTargetRoles(track, next),
+    onSuccess: (res) => setRoles(res.target_roles),
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
+  function add() {
+    const v = input.trim();
+    setInput("");
+    if (!v || roles.includes(v)) return;
+    const next = [...roles, v];
+    setRoles(next);
+    save.mutate(next);
+  }
+  function remove(r: string) {
+    const next = roles.filter((x) => x !== r);
+    setRoles(next);
+    save.mutate(next);
+  }
+
+  return (
+    <div className="space-y-2 border-t border-coffee-100 pt-3">
+      <Label>Target roles</Label>
+      <p className="text-xs text-coffee-500">
+        We only surface scraped jobs whose title matches one of these. Leave empty
+        to see every job for this track.
+      </p>
+      {roles.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {roles.map((r) => (
+            <span
+              key={r}
+              className="inline-flex items-center gap-1.5 rounded-full border border-coffee-300 bg-coffee-100 px-2.5 py-1 text-xs text-coffee-800"
+            >
+              {r}
+              <button
+                type="button"
+                onClick={() => remove(r)}
+                aria-label={`Remove ${r}`}
+                className="text-coffee-500 hover:text-coffee-900"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="e.g. Senior React Engineer"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={save.isPending || input.trim().length === 0}
+          onClick={add}
+        >
+          Add
+        </Button>
+      </div>
+    </div>
   );
 }

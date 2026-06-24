@@ -10,6 +10,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { formatDateTime } from "@/lib/utils";
 import { PageHeading, EmptyState, ErrorState } from "@/components/states";
+import { Pagination } from "@/components/pagination";
 import {
   Card,
   CardHeader,
@@ -34,9 +35,10 @@ const KIND_META: Record<
 const SECTION_ORDER: VaItemKind[] = ["submit", "outreach_review", "reply"];
 
 export default function VaQueuePage() {
+  const [page, setPage] = React.useState(1);
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: queryKeys.vaQueue,
-    queryFn: () => vaService.queue(),
+    queryKey: [...queryKeys.vaQueue, page],
+    queryFn: () => vaService.queue(page),
   });
 
   const grouped = React.useMemo(() => {
@@ -45,7 +47,7 @@ export default function VaQueuePage() {
       outreach_review: [],
       reply: [],
     };
-    (data ?? []).forEach((item) => map[item.kind].push(item));
+    (data?.items ?? []).forEach((item) => map[item.kind].push(item));
     return map;
   }, [data]);
 
@@ -66,7 +68,7 @@ export default function VaQueuePage() {
           <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
         </div>
-      ) : (data?.length ?? 0) === 0 ? (
+      ) : (data?.items.length ?? 0) === 0 ? (
         <EmptyState
           icon={<Inbox className="size-8" />}
           title="Queue is clear"
@@ -125,6 +127,13 @@ export default function VaQueuePage() {
               </Card>
             );
           })}
+          <Pagination
+            page={data?.page ?? page}
+            pageSize={data?.page_size ?? 25}
+            total={data?.total ?? 0}
+            onPage={setPage}
+            isLoading={isLoading}
+          />
         </div>
       )}
     </div>

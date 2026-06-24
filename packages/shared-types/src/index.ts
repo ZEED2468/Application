@@ -308,6 +308,33 @@ export interface ApplicationSummary {
   submitted_at?: string | null;
 }
 
+/** Generic paginated list wrapper returned by the list endpoints. */
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** A tracker row with VA-credibility signals (in-app, read-only tracker). */
+export interface TrackerApplication {
+  id: string;
+  job_id: string;
+  company: string | null;
+  role: string | null;
+  track: Track | null;
+  origin: Origin | null;
+  status: string;
+  tracker_status: TrackerStatus;
+  submitted_at?: string | null;
+  ats_score?: number | null;
+  relevance_score?: number | null;
+  va_name?: string | null;
+  cv_url?: string | null;
+  cover_url?: string | null;
+  truthful?: boolean;
+}
+
 export interface OutreachSummary {
   step: OutreachStep;
   sent_count: number;
@@ -360,6 +387,7 @@ export interface MasterProfile {
   headline?: string | null;
   summary?: string | null;
   skills: string[];
+  target_roles?: string[];
   role_cv?: RoleCv | null;
 }
 
@@ -431,7 +459,14 @@ export interface ChatAnswerRequest {
 
 export interface ChatGenerateResult {
   job_id: string;
+}
+
+/** Result of the VA's Apply action on a job. */
+export interface ApplyResult {
   application_id: string;
+  apply_url?: string | null;
+  cv_url?: string | null;
+  cover_url?: string | null;
 }
 
 /* ----------------------------------------------------------------------------

@@ -43,4 +43,13 @@ export const onboardingService = {
   async confirm(track: Track): Promise<void> {
     await api.post(path(`/api/profiles/${track}/confirm`));
   },
+
+  async setTargetRoles(
+    track: Track,
+    roles: string[],
+  ): Promise<{ track: Track; target_roles: string[] }> {
+    return api
+      .put(path(`/api/profiles/${track}/target-roles`), { json: { roles } })
+      .json<{ track: Track; target_roles: string[] }>();
+  },
 };

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
+  ClipboardList,
   MessageSquareText,
   ScanSearch,
   Inbox,
@@ -31,7 +32,8 @@ interface NavItem {
  *  team; only admins see the (admin-only) Domains panel. */
 function navFor(me?: MeResponse): NavItem[] {
   const items: NavItem[] = [
-    { href: "/jobs", label: "Jobs / Tracker", icon: Briefcase },
+    { href: "/jobs", label: "Jobs", icon: Briefcase },
+    { href: "/applications", label: "Tracker", icon: ClipboardList },
     { href: "/ats-checker", label: "ATS Checker", icon: ScanSearch },
     { href: "/manual", label: "Manual Apply", icon: MessageSquareText },
     { href: "/va", label: "VA Queue", icon: Inbox },

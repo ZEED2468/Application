@@ -7,6 +7,7 @@ so unit tests can capture events without a live broker.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -29,6 +30,7 @@ from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.user import User
 from app.pipelines.apply import render
+from app.repositories import applications as app_repo
 from app.repositories import jobs as jobs_repo
 from app.repositories import profiles as profiles_repo
 from app.repositories import source_boards as boards_repo
@@ -41,6 +43,24 @@ log = structlog.get_logger(__name__)
 
 def _emphasis_keywords(profile: MasterProfile) -> list[str]:
     return tailoring._flatten_skills(profile.skills)[:8]
+
+
+def _target_roles(profile: MasterProfile) -> list[str]:
+    return [r for r in (profile.target_roles or []) if isinstance(r, str) and r.strip()]
+
+
+def title_matches_roles(title: str, roles: list[str]) -> bool:
+    """True if `title` matches any target role — every significant word of the role
+    appears in the title (so 'React Engineer' matches 'Senior React Engineer'). No
+    roles set ⇒ everything matches (no filtering)."""
+    if not roles:
+        return True
+    title_tokens = set(re.findall(r"[a-z0-9]+", (title or "").lower()))
+    for role in roles:
+        role_tokens = [t for t in re.findall(r"[a-z0-9]+", role.lower()) if len(t) > 2]
+        if role_tokens and all(t in title_tokens for t in role_tokens):
+            return True
+    return False
 
 
 _BOARD_SOURCE_NAMES = {JobSourceName.greenhouse, JobSourceName.lever, JobSourceName.ashby}
@@ -68,10 +88,12 @@ async def _run_sources(
     `source_board` table) can never kill the whole run. Returns the new jobs plus a
     per-source report for the on-demand diagnostics endpoint.
     """
+    roles = _target_roles(profile)
     query = SourceQuery(
         track=profile.track,
         keywords=_emphasis_keywords(profile),
         boards=boards or [],
+        role_titles=roles,
     )
     actives = [s for s in active_sources() if s.supports(profile.track)]
     log.info("discover.start", user_id=str(user_id), track=profile.track.value,
@@ -99,16 +121,20 @@ async def _run_sources(
             None if settings.use_fake_integrations
             else _config_note(source.name, query.boards)
         )
-        found = inserted = 0
+        found = inserted = off_target = 0
         error: str | None = None
         log.info("discover.source.fetch", source=name, boards=query.boards or None, note=note)
         try:
             # Unconfigured adapters (no key / no board tokens) no-op immediately.
             async for raw in source.fetch(query):
                 found += 1
-                job = await jobs_repo.insert_if_new(
-                    session, user_id=user_id, fields=to_job_fields(raw)
-                )
+                # Scope to the hunter's target roles (all sources, even board scrapers).
+                if not title_matches_roles(raw.title, roles):
+                    off_target += 1
+                    continue
+                fields = to_job_fields(raw)
+                fields.setdefault("role_title", raw.title)  # auto jobs: posting title
+                job = await jobs_repo.insert_if_new(session, user_id=user_id, fields=fields)
                 if job is not None:
                     inserted += 1
                     new_jobs.append(job)
@@ -118,9 +144,9 @@ async def _run_sources(
             error = f"{type(exc).__name__}: {exc}"
             log.warning("discover.source.failed", source=name, error=error)
         log.info("discover.source.done", source=name, found=found, inserted=inserted,
-                 error=error, note=note)
+                 off_target=off_target, error=error, note=note)
         report.append({"source": name, "found": found, "inserted": inserted,
-                       "error": error, "note": note})
+                       "off_target": off_target, "error": error, "note": note})
     log.info("discover.done", user_id=str(user_id), track=profile.track.value,
              new=len(new_jobs))
     return new_jobs, report
@@ -189,6 +215,11 @@ async def submit_application(
     session.add(application)
     job.status = JobStatus.submitted
     await session.flush()
+    app_repo.record_event(
+        session, application=application, kind="applied",
+        actor=f"va:{va_id}" if va_id else "system",
+        detail={"ats": generated_cv.ats_score, "origin": job.origin.value},
+    )
     emit(names.APPLICATION_SUBMITTED,
          ApplicationSubmitted(user_id=user_id, application_id=application.id,
                               job_id=job.id, track=job.track))

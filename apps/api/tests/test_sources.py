@@ -93,6 +93,43 @@ async def test_discover_passes_per_source_board_tokens(session, monkeypatch):
     assert rec.seen == ["airbnb"]
 
 
+def test_title_matches_roles():
+    assert service.title_matches_roles("Senior React Engineer (Remote)", ["React Engineer"])
+    assert service.title_matches_roles("Backend Engineer", [])  # no roles -> match all
+    assert not service.title_matches_roles(
+        "Product Manager", ["React Engineer", "Frontend Engineer"]
+    )
+
+
+class _TwoJobSource:
+    name = JobSourceName.serpapi
+
+    def supports(self, track):
+        return True
+
+    async def fetch(self, query):
+        yield RawJob(source=self.name, source_job_id="1", company="A",
+                     title="Senior React Engineer", location="Remote")
+        yield RawJob(source=self.name, source_job_id="2", company="B",
+                     title="Product Manager", location="Remote")
+
+
+@pytest.mark.asyncio
+async def test_discovery_filters_off_target_roles(session, monkeypatch):
+    user, profile = await seed_hunter(session)
+    profile.target_roles = ["React Engineer"]
+    await session.flush()
+
+    monkeypatch.setattr(service, "active_sources", lambda: [_TwoJobSource()])
+    new_jobs, report = await service._run_sources(
+        session, user_id=user.id, profile=profile, emit=EventSink()
+    )
+
+    assert [j.title for j in new_jobs] == ["Senior React Engineer"]  # PM dropped
+    assert new_jobs[0].role_title == "Senior React Engineer"
+    assert report[0]["off_target"] == 1 and report[0]["inserted"] == 1
+
+
 @pytest.mark.asyncio
 async def test_run_sources_returns_per_source_report(session):
     user, profile = await seed_hunter(session)

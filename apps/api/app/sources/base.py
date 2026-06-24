@@ -40,6 +40,8 @@ class SourceQuery:
     location: str | None = None
     # Board scrapers need company slugs/board tokens; aggregators ignore these.
     boards: list[str] = field(default_factory=list)
+    # Hunter's target job titles; keyword sources query by these, all sources filter to them.
+    role_titles: list[str] = field(default_factory=list)
     limit: int = 50
 
 

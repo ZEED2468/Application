@@ -148,7 +148,7 @@ export default function ManualPage() {
   const generate = useMutation({
     mutationFn: (sessionId: string) => chatService.generate(sessionId),
     onSuccess: (res: ChatGenerateResult) => {
-      toast.success("Application created");
+      toast.success("Tailored CV ready — review it, then apply.");
       router.push(`/jobs/${res.job_id}`);
     },
     onError: async (err) => toast.error((await toApiError(err)).message),

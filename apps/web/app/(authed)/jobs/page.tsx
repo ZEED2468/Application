@@ -17,6 +17,8 @@ import {
   TRACK_LABELS,
 } from "@/lib/status";
 import { EmptyState, ErrorState } from "@/components/states";
+import { PdfPreviewModal } from "@/components/pdf-preview-modal";
+import { Pagination } from "@/components/pagination";
 import { DataTable, type Column } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,10 +38,17 @@ export default function JobsPage() {
     track: "",
     origin: "",
   });
+  const [preview, setPreview] = React.useState<{ url: string; title: string } | null>(
+    null,
+  );
+  const [page, setPage] = React.useState(1);
+  React.useEffect(() => {
+    setPage(1);
+  }, [filter.status, filter.track, filter.origin]);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: queryKeys.jobs(filter),
-    queryFn: () => jobsService.list(filter),
+    queryKey: [...queryKeys.jobs(filter), page],
+    queryFn: () => jobsService.list(filter, page),
   });
 
   const discover = useMutation({
@@ -146,7 +155,13 @@ export default function JobsPage() {
       headClassName: "w-[8%] min-w-[6rem]",
       className: "align-top",
       cell: (job) => (
-        <DocLinkCell url={job.resume_doc_url} label="tailored resume" />
+        <DocLinkCell
+          url={job.resume_doc_url}
+          label="tailored CV"
+          onPreview={(u) =>
+            setPreview({ url: u, title: `Tailored CV — ${job.company}` })
+          }
+        />
       ),
     },
     {
@@ -155,7 +170,13 @@ export default function JobsPage() {
       headClassName: "w-[9%] min-w-[6.5rem]",
       className: "align-top",
       cell: (job) => (
-        <DocLinkCell url={job.cover_letter_doc_url} label="cover letter" />
+        <DocLinkCell
+          url={job.cover_letter_doc_url}
+          label="cover letter"
+          onPreview={(u) =>
+            setPreview({ url: u, title: `Cover letter — ${job.company}` })
+          }
+        />
       ),
     },
     {
@@ -254,7 +275,7 @@ export default function JobsPage() {
           <div className="min-h-0 flex-1 overflow-auto">
             <DataTable<JobOut>
               columns={columns}
-              data={data}
+              data={data?.items}
               isLoading={isLoading}
               rowKey={(j) => j.id}
               onRowClick={(j) => router.push(`/jobs/${j.id}`)}
@@ -280,7 +301,23 @@ export default function JobsPage() {
             />
           </div>
         )}
+        {!isError && (
+          <Pagination
+            page={data?.page ?? page}
+            pageSize={data?.page_size ?? 25}
+            total={data?.total ?? 0}
+            onPage={setPage}
+            isLoading={isLoading}
+          />
+        )}
       </div>
+
+      <PdfPreviewModal
+        open={preview !== null}
+        onClose={() => setPreview(null)}
+        title={preview?.title ?? ""}
+        url={preview?.url}
+      />
     </div>
   );
 }

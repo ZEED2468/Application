@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._pagination import PageParam, PageSizeParam, paginate
 from app.core.enums import DossierStatus, JobStatus, OutreachStatus, PrincipalType, Track
 from app.db import get_session
 from app.deps import Principal, current_principal
@@ -35,13 +36,15 @@ def _iso(dt) -> str:
 
 @router.get("/queue")
 async def queue(
+    page: int = PageParam,
+    page_size: int = PageSizeParam,
     principal: Principal = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
-) -> list[dict]:
+) -> dict:
     """Flat queue items matching the web app's `VaQueueItem` contract."""
     user_ids = await _scoped_user_ids(session, principal)
     if not user_ids:
-        return []
+        return paginate([], page, page_size)
 
     hunter_names = {
         u.id: u.name
@@ -110,4 +113,4 @@ async def queue(
         })
 
     items.sort(key=lambda row: row["created_at"], reverse=True)
-    return items
+    return paginate(items, page, page_size)

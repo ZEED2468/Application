@@ -273,8 +273,13 @@ async def answer_prompt(
 
 async def generate_application(
     session, *, user_id: UUID, chat_session_id: UUID, emit=_real_emit
-) -> Application:
-    """Generate CV+cover letter and create the identical application objects."""
+) -> Job:
+    """Generate the tailored CV + cover letter and leave the job `ready`.
+
+    The VA makes the final call and applies on the job detail page (POST /jobs/{id}/apply)
+    — generation no longer auto-submits, so manual + automatic converge on the same
+    review→apply step.
+    """
     chat = await session.get(ChatSession, chat_session_id)
     if chat is None or chat.user_id != user_id:
         raise ValueError("chat session not found")
@@ -299,31 +304,12 @@ async def generate_application(
     await session.flush()
     chat.job_id = job.id
 
+    # Shared engine sets job.status = ready when done (same as the autonomous path).
     cv, _cover = await generation.generate_cv_and_cover(
         session, job=job, profile=profile, owner=owner,
         role_cv_id=chat.role_cv_id, confirmed_facts=chat.confirmed_facts, emit=emit,
     )
-
-    application = Application(
-        user_id=user_id, job_id=job.id, generated_cv_id=cv.id, va_id=chat.va_id,
-        status=ApplicationStatus.submitted, submitted_at=datetime.now(timezone.utc),
-    )
-    session.add(application)
-    job.status = JobStatus.submitted
-    chat.state = ChatState.application_created
+    chat.state = ChatState.application_created  # chat output produced; VA applies next
     await session.flush()
-
-    app_repo.record_event(
-        session, application=application, kind="created",
-        actor=f"va:{chat.va_id}" if chat.va_id else "system",
-        detail={"origin": "manual", "chat_session": str(chat.id), "ats": cv.ats_score},
-    )
-    # Identical seam into Pipeline B as the autonomous path.
-    emit(names.APPLICATION_SUBMITTED,
-         ApplicationSubmitted(user_id=user_id, application_id=application.id,
-                              job_id=job.id, track=track))
-    emit(names.CHAT_APPLICATION_CREATED,
-         ChatApplicationCreated(user_id=user_id, chat_session_id=chat.id,
-                                application_id=application.id, job_id=job.id))
-    log.info("manual.application_created", application=str(application.id), ats=cv.ats_score)
-    return application
+    log.info("manual.generated", job_id=str(job.id), ats=cv.ats_score)
+    return job

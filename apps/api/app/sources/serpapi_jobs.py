@@ -24,8 +24,13 @@ class SerpApiSource:
     async def fetch(self, query: SourceQuery) -> AsyncIterator[RawJob]:
         if not settings.serpapi_api_key:
             return  # no creds -> no-op
-        # Google Jobs narrows hard with many terms — use the top few skills only.
-        q = " ".join(query.keywords[:3]) or query.track.value
+        # Prefer the hunter's target role titles (this is what surfaces LinkedIn
+        # postings); fall back to the top few skills. Google Jobs narrows hard with
+        # many terms, so keep it short.
+        if query.role_titles:
+            q = " OR ".join(query.role_titles[:3])
+        else:
+            q = " ".join(query.keywords[:3]) or query.track.value
         if not query.location:
             q = f"{q} remote"  # remote/global default when no location is set
         params = {

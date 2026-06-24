@@ -73,8 +73,13 @@ class ProfileOut(BaseModel):
     headline: str | None
     summary: str | None
     skills: list | dict
+    target_roles: list[str] = []
     confirmed: bool = False
     role_cv: RoleCvOut | None = None
+
+
+class TargetRolesBody(BaseModel):
+    roles: list[str]
 
 
 class TemplateBody(BaseModel):
@@ -128,6 +133,7 @@ async def list_profiles(
             headline=p.headline,
             summary=p.summary,
             skills=p.skills,
+            target_roles=list(p.target_roles or []),
             confirmed=bool(p.confirmed),
             role_cv=(
                 RoleCvOut(
@@ -235,6 +241,25 @@ async def set_template(
     tpl.name = body.name
     await session.flush()
     return _template_out(tpl)
+
+
+@router.put("/profiles/{track}/target-roles")
+async def set_target_roles(
+    track: Track, body: TargetRolesBody,
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Set the job titles discovery should scrape for on this track."""
+    profile = (await session.execute(
+        select(MasterProfile).where(
+            MasterProfile.user_id == user.id, MasterProfile.track == track
+        )
+    )).scalar_one_or_none()
+    if profile is None:
+        raise NotFoundError("Upload a source CV for this track first.")
+    cleaned = list(dict.fromkeys(r.strip() for r in body.roles if r and r.strip()))[:20]
+    profile.target_roles = cleaned
+    await session.flush()
+    return {"track": track.value, "target_roles": cleaned}
 
 
 @router.post("/profiles/{track}/confirm")

@@ -126,3 +126,49 @@ async def test_job_cv_download_is_auth_scoped(ctx):
     await client.post("/api/auth/login", json={"email": "other@example.com", "password": "x"})
     blocked = await client.get(f"/api/jobs/{job_id}/cv")
     assert blocked.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_apply_creates_application_and_tracker_shows_credibility(ctx):
+    client, maker = ctx
+    uid = await _login(client)
+    async with maker() as s:
+        job = Job(user_id=uid, source=JobSourceName.manual, origin=Origin.manual,
+                  dedupe_key="dk-apply", company="Acme", title="Backend Engineer",
+                  role_title="Backend Engineer", description="Go", track=Track.backend,
+                  status=JobStatus.ready, relevance_score=0.8)
+        s.add(job)
+        await s.flush()
+        job_id = job.id
+        s.add(GeneratedCv(user_id=uid, job_id=job_id, cv_json={},
+                          pdf_key=f"{uid}/{job_id}/cv.pdf", ats_score=88.0,
+                          status=CvStatus.ready))
+        await s.commit()
+
+    # apply -> creates the application + returns the apply link + docs
+    r = await client.post(f"/api/jobs/{job_id}/apply")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["application_id"]
+    assert body["cv_url"] == f"/api/jobs/{job_id}/cv"
+
+    # the read-only tracker (paginated) shows it with credibility signals
+    tr = await client.get("/api/applications?page=1&page_size=10")
+    assert tr.status_code == 200
+    payload = tr.json()
+    assert payload["total"] == 1 and payload["page"] == 1
+    row = payload["items"][0]
+    assert row["company"] == "Acme"
+    assert row["ats_score"] == 88.0 and row["relevance_score"] == 0.8
+    assert row["cv_url"] == f"/api/jobs/{job_id}/cv"
+
+
+@pytest.mark.asyncio
+async def test_jobs_list_is_paginated(ctx):
+    client, _ = ctx
+    await _login(client)
+    r = await client.get("/api/jobs?page=1&page_size=10")
+    assert r.status_code == 200
+    body = r.json()
+    assert {"items", "total", "page", "page_size"} <= set(body.keys())
+    assert body["page"] == 1 and body["page_size"] == 10
