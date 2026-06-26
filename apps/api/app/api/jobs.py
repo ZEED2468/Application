@@ -7,12 +7,22 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.enums import ApplicationStatus, JobStatus, Origin, PrincipalType, Track, TrackerStatus
+from app.core.enums import (
+    ApplicationStatus,
+    CoverLetterStatus,
+    CvStatus,
+    JobStatus,
+    Origin,
+    PrincipalType,
+    Track,
+    TrackerStatus,
+)
 from app.core.errors import ConflictError, NotFoundError
 from app.db import get_session
 from app.deps import (
@@ -22,6 +32,7 @@ from app.deps import (
     current_user,
     scoped_user_ids,
 )
+from app.integrations import r2
 from app.models.application import Application
 from app.models.cover_letter import CoverLetter
 from app.models.generated_cv import GeneratedCv
@@ -33,7 +44,8 @@ from app.models.thread import Thread
 from app.models.user import User
 from app.api._files import serve_key
 from app.api._pagination import PageParam, PageSizeParam, paginate
-from app.pipelines.apply import service
+from app.pipelines.apply import render, service
+from app.pipelines.apply.latex_safety import assert_safe
 from app.repositories import applications as app_repo
 from app.repositories import jobs as jobs_repo
 from app.repositories import profiles as profiles_repo
@@ -49,6 +61,10 @@ log = structlog.get_logger(__name__)
 
 class ApplicationStatusUpdate(BaseModel):
     status: TrackerStatus
+
+
+class FromLatexBody(BaseModel):
+    latex: str
 
 
 def _actor(principal: Principal) -> str:
@@ -433,3 +449,81 @@ async def download_cover(
     return await serve_key(
         cover.pdf_key if cover else None, filename=f"cover-{job_id}.pdf"
     )
+
+
+async def _commit_latex(job: Job, latex: str, *, stem: str):
+    """Sanitise + compile editor LaTeX, store .tex/.pdf at the job's canonical keys.
+
+    Returns ((tex_key, pdf_key, pdf_url), None) on success or (None, stderr) when the
+    LaTeX does not compile. Raises DomainError (400) for forbidden primitives.
+    """
+    assert_safe(latex)
+    pdf, stderr = await render.render_pdf_checked(latex)
+    if pdf is None:
+        return None, stderr
+    tex_key = f"{job.user_id}/{job.id}/{stem}.tex"
+    pdf_key = f"{job.user_id}/{job.id}/{stem}.pdf"
+    await r2.put_bytes(tex_key, latex.encode(), "application/x-tex")
+    pdf_url = await r2.put_bytes(pdf_key, pdf, "application/pdf")
+    return (tex_key, pdf_key, pdf_url), None
+
+
+@router.post("/{job_id}/cv/from-latex")
+async def set_cv_from_latex(
+    job_id: UUID,
+    body: FromLatexBody,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """"Use this template" for the CV — compile the builder's LaTeX and bind it to
+    the job (upserts the GeneratedCv at status=ready)."""
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    keys, stderr = await _commit_latex(job, body.latex, stem="cv")
+    if keys is None:
+        return JSONResponse(status_code=422, content={"error": "compile_failed", "stderr": (stderr or "")[:4000]})
+    tex_key, pdf_key, pdf_url = keys
+    cv = await _cv_for(session, job.id)
+    if cv is None:
+        cv = GeneratedCv(user_id=job.user_id, job_id=job.id, cv_json={}, status=CvStatus.ready)
+        session.add(cv)
+    cv.latex_source = body.latex
+    cv.tex_key = tex_key
+    cv.pdf_key = pdf_key
+    cv.pdf_url = pdf_url
+    cv.status = CvStatus.ready
+    if job.status in (JobStatus.discovered, JobStatus.scored, JobStatus.tailoring):
+        job.status = JobStatus.ready
+    await session.flush()
+    return await _job_row(session, job)
+
+
+@router.post("/{job_id}/cover/from-latex")
+async def set_cover_from_latex(
+    job_id: UUID,
+    body: FromLatexBody,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """"Use this template" for the cover letter — compile the builder's LaTeX and
+    bind it to the job (upserts the CoverLetter at status=ready)."""
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    keys, stderr = await _commit_latex(job, body.latex, stem="cover")
+    if keys is None:
+        return JSONResponse(status_code=422, content={"error": "compile_failed", "stderr": (stderr or "")[:4000]})
+    tex_key, pdf_key, pdf_url = keys
+    cover = await _cover_for(session, job.id)
+    if cover is None:
+        cover = CoverLetter(user_id=job.user_id, job_id=job.id, status=CoverLetterStatus.ready)
+        session.add(cover)
+    cover.tex_key = tex_key
+    cover.pdf_key = pdf_key
+    cover.pdf_url = pdf_url
+    cover.status = CoverLetterStatus.ready
+    await session.flush()
+    return await _job_row(session, job)

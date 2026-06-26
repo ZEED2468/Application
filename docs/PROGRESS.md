@@ -5,11 +5,11 @@ context. The repo is the **Job Application & Outreach Engine** (FastAPI + Celery
 in `apps/api`, Next.js dashboard in `apps/web`, Go WhatsApp bridge in `apps/wa-bridge`,
 shared TS types in `packages/shared-types`).
 
-**State at last update:** Backend `uv run python -m pytest -q` → **88 passed**.
-`pnpm --filter web build` → green. The storage + discovery work below is in the working
-tree — **commit + redeploy (`api` + `web`) to ship**. Reminder: secrets (Adzuna/SerpApi,
-**R2**) live in the **Render dashboard env** (the local `.env` is ignored by Render); the
-deploy must run `alembic upgrade head`.
+**State at last update:** Backend `uv run python -m pytest -q` → **97 passed** (migration head
+`e1f2a3b4c5d6`). `pnpm --filter web build` → green. All work below is in the working tree —
+**commit + redeploy (`api` + `web`) to ship**. Reminder: secrets (Adzuna/SerpApi, **R2**,
+the **LLM** provider/model) live in the **Render dashboard env** (the local `.env` is ignored by
+Render); the deploy must run `alembic upgrade head`.
 
 > **The #1 non-negotiable is the TRUTH BOUNDARY**: generation only reorders/reframes
 > facts already in the master profile / `truth_corpus` or VA-confirmed-true. Never
@@ -19,6 +19,40 @@ deploy must run `alembic upgrade head`.
 ---
 
 ## Most recent (this session)
+
+### LaTeX-template-driven CV/cover regeneration (ATS recs → your design → preview → use on job)
+Hunters/VAs upload their own CV + cover-letter **LaTeX per track**; the ATS Checker's
+validated recommendations drive a **regenerated, truth-bounded** CV + cover rendered into that
+exact design, previewed side-by-side, edited, then committed to the job. Backend **97 tests**;
+web build green; migration head **`e1f2a3b4c5d6`**.
+- **Per-track templates** — new `latex_template (user_id, track, kind=cv|cover, source, …)` table
+  + migration `e1f2a3b4c5d6`; CRUD in `onboarding.py`
+  (`POST/GET/PUT /api/onboarding/latex-template[s]`, key `{user}/latex-template/{track}/{kind}/source.tex`).
+  `GET /profiles` now returns `latex_cv`/`latex_cover` flags per track.
+- **Truth boundary preserved** — regeneration (`pipelines/apply/latex_regen.py`) is strictly
+  **downstream of `tailoring.tailor`**: the LLM is given the uploaded `.tex` as a literal
+  skeleton + the already-vetted `cv_json` (never the raw profile); ATS recs enter only as
+  "emphasise if genuinely supported". Cover bounded by `generate_cover_letter`.
+- **Reuses the ATS scoring model** — the rewrite runs through the same provider facade and the
+  **`ats_analyze` feature** the ATS checker uses, so whatever model powers ATS scoring (anthropic
+  / openai-compatible: OpenAI, Groq, Together, OpenRouter, Ollama… / google) powers it too — no
+  separate LaTeX model to configure. Output budgets are model-safe defaults (CV 4000, cover 1500);
+  override with `LLM_LATEX_CV_MAX_TOKENS` / `LLM_LATEX_COVER_MAX_TOKENS` on a larger-context model.
+- **Compile-safety** — `pipelines/apply/latex_safety.py` (`assert_safe`/`sanitize_latex`) strips/
+  forbids `\write18`/`\input`/`\include`/shell-escape etc.; `render.render_pdf_checked` runs
+  tectonic `--untrusted` + a timeout and returns stderr on failure. Regen **falls back to
+  `build_tex`** when the LLM output won't compile (always renderable).
+- **Endpoints** — `POST /api/latex/regenerate` (draft `{cv_latex,cover_latex,…}`, job-aware or
+  standalone), `POST /api/latex/preview` (inline PDF; 400 forbidden / 422 + stderr on no-compile),
+  and **`POST /api/jobs/{id}/{cv,cover}/from-latex`** ("Use this template" — compiles, stores at
+  the job keys, **upserts** GeneratedCv/CoverLetter `ready`).
+- **Frontend** — `components/latex-builder.tsx` (left mono editor ↔ right PDF iframe + explicit
+  **Compile preview**), `/jobs/[id]/builder` (auto-regenerates on load, CV/cover tabs, **Use this
+  template** → back to the job) + standalone `/builder` (preview/download). ATS Checker gained a
+  **Regenerate CV** CTA (`?job_id` aware, stashes recs in sessionStorage); job detail got a
+  **LaTeX builder** button; Profile got a per-track **"4 · LaTeX templates"** card.
+- Tests: `tests/test_latex_regen.py` (template roundtrip/uniqueness, regenerate compilable,
+  from-latex upsert + serve, preview rejects forbidden primitives, auth scoping).
 
 ### Job-application flow epic (role-targeted scraping → review/apply → previews, pagination, tracker)
 Priority-ordered, all phases shipped. Backend **92 tests**; web build green; migration head `d0e1f2a3b4c5`.

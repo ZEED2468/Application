@@ -389,12 +389,65 @@ export interface MasterProfile {
   skills: string[];
   target_roles?: string[];
   role_cv?: RoleCv | null;
+  /** a CV LaTeX template is on file for this track */
+  latex_cv?: boolean;
+  /** a cover-letter LaTeX template is on file for this track */
+  latex_cover?: boolean;
 }
 
 export interface CoverLetterTemplate {
   body: string | null;
   filename?: string | null;
   name?: string | null;
+}
+
+/* ----------------------------------------------------------------------------
+ * LaTeX templates / regeneration
+ * ------------------------------------------------------------------------- */
+
+export type LatexKind = "cv" | "cover";
+
+/** A per-track LaTeX skeleton the regeneration engine renders tailored content into. */
+export interface LatexTemplate {
+  track: Track;
+  kind: LatexKind;
+  filename?: string | null;
+  has_source: boolean;
+  source?: string | null;
+}
+
+/** ATS recommendations that drive a regeneration (subset of AtsCheckResult). */
+export interface RegenerateAtsRecs {
+  missing_critical?: string[];
+  gaps?: string[];
+  ai_recommendations?: string[];
+}
+
+export interface RegenerateRequest {
+  job_id?: string | null;
+  track?: Track | null;
+  jd_text?: string | null;
+  role_title?: string | null;
+  ats?: RegenerateAtsRecs;
+  priority_techs?: string[];
+}
+
+/** Draft LaTeX produced by /api/latex/regenerate (not yet bound to a job). */
+export interface RegenerateResult {
+  cv_latex: string;
+  cover_latex: string;
+  cv_compiled: boolean;
+  cover_compiled: boolean;
+  cv_fell_back?: string | null;
+  cover_fell_back?: string | null;
+  cv_stderr?: string | null;
+  cover_stderr?: string | null;
+}
+
+/** Thrown shape when /api/latex/preview cannot compile the LaTeX (HTTP 422). */
+export interface LatexPreviewError {
+  error: "compile_failed";
+  stderr: string;
 }
 
 /* ----------------------------------------------------------------------------

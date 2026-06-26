@@ -147,6 +147,12 @@ export default function JobDetailPage({
         description={`${job.company}${job.location ? ` · ${job.location}` : ""}`}
         actions={
           <div className="flex items-center gap-2">
+            <Link href={`/jobs/${id}/builder`}>
+              <Button variant="secondary">
+                <FileText className="size-4" />
+                LaTeX builder
+              </Button>
+            </Link>
             {!generated_cv ? (
               <Button
                 variant="accent"

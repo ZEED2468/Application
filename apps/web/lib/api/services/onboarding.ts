@@ -1,5 +1,7 @@
 import type {
   CoverLetterTemplate,
+  LatexKind,
+  LatexTemplate,
   MasterProfile,
   RoleCv,
   Track,
@@ -38,6 +40,45 @@ export const onboardingService = {
     return api
       .put(path("/api/onboarding/cover-letter-template"), { json: { body } })
       .json<CoverLetterTemplate>();
+  },
+
+  async listLatexTemplates(): Promise<LatexTemplate[]> {
+    return api
+      .get(path("/api/onboarding/latex-templates"))
+      .json<LatexTemplate[]>();
+  },
+
+  async getLatexTemplate(track: Track, kind: LatexKind): Promise<LatexTemplate> {
+    const sp = new URLSearchParams({ track, kind });
+    return api
+      .get(path(`/api/onboarding/latex-template?${sp.toString()}`))
+      .json<LatexTemplate>();
+  },
+
+  async uploadLatexTemplate(
+    track: Track,
+    kind: LatexKind,
+    file: File,
+  ): Promise<LatexTemplate> {
+    const form = new FormData();
+    form.set("track", track);
+    form.set("kind", kind);
+    form.set("file", file);
+    return api
+      .post(path("/api/onboarding/latex-template/upload"), { body: form })
+      .json<LatexTemplate>();
+  },
+
+  async setLatexTemplate(
+    track: Track,
+    kind: LatexKind,
+    source: string,
+  ): Promise<LatexTemplate> {
+    return api
+      .put(path("/api/onboarding/latex-template"), {
+        json: { track, kind, source },
+      })
+      .json<LatexTemplate>();
   },
 
   async confirm(track: Track): Promise<void> {

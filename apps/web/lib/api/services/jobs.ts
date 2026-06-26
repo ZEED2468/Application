@@ -114,4 +114,20 @@ export const jobsService = {
       .patch(path(`/api/jobs/${id}/application-status`), { json: { status } })
       .json<JobOut>();
   },
+
+  /** "Use this template": bind builder LaTeX to the job's CV (compiles + stores). */
+  async setCvFromLatex(id: string, latex: string): Promise<JobDetail> {
+    const raw = await api
+      .post(path(`/api/jobs/${id}/cv/from-latex`), { json: { latex }, timeout: 60000 })
+      .json<Record<string, unknown>>();
+    return normalizeJobDetail(raw);
+  },
+
+  /** "Use this template": bind builder LaTeX to the job's cover letter. */
+  async setCoverFromLatex(id: string, latex: string): Promise<JobDetail> {
+    const raw = await api
+      .post(path(`/api/jobs/${id}/cover/from-latex`), { json: { latex }, timeout: 60000 })
+      .json<Record<string, unknown>>();
+    return normalizeJobDetail(raw);
+  },
 };

@@ -154,6 +154,13 @@ class CoverLetterStatus(str, enum.Enum):
     failed = "failed"
 
 
+class LatexKind(str, enum.Enum):
+    """Which document a per-track LaTeX template skeleton renders."""
+
+    cv = "cv"
+    cover = "cover"
+
+
 # --- Invite-gated signup ---
 
 

@@ -14,6 +14,7 @@ from app.models.dossier import Dossier
 from app.models.generated_cv import GeneratedCv
 from app.models.invite import Invite
 from app.models.job import Job
+from app.models.latex_template import LatexTemplate
 from app.models.master_profile import MasterProfile
 from app.models.outreach import Outreach
 from app.models.platform import Platform
@@ -46,6 +47,7 @@ __all__ = [
     "RoleCv",
     "CoverLetter",
     "CoverLetterTemplate",
+    "LatexTemplate",
     "ChatSession",
     "ChatPrompt",
     "ApplicationEvent",

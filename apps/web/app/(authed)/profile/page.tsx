@@ -4,7 +4,13 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { UploadCloud, Check, FileText, Lock } from "lucide-react";
-import type { MasterProfile, MeResponse, Track } from "@jd/shared-types";
+import type {
+  LatexKind,
+  LatexTemplate,
+  MasterProfile,
+  MeResponse,
+  Track,
+} from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
 import { authService, onboardingService } from "@/lib/api/services";
 import { absoluteApiUrl, toApiError } from "@/lib/api/client";
@@ -56,6 +62,20 @@ export default function ProfilePage() {
     queryFn: () => onboardingService.getCoverLetterTemplate(),
     enabled: me?.type !== "va",
   });
+
+  const latexTemplatesQuery = useQuery({
+    queryKey: queryKeys.latexTemplates,
+    queryFn: () => onboardingService.listLatexTemplates(),
+    enabled: me?.type !== "va",
+  });
+
+  const latexByKey = React.useMemo(() => {
+    const map = new Map<string, LatexTemplate>();
+    (latexTemplatesQuery.data ?? []).forEach((t) =>
+      map.set(`${t.track}:${t.kind}`, t),
+    );
+    return map;
+  }, [latexTemplatesQuery.data]);
 
   React.useEffect(() => {
     if (templateLoaded || !templateQuery.data) return;
@@ -388,6 +408,165 @@ export default function ProfilePage() {
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>4 · LaTeX templates (optional)</CardTitle>
+          <CardDescription>
+            Upload your own CV and cover-letter LaTeX per track. When you regenerate from
+            the ATS Checker, your tailored, truth-bounded content is rendered into these exact
+            designs. Leave empty to use the built-in single-column layout.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {(selectedTracks.length === 0
+            ? Array.from(profileByTrack.keys())
+            : selectedTracks
+          ).length === 0 ? (
+            <p className="text-sm text-coffee-300">
+              Select a track above to add LaTeX templates.
+            </p>
+          ) : (
+            (selectedTracks.length === 0
+              ? Array.from(profileByTrack.keys())
+              : selectedTracks
+            ).map((track) => (
+              <div
+                key={track}
+                className="space-y-4 rounded-md border border-coffee-100 p-4"
+              >
+                <Badge variant="outline">{TRACK_LABELS[track]}</Badge>
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <LatexTemplateField
+                    track={track}
+                    kind="cv"
+                    initial={latexByKey.get(`${track}:cv`)}
+                  />
+                  <LatexTemplateField
+                    track={track}
+                    kind="cover"
+                    initial={latexByKey.get(`${track}:cover`)}
+                  />
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function LatexTemplateField({
+  track,
+  kind,
+  initial,
+}: {
+  track: Track;
+  kind: LatexKind;
+  initial?: LatexTemplate;
+}) {
+  const queryClient = useQueryClient();
+  const [source, setSource] = React.useState(initial?.source ?? "");
+  const [filename, setFilename] = React.useState<string | null>(
+    initial?.filename ?? null,
+  );
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const syncKey = `${initial?.has_source ?? false}:${initial?.filename ?? ""}`;
+  React.useEffect(() => {
+    setSource(initial?.source ?? "");
+    setFilename(initial?.filename ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncKey]);
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.latexTemplates });
+    queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
+  };
+
+  const upload = useMutation({
+    mutationFn: (file: File) =>
+      onboardingService.uploadLatexTemplate(track, kind, file),
+    onSuccess: (data) => {
+      setSource(data.source ?? "");
+      setFilename(data.filename ?? null);
+      toast.success(`${kind === "cv" ? "CV" : "Cover-letter"} LaTeX uploaded`);
+      invalidate();
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
+  const save = useMutation({
+    mutationFn: () => onboardingService.setLatexTemplate(track, kind, source),
+    onSuccess: () => {
+      toast.success("LaTeX template saved");
+      invalidate();
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label>
+          {kind === "cv" ? "CV template (.tex)" : "Cover-letter template (.tex)"}
+        </Label>
+        <div className="flex shrink-0 items-center gap-2">
+          {filename && (
+            <a
+              href={
+                absoluteApiUrl(
+                  `/api/onboarding/latex-template/${track}/${kind}/file`,
+                ) ?? "#"
+              }
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-xs text-coffee-500 underline underline-offset-2 hover:text-coffee-900"
+            >
+              Download
+            </a>
+          )}
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".tex,.txt,text/plain,application/x-tex"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) upload.mutate(file);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={upload.isPending}
+            onClick={() => inputRef.current?.click()}
+          >
+            <UploadCloud className="size-4" />
+            {filename ? "Replace" : "Upload .tex"}
+          </Button>
+        </div>
+      </div>
+      <Textarea
+        value={source}
+        onChange={(e) => setSource(e.target.value)}
+        spellCheck={false}
+        placeholder={"\\documentclass{article}\n…your LaTeX skeleton"}
+        className="min-h-40 font-mono text-xs leading-relaxed"
+      />
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={save.isPending || source.trim().length === 0}
+          onClick={() => save.mutate()}
+        >
+          Save
+        </Button>
+      </div>
     </div>
   );
 }

@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileText, ScanSearch, UploadCloud, Sparkles } from "lucide-react";
-import type { AtsCheckResult, Track } from "@jd/shared-types";
+import { FileText, ScanSearch, UploadCloud, Sparkles, Wand2 } from "lucide-react";
+import type { AtsCheckResult, RegenerateAtsRecs, Track } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
 import { atsService } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
@@ -31,6 +32,7 @@ const CV_ACCEPT =
   ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 export default function AtsCheckerPage() {
+  const router = useRouter();
   const [jdText, setJdText] = React.useState("");
   const [cvText, setCvText] = React.useState("");
   const [roleTitle, setRoleTitle] = React.useState("");
@@ -39,7 +41,43 @@ export default function AtsCheckerPage() {
   const [result, setResult] = React.useState<AtsCheckResult | null>(null);
   const [selectedTrack, setSelectedTrack] = React.useState<Track | "">("");
   const [trackManual, setTrackManual] = React.useState(false);
+  const [jobId, setJobId] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+
+  // When launched from a job ("Improve this CV"), carry the job so the builder can
+  // commit back to it; read from the URL without useSearchParams (no Suspense needed).
+  React.useEffect(() => {
+    setJobId(new URLSearchParams(window.location.search).get("job_id"));
+  }, []);
+
+  /** Hand the validated ATS recommendations to the LaTeX builder and route there. */
+  function goRegenerate() {
+    if (!result) return;
+    const recs: RegenerateAtsRecs = {
+      gaps: result.rule_based.gaps ?? [],
+      ai_recommendations: result.ai?.recommendations ?? [],
+    };
+    if (jobId) {
+      window.sessionStorage.setItem(
+        `latex-regen-ats:${jobId}`,
+        JSON.stringify(recs),
+      );
+      router.push(`/jobs/${jobId}/builder`);
+    } else {
+      window.sessionStorage.setItem(
+        "latex-regen-standalone",
+        JSON.stringify({
+          track: result.track ?? selectedTrack ?? null,
+          jd_text: jdText,
+          role_title: result.role_title,
+          ats: recs,
+        }),
+      );
+      router.push(
+        result.track ? `/builder?track=${result.track}` : "/builder",
+      );
+    }
+  }
 
   const sourcesQuery = useQuery({
     queryKey: queryKeys.atsSources,
@@ -322,6 +360,24 @@ export default function AtsCheckerPage() {
               {result.track_match.reason}
             </p>
           )}
+
+          <Card>
+            <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-medium text-coffee-900">
+                  Regenerate in your LaTeX template
+                </p>
+                <p className="text-sm text-coffee-500">
+                  Apply these recommendations to a fresh CV + cover letter, truth-bounded,
+                  then preview and {jobId ? "use it on the job." : "download it."}
+                </p>
+              </div>
+              <Button variant="primary" onClick={goRegenerate} className="shrink-0">
+                <Wand2 className="size-4" />
+                Regenerate CV
+              </Button>
+            </CardContent>
+          </Card>
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>

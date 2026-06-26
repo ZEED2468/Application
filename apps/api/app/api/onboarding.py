@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api._files import serve_key
-from app.core.enums import ParseStatus, Track
+from app.core.enums import LatexKind, ParseStatus, Track
 from app.core.errors import DomainError, NotFoundError
 from app.db import get_session
 from app.deps import current_user
@@ -22,6 +22,7 @@ from app.integrations import r2
 
 _ALLOWED_CV_EXT = {".pdf", ".doc", ".docx"}
 _ALLOWED_TEMPLATE_EXT = _ALLOWED_CV_EXT | {".txt"}
+_ALLOWED_LATEX_EXT = {".tex", ".txt"}
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
@@ -45,6 +46,7 @@ def _serve_extras(ext: str) -> tuple[str, bool]:
         return "application/pdf", True
     return "application/octet-stream", False
 from app.models.cover_letter import CoverLetterTemplate
+from app.models.latex_template import LatexTemplate
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
@@ -76,6 +78,22 @@ class ProfileOut(BaseModel):
     target_roles: list[str] = []
     confirmed: bool = False
     role_cv: RoleCvOut | None = None
+    latex_cv: bool = False  # a CV LaTeX template is on file for this track
+    latex_cover: bool = False  # a cover-letter LaTeX template is on file for this track
+
+
+class LatexTemplateOut(BaseModel):
+    track: Track
+    kind: LatexKind
+    filename: str | None = None
+    has_source: bool = False
+    source: str | None = None
+
+
+class LatexTemplateBody(BaseModel):
+    track: Track
+    kind: LatexKind
+    source: str
 
 
 class TargetRolesBody(BaseModel):
@@ -111,6 +129,29 @@ def _template_out(tpl: CoverLetterTemplate) -> CoverLetterTemplateOut:
     )
 
 
+async def _get_or_create_latex(
+    session: AsyncSession, user_id, track: Track, kind: LatexKind
+) -> LatexTemplate:
+    lt = (await session.execute(
+        select(LatexTemplate).where(
+            LatexTemplate.user_id == user_id,
+            LatexTemplate.track == track,
+            LatexTemplate.kind == kind,
+        )
+    )).scalar_one_or_none()
+    if lt is None:
+        lt = LatexTemplate(user_id=user_id, track=track, kind=kind)
+        session.add(lt)
+    return lt
+
+
+def _latex_out(lt: LatexTemplate) -> LatexTemplateOut:
+    return LatexTemplateOut(
+        track=lt.track, kind=lt.kind, filename=lt.original_filename,
+        has_source=bool(lt.source), source=lt.source,
+    )
+
+
 @router.get("/profiles", response_model=list[ProfileOut])
 async def list_profiles(
     user: User = Depends(current_user), session: AsyncSession = Depends(get_session)
@@ -124,10 +165,18 @@ async def list_profiles(
             select(RoleCv).where(RoleCv.user_id == user.id)
         )).scalars().all()
     }
+    latex = {
+        (lt.track, lt.kind): lt
+        for lt in (await session.execute(
+            select(LatexTemplate).where(LatexTemplate.user_id == user.id)
+        )).scalars().all()
+    }
     out: list[ProfileOut] = []
     for p in profiles:
         rc = role_cvs.get(p.track)
         parsed = rc is not None and rc.parse_status is ParseStatus.parsed
+        cv_tpl = latex.get((p.track, LatexKind.cv))
+        cover_tpl = latex.get((p.track, LatexKind.cover))
         out.append(ProfileOut(
             track=p.track,
             headline=p.headline,
@@ -143,6 +192,8 @@ async def list_profiles(
                 if rc is not None
                 else None
             ),
+            latex_cv=bool(cv_tpl and cv_tpl.source),
+            latex_cover=bool(cover_tpl and cover_tpl.source),
         ))
     return out
 
@@ -318,4 +369,88 @@ async def download_template_file(
     return await serve_key(
         tpl.source_file_key, filename=tpl.original_filename or f"cover-letter-template{ext}",
         content_type=content_type, inline=inline,
+    )
+
+
+# --- Per-track LaTeX templates (the design skeletons used by the regeneration engine) ---
+
+
+@router.get("/onboarding/latex-templates", response_model=list[LatexTemplateOut])
+async def list_latex_templates(
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> list[LatexTemplateOut]:
+    rows = (await session.execute(
+        select(LatexTemplate).where(LatexTemplate.user_id == user.id)
+    )).scalars().all()
+    return [_latex_out(lt) for lt in rows]
+
+
+@router.get("/onboarding/latex-template", response_model=LatexTemplateOut)
+async def get_latex_template(
+    track: Track, kind: LatexKind,
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> LatexTemplateOut:
+    lt = (await session.execute(
+        select(LatexTemplate).where(
+            LatexTemplate.user_id == user.id,
+            LatexTemplate.track == track,
+            LatexTemplate.kind == kind,
+        )
+    )).scalar_one_or_none()
+    if lt is None:
+        return LatexTemplateOut(track=track, kind=kind)
+    return _latex_out(lt)
+
+
+@router.post("/onboarding/latex-template/upload", response_model=LatexTemplateOut)
+async def upload_latex_template(
+    track: Track = Form(...), kind: LatexKind = Form(...), file: UploadFile = File(...),
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> LatexTemplateOut:
+    data = await file.read()
+    filename = file.filename or f"{kind.value}.tex"
+    _validate_upload(filename, data, _ALLOWED_LATEX_EXT)
+    ext = os.path.splitext(filename)[1].lower()
+    # Stable key so a re-upload overwrites (no orphaned objects).
+    key = f"{user.id}/latex-template/{track.value}/{kind.value}/source{ext}"
+    await r2.put_bytes(key, data, "application/x-tex")
+    lt = await _get_or_create_latex(session, user.id, track, kind)
+    lt.original_filename = filename
+    lt.source_file_key = key
+    # LaTeX is plain text — keep the exact source (don't run it through a doc parser).
+    lt.source = data.decode("utf-8", "replace")
+    await session.flush()
+    return _latex_out(lt)
+
+
+@router.put("/onboarding/latex-template", response_model=LatexTemplateOut)
+async def set_latex_template(
+    body: LatexTemplateBody,
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> LatexTemplateOut:
+    """Editor save path — store the LaTeX source typed/edited in the builder."""
+    lt = await _get_or_create_latex(session, user.id, body.track, body.kind)
+    lt.source = body.source
+    await session.flush()
+    return _latex_out(lt)
+
+
+@router.get("/onboarding/latex-template/{track}/{kind}/file")
+async def download_latex_template(
+    track: Track, kind: LatexKind,
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+):
+    """Re-download the hunter's uploaded LaTeX template source file."""
+    lt = (await session.execute(
+        select(LatexTemplate).where(
+            LatexTemplate.user_id == user.id,
+            LatexTemplate.track == track,
+            LatexTemplate.kind == kind,
+        )
+    )).scalar_one_or_none()
+    if lt is None or not lt.source_file_key:
+        raise NotFoundError("No LaTeX template uploaded for this track/kind.")
+    return await serve_key(
+        lt.source_file_key, filename=lt.original_filename or f"{kind.value}.tex",
+        content_type="application/x-tex", inline=False,
     )

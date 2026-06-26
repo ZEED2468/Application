@@ -86,7 +86,7 @@ async def render_pdf(tex_source: str) -> bytes:
         tex_path = Path(tmp) / "cv.tex"
         tex_path.write_text(tex_source, encoding="utf-8")
         proc = await asyncio.create_subprocess_exec(
-            "tectonic", "--outdir", tmp, str(tex_path),
+            "tectonic", "--untrusted", "--outdir", tmp, str(tex_path),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         await proc.communicate()
@@ -94,6 +94,38 @@ async def render_pdf(tex_source: str) -> bytes:
         if proc.returncode == 0 and pdf_path.exists():
             return pdf_path.read_bytes()
     return _stub_pdf()
+
+
+async def render_pdf_checked(
+    tex_source: str, *, timeout: float = 30.0
+) -> tuple[bytes | None, str]:
+    """Compile arbitrary (user/LLM-authored) .tex and report failures.
+
+    Returns ``(pdf_bytes, "")`` on success or ``(None, stderr)`` on a non-zero exit
+    or timeout, so callers can surface the compile error to the editor instead of
+    silently producing a broken document. Runs tectonic in ``--untrusted`` mode
+    (shell-escape off, restricted IO). In dev without the tectonic binary, returns a
+    stub PDF so previews still render.
+    """
+    if shutil.which("tectonic") is None:
+        return _stub_pdf(), ""
+    with tempfile.TemporaryDirectory() as tmp:
+        tex_path = Path(tmp) / "doc.tex"
+        tex_path.write_text(tex_source, encoding="utf-8")
+        proc = await asyncio.create_subprocess_exec(
+            "tectonic", "--untrusted", "--outdir", tmp, str(tex_path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except (asyncio.TimeoutError, TimeoutError):
+            proc.kill()
+            await proc.wait()
+            return None, f"compile timed out after {timeout:.0f}s"
+        pdf_path = Path(tmp) / "doc.pdf"
+        if proc.returncode == 0 and pdf_path.exists():
+            return pdf_path.read_bytes(), ""
+        return None, (err.decode("utf-8", "replace") if err else "compile failed")
 
 
 def _stub_pdf() -> bytes:
