@@ -266,7 +266,7 @@ export interface JobOut {
   id: string;
   company: string;
   role: string;
-  track: Track;
+  track: Track | string;
   origin: Origin;
   status: JobStatus;
   ats_score: number | null;
@@ -284,6 +284,7 @@ export interface JobOut {
   resume_doc_url?: string | null;
   /** Google Docs viewer URL for tailored cover letter PDF */
   cover_letter_doc_url?: string | null;
+  experience_level?: string | null;
 }
 
 export interface SourceDiscoverResult {

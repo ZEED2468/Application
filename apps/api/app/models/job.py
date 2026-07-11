@@ -43,6 +43,7 @@ class Job(Base, TimestampMixin):
     track_override: Mapped[Track | None] = mapped_column(
         Enum(Track, native_enum=False), nullable=True
     )
+    experience_level: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus, native_enum=False), default=JobStatus.discovered, nullable=False
     )

@@ -113,8 +113,9 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
         "id": str(job.id), "company": job.company, "title": job.title,
         "role": job.role_title or job.title,
         "role_title": job.role_title, "location": job.location, "url": job.url,
-        "track": (job.track.value if job.track else None),
-        "track_override": (job.track_override.value if job.track_override else None),
+        "track": (job.track.value if hasattr(job.track, "value") else job.track) if job.track else None,
+        "track_override": (job.track_override.value if hasattr(job.track_override, "value") else job.track_override) if job.track_override else None,
+        "experience_level": job.experience_level,
         "origin": job.origin.value, "status": job.status.value,
         "relevance_score": job.relevance_score,
         "ats_score": cv.ats_score if cv else None,
@@ -131,24 +132,61 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
     }
 
 
+class DiscoverRequest(BaseModel):
+    tracks: list[str] | None = None
+    experience_levels: list[str] | None = None
+
+
 @router.post("/discover")
 async def discover(
+    body: DiscoverRequest | None = None,
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Run job discovery NOW for the hunter's profiles (no 30-min beat wait) and
     return a per-source report. Newly-found jobs appear in the list immediately."""
-    log.info("discover.requested", user_id=str(user.id), email=user.email)
+    log.info("discover.requested", user_id=str(user.id), email=user.email, body=body)
+    
+    requested_tracks = body.tracks if body and body.tracks else []
+    requested_levels = body.experience_levels if body and body.experience_levels else []
+    
     profiles = (
         await session.execute(
             select(MasterProfile).where(MasterProfile.user_id == user.id)
         )
     ).scalars().all()
+    
+    # Resolve which profiles to run, creating placeholders for custom/missing tracks
+    profiles_to_run = []
+    if requested_tracks:
+        for t in requested_tracks:
+            prof = next((p for p in profiles if p.track == t), None)
+            if prof is not None:
+                profiles_to_run.append(prof)
+            else:
+                placeholder = MasterProfile(
+                    user_id=user.id,
+                    track=t,
+                    target_roles=[t],
+                    skills={},
+                    experience=[],
+                    education=[],
+                    projects=[],
+                    links={},
+                )
+                profiles_to_run.append(placeholder)
+    else:
+        profiles_to_run = list(profiles)
+        
     agg: dict[str, dict] = {}
     total = 0
-    for profile in profiles:
+    for profile in profiles_to_run:
         new_jobs, report = await service._run_sources(
-            session, user_id=user.id, profile=profile
+            session,
+            user_id=user.id,
+            profile=profile,
+            selected_tracks=requested_tracks,
+            selected_experience_levels=requested_levels
         )
         total += len(new_jobs)
         for r in report:
@@ -167,11 +205,11 @@ async def discover(
     result = {
         "discovered": total,
         "fake_mode": settings.use_fake_integrations,
-        "profiles": len(profiles),
+        "profiles": len(profiles_to_run),
         "sources": list(agg.values()),
     }
     log.info("discover.result", user_id=str(user.id), discovered=total,
-             profiles=len(profiles),
+             profiles=len(profiles_to_run),
              sources={s["source"]: {"found": s["found"], "inserted": s["inserted"],
                                     "error": s["error"], "note": s.get("note")}
                       for s in agg.values()})
@@ -183,7 +221,9 @@ async def list_jobs(
     status: TrackerStatus | None = Query(
         default=None, description="Application tracker status filter"
     ),
-    track: Track | None = Query(default=None),
+    track: str | None = Query(default=None),
+    tracks: str | None = Query(default=None),
+    experience_levels: str | None = Query(default=None),
     origin: Origin | None = Query(default=None),
     page: int = PageParam,
     page_size: int = PageSizeParam,
@@ -196,10 +236,25 @@ async def list_jobs(
     names = (
         {uid: (await session.get(User, uid)).name for uid in user_ids} if is_va else {}
     )
+    
+    track_list = []
+    if tracks:
+        track_list = [t.strip() for t in tracks.split(",") if t.strip()]
+    elif track:
+        track_list = [track]
+
+    exp_list = []
+    if experience_levels:
+        exp_list = [el.strip() for el in experience_levels.split(",") if el.strip()]
+
     rows: list[dict] = []
     for uid in user_ids:
         for j in await jobs_repo.list_for_user(session, user_id=uid):
-            if track is not None and j.track != track:
+            if track_list:
+                job_track_val = (j.track.value if hasattr(j.track, "value") else j.track) if j.track else None
+                if job_track_val not in track_list:
+                    continue
+            if exp_list and j.experience_level not in exp_list:
                 continue
             if origin is not None and j.origin != origin:
                 continue

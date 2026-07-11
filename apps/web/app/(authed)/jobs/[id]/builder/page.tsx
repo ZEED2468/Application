@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Sparkles } from "lucide-react";
-import type { LatexKind, RegenerateAtsRecs } from "@jd/shared-types";
+import type { LatexKind, RegenerateAtsRecs, Track } from "@jd/shared-types";
 import { jobsService, latexService } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
@@ -58,7 +58,7 @@ export default function JobBuilderPage({
       const job = data!.job;
       return latexService.regenerate({
         job_id: id,
-        track: job.track,
+        track: job.track as Track,
         jd_text: job.jd_text ?? job.description ?? null,
         role_title: job.role,
         ats: recsRef.current,

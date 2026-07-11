@@ -23,7 +23,7 @@ from app.events.contracts import (
     JobDiscovered,
     JobScored,
 )
-from app.llm import relevance, tailoring, track_classify
+from app.llm import relevance, tailoring, track_classify, experience_classify
 from app.models.application import Application
 from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
@@ -80,6 +80,8 @@ def _config_note(name: JobSourceName, boards: list[str]) -> str | None:
 
 async def _run_sources(
     session, *, user_id: UUID, profile: MasterProfile, boards: list[str] | None = None,
+    selected_tracks: list[str] | None = None,
+    selected_experience_levels: list[str] | None = None,
     emit=_real_emit,
 ) -> tuple[list[Job], list[dict]]:
     """Run active sources for the hunter's track; dedupe-insert; emit job.discovered.
@@ -96,7 +98,9 @@ async def _run_sources(
         role_titles=roles,
     )
     actives = [s for s in active_sources() if s.supports(profile.track)]
-    log.info("discover.start", user_id=str(user_id), track=profile.track.value,
+    
+    track_val = profile.track.value if hasattr(profile.track, "value") else profile.track
+    log.info("discover.start", user_id=str(user_id), track=track_val,
              keywords=query.keywords, fake_mode=settings.use_fake_integrations,
              sources=[s.name.value for s in actives])
 
@@ -132,8 +136,37 @@ async def _run_sources(
                 if not title_matches_roles(raw.title, roles):
                     off_target += 1
                     continue
+
+                # Dynamic track classification
+                job_track = track_classify.classify(title=raw.title, description=raw.description)
+                if selected_tracks:
+                    title_lower = raw.title.lower()
+                    desc_lower = (raw.description or "").lower()
+                    matched_track = None
+                    for st in selected_tracks:
+                        st_lower = st.lower()
+                        if st_lower in title_lower or st_lower in desc_lower:
+                            matched_track = st
+                            break
+                    if matched_track:
+                        job_track = matched_track
+                    elif job_track not in selected_tracks:
+                        # Skip: job classified track does not match the selected tracks
+                        off_target += 1
+                        continue
+
+                # Experience level classification
+                job_exp = experience_classify.classify(title=raw.title, description=raw.description)
+                if selected_experience_levels and job_exp not in selected_experience_levels:
+                    # Skip: job experience level does not match selected
+                    off_target += 1
+                    continue
+
                 fields = to_job_fields(raw)
                 fields.setdefault("role_title", raw.title)  # auto jobs: posting title
+                fields["track"] = job_track
+                fields["experience_level"] = job_exp
+                
                 job = await jobs_repo.insert_if_new(session, user_id=user_id, fields=fields)
                 if job is not None:
                     inserted += 1
@@ -147,7 +180,8 @@ async def _run_sources(
                  off_target=off_target, error=error, note=note)
         report.append({"source": name, "found": found, "inserted": inserted,
                        "off_target": off_target, "error": error, "note": note})
-    log.info("discover.done", user_id=str(user_id), track=profile.track.value,
+                       
+    log.info("discover.done", user_id=str(user_id), track=track_val,
              new=len(new_jobs))
     return new_jobs, report
 
@@ -160,13 +194,16 @@ async def discover_for_user(
     new_jobs, _ = await _run_sources(
         session, user_id=user_id, profile=profile, boards=boards, emit=emit
     )
-    log.info("apply.discovered", count=len(new_jobs), track=profile.track.value)
+    track_val = profile.track.value if hasattr(profile.track, "value") else profile.track
+    log.info("apply.discovered", count=len(new_jobs), track=track_val)
     return new_jobs
 
 
 def classify_track(job: Job) -> Track:
     """Assign a track from the JD text (override-able later). Track is needed
     before scoring/tailoring because the master profile is per (user, track)."""
+    if job.track:
+        return job.track
     track = job.track_override or track_classify.classify(
         title=job.title, description=job.description
     )
