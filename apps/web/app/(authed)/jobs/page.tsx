@@ -121,9 +121,20 @@ export default function JobsPage() {
       const firstErr = rep.sources.find((s) => s.error);
       if (firstErr) toast.error(`${firstErr.source}: ${firstErr.error}`);
       // surface config gaps (no key / no board tokens) for sources that found nothing
+      const noteGroups: { [key: string]: string[] } = {};
       rep.sources
         .filter((s) => s.note && s.inserted === 0)
-        .forEach((s) => toast.message(`${s.source}: ${s.note}`));
+        .forEach((s) => {
+          if (s.note) {
+            if (!noteGroups[s.note]) {
+              noteGroups[s.note] = [];
+            }
+            noteGroups[s.note].push(s.source);
+          }
+        });
+      Object.entries(noteGroups).forEach(([note, sources]) => {
+        toast.message(`${sources.join(", ")}: ${note}`);
+      });
       if (rep.profiles === 0) {
         toast.error("No profile yet — finish Onboarding so discovery has skills to search.");
       }
