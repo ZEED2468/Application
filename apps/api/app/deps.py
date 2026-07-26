@@ -92,6 +92,26 @@ async def scoped_user_ids(session: AsyncSession, principal: Principal) -> list[U
     return list(set(rows))
 
 
+async def bind_user_llm(
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """Request dependency: if a hunter has their own LLM key, make it the resolution
+    override for this request (R1 BYO-key). No-op for VAs / when no key is stored."""
+    from app.llm import context, credentials
+
+    token = None
+    if principal.type is PrincipalType.user:
+        override = await credentials.load_preferred_override(session, principal.id)
+        if override:
+            token = context.set_user_llm(override)
+    try:
+        yield
+    finally:
+        if token is not None:
+            context.reset_user_llm(token)
+
+
 async def authorize_owner(
     session: AsyncSession, principal: Principal, owner_user_id: UUID, *, track=None
 ) -> UUID | None:

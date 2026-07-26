@@ -190,6 +190,7 @@ async def _user_me(session, user: User) -> MeResponse:
     return MeResponse(
         id=user.id, type="user", email=user.email, name=user.name,
         role=user.role.value, platform_id=user.platform_id, platform_name=platform_name,
+        active_track=user.active_track.value if user.active_track else None,
     )
 
 

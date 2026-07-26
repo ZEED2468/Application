@@ -3,6 +3,7 @@ import type {
   LatexKind,
   LatexTemplate,
   MasterProfile,
+  OnboardingStatus,
   RoleCv,
   Track,
 } from "@jd/shared-types";
@@ -92,5 +93,50 @@ export const onboardingService = {
     return api
       .put(path(`/api/profiles/${track}/target-roles`), { json: { roles } })
       .json<{ track: Track; target_roles: string[] }>();
+  },
+
+  async setVerifiedExtras(
+    track: Track,
+    extras: Record<string, string[]>,
+  ): Promise<{ track: Track; verified_extras: Record<string, string[]> }> {
+    return api
+      .put(path(`/api/profiles/${track}/verified-extras`), { json: { extras } })
+      .json();
+  },
+
+  async setPreferences(
+    track: Track,
+    preferredSkills: string[],
+    careerPreferences: Record<string, unknown> = {},
+  ): Promise<{ track: Track; preferred_skills: string[] }> {
+    return api
+      .put(path(`/api/profiles/${track}/preferences`), {
+        json: { preferred_skills: preferredSkills, career_preferences: careerPreferences },
+      })
+      .json();
+  },
+
+  async setActiveTrack(track: Track | null): Promise<{ active_track: Track | null }> {
+    return api
+      .put(path("/api/me/active-track"), { json: { track } })
+      .json<{ active_track: Track | null }>();
+  },
+
+  async setCareerDetails(
+    track: Track,
+    details: {
+      links?: Record<string, string>;
+      preferred_locations?: string[];
+      preferred_job_types?: string[];
+      salary_expectation?: Record<string, unknown>;
+    },
+  ): Promise<unknown> {
+    return api
+      .put(path(`/api/profiles/${track}/career-details`), { json: details })
+      .json();
+  },
+
+  async status(): Promise<OnboardingStatus> {
+    return api.get(path("/api/onboarding/status")).json<OnboardingStatus>();
   },
 };

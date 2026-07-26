@@ -20,6 +20,34 @@ async def get_by_user_track(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+def _extra_terms(profile: MasterProfile) -> list[str]:
+    """Flatten the structured verified extras + preferred skills into terms that
+    become part of the allowed truth corpus (user-asserted-true facts)."""
+    terms: list[str] = []
+    for v in (getattr(profile, "verified_extras", None) or {}).values():
+        if isinstance(v, list):
+            terms.extend(str(x) for x in v if str(x).strip())
+        elif isinstance(v, str) and v.strip():
+            terms.append(v.strip())
+    terms.extend(str(s) for s in (getattr(profile, "preferred_skills", None) or []) if str(s).strip())
+    return list(dict.fromkeys(terms))
+
+
+def _augment_skills(skills, extra: list[str]):
+    if not extra:
+        return skills
+    if isinstance(skills, dict):
+        out = dict(skills)
+        existing = out.get("verified") or []
+        out["verified"] = list(dict.fromkeys([*existing, *extra]))
+        return out
+    base = list(skills) if isinstance(skills, list) else []
+    for e in extra:
+        if e not in base:
+            base.append(e)
+    return base
+
+
 def profile_to_dict(profile: MasterProfile) -> dict:
     experience = profile.experience or []
     summary = profile.summary
@@ -32,12 +60,17 @@ def profile_to_dict(profile: MasterProfile) -> dict:
             if lines:
                 experience = [{"bullets": lines[:80]}]
 
+    extra = _extra_terms(profile)
     return {
         "headline": profile.headline,
         "summary": summary,
-        "skills": profile.skills,
+        # Verified extras + preferred skills join the allowed skill set so tailoring can
+        # surface them — they are user-asserted-true, so this stays truth-bounded.
+        "skills": _augment_skills(profile.skills, extra),
         "experience": experience,
         "education": profile.education,
         "projects": profile.projects,
         "links": profile.links,
+        "verified_extras": getattr(profile, "verified_extras", None) or {},
+        "preferred_skills": [str(s) for s in (getattr(profile, "preferred_skills", None) or [])],
     }

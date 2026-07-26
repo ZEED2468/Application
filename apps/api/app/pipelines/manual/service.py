@@ -26,6 +26,7 @@ from app.core.enums import (
     Origin,
     Track,
 )
+from app.core.errors import NotFoundError
 from app.events import names
 from app.events.bus import emit as _real_emit
 from app.events.contracts import (
@@ -253,7 +254,8 @@ async def answer_prompt(
     """Record a VA's answer. A 'Yes' on a missing-skill prompt confirms it TRUE."""
     prompt = await session.get(ChatPrompt, prompt_id)
     if prompt is None or prompt.user_id != user_id:
-        raise ValueError("prompt not found")
+        raise NotFoundError("That prompt no longer exists.",
+                            remediation="Reload the manual application and try again.")
     prompt.selected = selected
     prompt.detail = detail
     prompt.resolved = True
@@ -282,7 +284,8 @@ async def generate_application(
     """
     chat = await session.get(ChatSession, chat_session_id)
     if chat is None or chat.user_id != user_id:
-        raise ValueError("chat session not found")
+        raise NotFoundError("That manual session no longer exists.",
+                            remediation="Start a new manual application from the Manual Apply page.")
     track = chat.track or Track.general
     owner = await session.get(User, user_id)
     profile = await profiles_repo.get_by_user_track(session, user_id=user_id, track=track)

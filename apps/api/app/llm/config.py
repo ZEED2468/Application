@@ -21,7 +21,7 @@ from app.llm.providers import get as get_provider
 # so it shares the ATS scoring model with no extra configuration.
 FEATURES = {
     "tailoring", "cover_letter", "hookfinder", "draft_email", "classify_reply",
-    "ats_vet", "ats_analyze", "cv_structure", "track_classify",
+    "ats_vet", "ats_analyze", "resume_intel", "cv_structure", "track_classify",
 }
 
 
@@ -46,6 +46,23 @@ def _feature_env(feature: str | None, field: str) -> str | None:
 
 
 def resolve(feature: str | None = None) -> ResolvedLLM:
+    # Per-user BYO-key override (R1): when the request bound a user's own key, it wins
+    # over env for that request. Background tasks have no override -> env resolution.
+    from app.llm import context
+
+    ov = context.get_user_llm()
+    if ov and (ov.get("api_key") or ov.get("base_url")):
+        provider = ov.get("provider") or settings.llm_provider or "anthropic"
+        model = ov.get("model") or ""
+        api_key = ov.get("api_key") or ""
+        base_url = ov.get("base_url") or ""
+        if provider == "anthropic":
+            api_key = api_key or settings.anthropic_api_key
+            model = model or settings.anthropic_model
+        if not model:
+            model = get_provider(provider).default_model
+        return ResolvedLLM(provider=provider, model=model, api_key=api_key, base_url=base_url)
+
     provider = (
         _feature_env(feature, "provider")
         or settings.llm_provider

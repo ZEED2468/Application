@@ -77,6 +77,8 @@ export interface MeResponse {
   /** the platform an admin is attached to (label; admins are still global) */
   platform_id?: string | null;
   platform_name?: string | null;
+  /** the hunter's currently-active track (drives the dashboard track switcher) */
+  active_track?: Track | null;
 }
 
 export interface LoginRequest {
@@ -243,6 +245,69 @@ export interface AtsCheckResult {
     gaps: string[];
   };
   ai: AtsAiAnalysis | null;
+  /** Resume Intelligence workspace (deterministic + advisory); optional/back-compat. */
+  intelligence?: ResumeIntelligence | null;
+}
+
+/* ---- Resume Intelligence (R5) ---- */
+
+export interface AtsFlag {
+  code: string;
+  severity: string; // "warn" | "info"
+  message: string;
+}
+
+export interface ToolAnalysis {
+  required: string[];
+  represented: string[];
+  missing: string[];
+  underutilized_verified: string[];
+}
+
+export interface StructureReview {
+  word_count: number;
+  est_pages: number;
+  headings: string[];
+  summary_present: boolean;
+  uses_objective: boolean;
+  contact: { email: boolean; phone: boolean; linkedin: boolean; github: boolean };
+  bullet_count: number;
+  first_person_count: number;
+  ats_flags: AtsFlag[];
+}
+
+export interface WeakVerb {
+  bullet: string;
+  weak_verb: string;
+  suggestions: string[];
+}
+
+export interface BulletCoaching {
+  original: string;
+  framework: string; // "PAR" | "XYZ" | "verb"
+  suggestion: string;
+}
+
+export interface SkillsAlignment {
+  strong: string[];
+  weak: string[];
+  missing: string[];
+  omitted_for_truth: string[];
+}
+
+export interface ResumeAdvisory {
+  bullet_coaching: BulletCoaching[];
+  summary_review: { present: boolean; issues: string[]; suggestion: string | null };
+  skills_alignment: SkillsAlignment;
+  ai_powered: boolean;
+}
+
+export interface ResumeIntelligence {
+  tools: ToolAnalysis;
+  structure: StructureReview;
+  verbs: WeakVerb[];
+  lint: { findings: AtsFlag[]; count: number };
+  advisory: ResumeAdvisory | null;
 }
 
 export interface GeneratedCv {
@@ -394,6 +459,37 @@ export interface MasterProfile {
   latex_cv?: boolean;
   /** a cover-letter LaTeX template is on file for this track */
   latex_cover?: boolean;
+  /** structured, user-verified knowledge not on the CV (category -> terms) */
+  verified_extras?: Record<string, string[]>;
+  /** per-track skills to emphasize */
+  preferred_skills?: string[];
+  /** freeform per-track career preferences */
+  career_preferences?: Record<string, unknown>;
+  /** links (linkedin/github/portfolio) */
+  links?: Record<string, string>;
+  preferred_locations?: string[];
+  preferred_job_types?: string[];
+  salary_expectation?: Record<string, unknown>;
+}
+
+/* ---- Guided onboarding (R2) ---- */
+export interface OnboardingStep {
+  key: string;
+  label: string;
+  done: boolean;
+  href: string;
+}
+export interface OnboardingStatus {
+  tracks: {
+    track: Track;
+    has_cv: boolean;
+    parsed: boolean;
+    confirmed: boolean;
+    has_target_roles: boolean;
+  }[];
+  steps: OnboardingStep[];
+  next_action: OnboardingStep | null;
+  complete: boolean;
 }
 
 export interface CoverLetterTemplate {
@@ -449,6 +545,33 @@ export interface RegenerateResult {
 export interface LatexPreviewError {
   error: "compile_failed";
   stderr: string;
+}
+
+/* ----------------------------------------------------------------------------
+ * User settings — per-user LLM provider keys (R1 BYO-key)
+ * ------------------------------------------------------------------------- */
+
+export type LlmKeyStatus = "configured" | "invalid" | "unreachable" | "unknown";
+
+export interface LlmKey {
+  provider: string; // anthropic | openai | google
+  label?: string | null;
+  masked_key?: string | null;
+  has_key: boolean;
+  base_url?: string | null;
+  model?: string | null;
+  is_active: boolean;
+  is_preferred: boolean;
+  status: LlmKeyStatus;
+  last_validated_at?: string | null;
+}
+
+export interface LlmKeyInput {
+  provider: string;
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+  label?: string;
 }
 
 /* ----------------------------------------------------------------------------

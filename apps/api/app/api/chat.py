@@ -12,12 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.enums import PrincipalType, Track
 from app.core.errors import DomainError, NotFoundError
 from app.db import get_session
-from app.deps import Principal, authorize_owner, current_principal, scoped_user_ids
+from app.deps import Principal, authorize_owner, bind_user_llm, current_principal, scoped_user_ids
 from app.models.chat import ChatPrompt, ChatSession
 from app.models.role_cv import RoleCv
 from app.pipelines.manual import service
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["chat"], dependencies=[Depends(bind_user_llm)])
 
 # Backend prompt kinds -> the frontend PromptKind union (prompt-card.tsx).
 _KIND_UI = {

@@ -21,6 +21,7 @@ class MeResponse(BaseModel):
     role: str | None = None  # hunter | admin | super_admin | va
     platform_id: UUID | None = None
     platform_name: str | None = None
+    active_track: str | None = None  # the hunter's currently-active track
 
 
 class RegisterRequest(BaseModel):

@@ -5,11 +5,12 @@ context. The repo is the **Job Application & Outreach Engine** (FastAPI + Celery
 in `apps/api`, Next.js dashboard in `apps/web`, Go WhatsApp bridge in `apps/wa-bridge`,
 shared TS types in `packages/shared-types`).
 
-**State at last update:** Backend `uv run python -m pytest -q` → **97 passed** (migration head
-`e1f2a3b4c5d6`). `pnpm --filter web build` → green. All work below is in the working tree —
-**commit + redeploy (`api` + `web`) to ship**. Reminder: secrets (Adzuna/SerpApi, **R2**,
-the **LLM** provider/model) live in the **Render dashboard env** (the local `.env` is ignored by
-Render); the deploy must run `alembic upgrade head`.
+**State at last update:** Backend `uv run python -m pytest -q` → **114 passed** (migration head
+`f3c4d5e6f7a8`). `pnpm --filter web build` → green. The 10-refinement program shipped as 4 stacked
+PRs (#2 Resume Intelligence → #3 truth-corpus/tracks → #4 BYO-keys/errors → Phase 4 onboarding/
+career); **merge in order**. Reminder: secrets (Adzuna/SerpApi, **R2**, the **LLM** provider/model,
+**`CREDENTIAL_ENC_KEY`** for per-user keys) live in the **Render dashboard env** (the local `.env`
+is ignored by Render); the deploy must run `alembic upgrade head`.
 
 > **The #1 non-negotiable is the TRUTH BOUNDARY**: generation only reorders/reframes
 > facts already in the master profile / `truth_corpus` or VA-confirmed-true. Never
@@ -19,6 +20,89 @@ Render); the deploy must run `alembic upgrade head`.
 ---
 
 ## Most recent (this session)
+
+### Guided onboarding + Career Workspace — Phase 4 (R2 + R8)
+Final phase. Additive-only (migration `f3c4d5e6f7a8`). Backend **114 tests** (112 + 2); web typecheck green.
+- **R8 Career Workspace** — `MasterProfile.preferred_locations` / `preferred_job_types` /
+  `salary_expectation` (JSONB); links (linkedin/github/portfolio) reuse `MasterProfile.links`.
+  `PUT /api/profiles/{track}/career-details`; surfaced in `ProfileOut`. Profile page gains a
+  per-track **Career details** editor (links + location/job-type chips + salary).
+- **R2 Guided onboarding** — `GET /api/onboarding/status` computes completeness from existing data
+  (CV uploaded/parsed/confirmed, target roles, API key) → a checklist + `next_action`. New **/help**
+  route + nav (everyone) with the setup **checklist** and an **Accordion** of guides (overview, ATS
+  workflow, CV upload, tracks, LaTeX/cover templates, verified extras, AI providers, ATS scores,
+  applying). New `components/ui/accordion.tsx`.
+- Tests: `tests/test_onboarding_status.py` (status next-action + completeness; career-details roundtrip).
+
+### BYO-key + actionable errors + reliability — Phase 3 (R1 + R7 + R10)
+Additive-only (migration `f2b3c4d5e6f7`; new dep `cryptography`). Backend **112 tests** (107 + 5);
+web typecheck green.
+- **R1 per-user encrypted LLM keys** — new `user_llm_credential` table; `llm/crypto.py` (Fernet,
+  key from `CREDENTIAL_ENC_KEY` or jwt_secret fallback; keys **never returned in plaintext**,
+  masked on read). Per-user resolution via a contextvar (`llm/context.py`) that
+  `config.resolve()` prefers over env — **no signature changes** anywhere; set per-request by the
+  `deps.bind_user_llm` dependency (added to the ats/jobs/latex/chat routers; no-op for VAs;
+  background tasks fall back to env). `llm/credentials.py` loads/validates keys. Settings API
+  `app/api/settings.py`: `GET/POST/DELETE /api/settings/llm-keys`,
+  `POST .../{provider}/validate`, `PUT .../{provider}/preferred` (providers: anthropic / openai
+  [+ base_url for Groq/Together/OpenRouter/Ollama/local] / google).
+- **R7 actionable errors** — `DomainError` gains `code` + `remediation`; the handler returns
+  `{error, code, remediation}`; a global `Exception` handler turns unhandled errors into a clean
+  500 (was raw). LLM-not-configured now raises an actionable `DomainError` ("Add a provider key in
+  Settings") instead of a bare `RuntimeError`; the manual-path `ValueError`s became `NotFoundError`s.
+  Frontend `toApiError` now surfaces `error`/`code`/`remediation`.
+- **R10 reliability** — the openai-compatible + google provider adapters retry transient
+  429/5xx + transport errors with backoff.
+- **Frontend** — new **/settings** route + nav entry (hunter-only) with per-provider cards
+  (save / test connection / set preferred / remove, status badges); `settingsService`, shared-types
+  (`LlmKey`), `queryKeys.llmKeys`.
+- Tests: `tests/test_settings.py` (crypto roundtrip/mask, resolve prefers user override, CRUD +
+  validate + preferred + delete, user-scoping, actionable error envelope).
+
+### Truth corpus + track-centric — Phase 2 of the refinement program (R4 + R3)
+Additive-only (migration `f1a2b3c4d5e6`). Backend **107 tests** (103 + 4 new); web typecheck green.
+- **R4 Expanded Truth Corpus** — `MasterProfile.verified_extras` (JSONB, category → terms:
+  frameworks/tools/certifications/coursework/open-source/side-projects/languages…). Surfaced in
+  `repositories/profiles.profile_to_dict` (joined into the allowed skill set → tailoring can use
+  them; still truth-bounded because the user asserts they're true) and fed as `verified_terms` into
+  `intel.tool_analysis` (drives the "underutilized verified" signal in Resume Intelligence).
+  `PUT /api/profiles/{track}/verified-extras`.
+- **R3 Track-centric** — `MasterProfile.preferred_skills` + `career_preferences`; `User.active_track`
+  (returned on `/auth/me`). `PUT /api/profiles/{track}/preferences`, `PUT /api/me/active-track`.
+  `profile_to_dict` surfaces preferred skills too.
+- **Frontend** — Profile page gains a per-track **Verified extras** editor (category chip fields),
+  a **Preferred skills** editor, and an **Active track** selector; reusable `ChipField`; onboarding
+  service + shared-types (`MasterProfile.verified_extras/preferred_skills/career_preferences`,
+  `MeResponse.active_track`) extended.
+- Tests: `tests/test_truth_corpus.py` (extras surface into allowed skills, drive underutilized
+  signal, setter/active-track roundtrips).
+
+### Resume Intelligence — Phase 1 of the refinement program (R5 + R9 + R6)
+First phase of the 10-refinement design spec (full spec lives in the plan file). **Extends** the
+ATS engine + generation with truthful resume-quality analysis; nothing rewrites the CV or changes
+the numeric `ats.score`. Backend **103 tests** (97 + 6 new); web typecheck green.
+- **R5 Resume Intelligence** — new deterministic modules: `pipelines/apply/verbs.py` (weak-verb
+  detect + truthful stronger-verb suggestions, read-only), `pipelines/apply/intel.py`
+  (`tool_analysis` required/represented/missing/underutilized-verified, `structure_review` = real
+  ATS-hygiene parse of the CV text — photo/address/objective/length/contact/first-person, and
+  `ats_lint`). Advisory LLM `llm/resume_intel.py` (feature `resume_intel`, mirrors `ats_vet`:
+  offline-deterministic + optional live pass returning **suggestions the human verifies**, PAR/XYZ
+  bullet coaching + summary review + skills alignment incl. `omitted_for_truth`). All surfaced via
+  a new additive `intelligence` block on `/api/ats/check` (`_run_check`); existing contract intact.
+- **Truth boundary preserved** — `assert_truth_bounded` is exact-substring, so no reworded
+  suggestion is ever routed through it; rewrites are advisory-only (verified before applying).
+- **R9 ATS standards** — `intel.ats_lint` (summary-not-objective, length, contact hygiene, weak
+  verbs, coverage, keyword-stuffing, outcome density) + reinforced **live** tailoring/cover prompts
+  (PAR/XYZ, strong verbs, recruiter summary, natural keywords) — live-only, so fake-mode tests are
+  unchanged.
+- **R6 LaTeX-first** — `generation.py` now renders via `render_pdf_checked` (compile failures
+  logged with stderr instead of silently stubbed) + a fact-presence check, recorded on the CV's
+  `tailoring_diff.render`.
+- **Frontend** — `components/ui/tabs.tsx` + a **Resume Intelligence workspace** in the ATS Checker
+  (Tools · Structure · Verbs · Standards · Coaching tabs); shared-types widened with
+  `ResumeIntelligence`.
+- Tests: `tests/test_resume_intel.py` (verb detection, tool split, structure hygiene, lint,
+  offline advisory truth-split, additive `intelligence` block).
 
 ### LaTeX-template-driven CV/cover regeneration (ATS recs → your design → preview → use on job)
 Hunters/VAs upload their own CV + cover-letter **LaTeX per track**; the ATS Checker's

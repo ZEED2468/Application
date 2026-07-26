@@ -12,19 +12,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.enums import ParseStatus, Track
 from app.core.errors import DomainError
 from app.db import get_session
-from app.deps import current_user
-from app.llm import ats_analyze, track_classify
+from app.deps import bind_user_llm, current_user
+from app.llm import ats_analyze, resume_intel, track_classify
 from app.models.cover_letter import CoverLetterTemplate
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
-from app.pipelines.apply import ats
+from app.pipelines.apply import ats, intel, verbs
 from app.pipelines.apply.cv_parse import cv_json_from_text, extract_text_from_bytes
 from app.pipelines.apply.profile_cv import cv_text_from_profile
 from app.repositories import profiles as profiles_repo
 from app.repositories import track_match as track_match_repo
 
-router = APIRouter(prefix="/ats", tags=["ats"])
+router = APIRouter(prefix="/ats", tags=["ats"], dependencies=[Depends(bind_user_llm)])
 
 
 def _default_role_title(jd_text: str) -> str:
@@ -202,6 +202,7 @@ async def check_ats_multipart(
         cv_source=cv_source,
         track_match=track_match,
         cover_letter_template=_cover_letter_out(tpl),
+        verified_terms=await _verified_terms(session, user.id, parsed_track),
     )
     return result
 
@@ -242,6 +243,7 @@ async def check_ats_json(
         track=track,
         cv_source=cv_source,
         cover_letter_template=_cover_letter_out(tpl),
+        verified_terms=await _verified_terms(session, user.id, track),
     )
 
 
@@ -266,6 +268,14 @@ async def _load_profile_cv(
     return text, rc.original_filename, "profile"
 
 
+async def _verified_terms(session: AsyncSession, user_id, track: Track | None) -> list[str]:
+    """Flatten a track profile's verified extras + preferred skills (empty if none)."""
+    if track is None:
+        return []
+    profile = await profiles_repo.get_by_user_track(session, user_id=user_id, track=track)
+    return profiles_repo._extra_terms(profile) if profile else []
+
+
 async def _run_check(
     *,
     jd_text: str,
@@ -277,6 +287,7 @@ async def _run_check(
     cv_source: str = "paste",
     track_match=None,
     cover_letter_template: dict | None = None,
+    verified_terms: list[str] | None = None,
 ) -> dict:
     cv_json = cv_json_from_text(cv_text)
     breakdown = ats.score(cv_json=cv_json, jd_text=jd_text, role_title=role_title)
@@ -302,6 +313,25 @@ async def _run_check(
 
         ai_block["ai_powered"] = client.is_live("ats_analyze")
 
+    # --- Resume Intelligence (deterministic always; advisory when AI is on) ---
+    structure = intel.structure_review(cv_text=cv_text, cv_json=cv_json)
+    weak_verbs = verbs.detect(intel.bullets_of(cv_json))
+    intelligence = {
+        "tools": intel.tool_analysis(jd_text=jd_text, cv_json=cv_json, verified_terms=verified_terms),
+        "structure": structure,
+        "verbs": weak_verbs,
+        "lint": intel.ats_lint(
+            cv_json=cv_json, breakdown=breakdown, structure=structure, weak_verbs=weak_verbs
+        ),
+        "advisory": None,
+    }
+    if use_ai:
+        ri = await resume_intel.analyze(
+            cv_json=cv_json, cv_text=cv_text, jd_text=jd_text, role_title=role_title,
+            breakdown=breakdown, structure=structure, verified_terms=verified_terms,
+        )
+        intelligence["advisory"] = resume_intel.analysis_to_dict(ri)
+
     return {
         "role_title": role_title,
         "track": track.value if track else None,
@@ -316,4 +346,5 @@ async def _run_check(
             "gaps": ats.gap_skills(breakdown),
         },
         "ai": ai_block,
+        "intelligence": intelligence,
     }

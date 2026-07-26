@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # --- Auth ---
     jwt_secret: str = "dev-insecure-change-me"
     jwt_algorithm: str = "HS256"
+    # Master key for encrypting per-user LLM API keys at rest (R1). If unset, a key is
+    # derived from jwt_secret (fine for dev; set a dedicated value in prod + rotate carefully).
+    credential_enc_key: str = ""
     access_token_ttl_minutes: int = 15
     refresh_token_ttl_days: int = 30
     cookie_secure: bool = False

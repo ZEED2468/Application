@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.enums import UserRole
+from app.core.enums import Track, UserRole
 from app.db import Base
 from app.models.base import TimestampMixin, pk
 
@@ -24,6 +24,11 @@ class User(Base, TimestampMixin):
     # The platform an admin is attached to. Null = global (super-admin) or a hunter.
     platform_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("platform.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # The track the hunter is currently working in — drives discovery/generation defaults
+    # and the dashboard track switcher (R3). Null = no active track selected yet.
+    active_track: Mapped[Track | None] = mapped_column(
+        Enum(Track, native_enum=False), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
