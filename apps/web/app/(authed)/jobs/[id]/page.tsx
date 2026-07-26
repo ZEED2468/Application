@@ -185,7 +185,9 @@ export default function JobDetailPage({
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline">{TRACK_LABELS[job.track]}</Badge>
+        <Badge variant="outline">
+          {TRACK_LABELS[job.track as keyof typeof TRACK_LABELS] || job.track}
+        </Badge>
         <Badge variant={job.origin === "manual" ? "default" : "muted"}>
           {job.origin === "manual" ? "Manual" : "Auto"}
         </Badge>

@@ -21,3 +21,4 @@ export {
   TableCell,
 } from "./table";
 export { Skeleton } from "./skeleton";
+export { MultiSelect, type Option } from "./multi-select";

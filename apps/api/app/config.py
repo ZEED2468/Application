@@ -1,5 +1,6 @@
 """Central configuration. All secrets/env flow through here (pydantic-settings)."""
 
+import re
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -10,12 +11,15 @@ _DOCKER_COMPOSE_HOSTS = frozenset({"postgres", "redis", "bridge"})
 
 
 def _normalize_asyncpg_url(url: str) -> str:
-    """Render/Heroku expose postgres://; SQLAlchemy async needs postgresql+asyncpg://."""
+    """Render/Heroku/Aiven expose postgres:// or postgresql:// with libpq params like ?sslmode=require.
+    SQLAlchemy async needs postgresql+asyncpg:// and asyncpg expects `ssl` instead of `sslmode`.
+    """
     if url.startswith("postgres://"):
-        return "postgresql+asyncpg://" + url[len("postgres://") :]
-    if url.startswith("postgresql://") and "+asyncpg" not in url:
-        return "postgresql+asyncpg://" + url[len("postgresql://") :]
-    return url
+        url = "postgresql+asyncpg://" + url[len("postgres://") :]
+    elif url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = "postgresql+asyncpg://" + url[len("postgresql://") :]
+    return re.sub(r"([?&])sslmode=", r"\1ssl=", url)
+
 
 
 class Settings(BaseSettings):

@@ -12,7 +12,9 @@ import { api, path } from "../client";
 
 export interface JobsFilter {
   status?: TrackerStatus | "";
-  track?: Track | "";
+  track?: string | "";
+  tracks?: string[];
+  experience_levels?: string[];
   origin?: Origin | "";
 }
 
@@ -69,6 +71,12 @@ export const jobsService = {
     const searchParams = new URLSearchParams();
     if (filter.status) searchParams.set("status", filter.status);
     if (filter.track) searchParams.set("track", filter.track);
+    if (filter.tracks && filter.tracks.length > 0) {
+      searchParams.set("tracks", filter.tracks.join(","));
+    }
+    if (filter.experience_levels && filter.experience_levels.length > 0) {
+      searchParams.set("experience_levels", filter.experience_levels.join(","));
+    }
     if (filter.origin) searchParams.set("origin", filter.origin);
     searchParams.set("page", String(page));
     searchParams.set("page_size", String(pageSize));
@@ -77,10 +85,10 @@ export const jobsService = {
       .json<Paginated<JobOut>>();
   },
 
-  async discover(): Promise<DiscoverReport> {
+  async discover(body?: { tracks?: string[]; experience_levels?: string[] }): Promise<DiscoverReport> {
     // 60s: discovery makes live HTTP calls to each source.
     return api
-      .post(path("/api/jobs/discover"), { timeout: 60000 })
+      .post(path("/api/jobs/discover"), { json: body || {}, timeout: 60000 })
       .json<DiscoverReport>();
   },
 

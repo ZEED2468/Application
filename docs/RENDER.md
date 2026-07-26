@@ -53,9 +53,7 @@ VA's WhatsApp once. The session persists on the mounted disk across restarts.
 - **3 builds of the api image** — api, worker, and beat each build `apps/api`
   separately. To speed up later, push one image to a registry and switch those three
   to `image:` instead of `dockerfilePath:`.
-- **Postgres SSL** — the blueprint uses the same-region internal `connectionString`,
-  which asyncpg accepts. If you ever wire the *external* URL and hit an asyncpg SSL
-  error, strip the `?sslmode=...` query param.
+- **Postgres SSL** — external database URLs (Aiven, Supabase, Render, Neon, etc.) using `?sslmode=require` are automatically converted by `app.config._normalize_asyncpg_url` to `?ssl=require` for `asyncpg` compatibility.
 - **Plan slugs** — `basic-256mb` / `starter` / `free` reflect Render's current tiers;
   adjust in `render.yaml` if the dashboard names differ.
 - The `reject_compose_hosts_in_production` validator in

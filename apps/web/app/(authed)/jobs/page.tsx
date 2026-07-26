@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { StatusCell } from "./status-cell";
 import { JdCell } from "./jd-cell";
 import { DocLinkCell } from "./doc-link-cell";
@@ -33,15 +35,62 @@ export const dynamic = "force-dynamic";
 
 export default function JobsPage() {
   const router = useRouter();
+  
+  // Custom tracks from localStorage
+  const [customTracks, setCustomTracks] = React.useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("jd_custom_tracks");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return [];
+  });
+  
+  const [newTrackInput, setNewTrackInput] = React.useState("");
+  const [selectedTracks, setSelectedTracks] = React.useState<string[]>([]);
+  const [selectedExpLevels, setSelectedExpLevels] = React.useState<string[]>([]);
+
+  const addCustomTrack = () => {
+    const trimmed = newTrackInput.trim();
+    if (!trimmed) return;
+    const defaults = ["frontend", "backend", "general"];
+    if (defaults.includes(trimmed.toLowerCase()) || customTracks.includes(trimmed)) {
+      setNewTrackInput("");
+      return;
+    }
+    const updated = [...customTracks, trimmed];
+    setCustomTracks(updated);
+    localStorage.setItem("jd_custom_tracks", JSON.stringify(updated));
+    setNewTrackInput("");
+    setSelectedTracks((prev) => [...prev, trimmed]);
+  };
+
   const [filter, setFilter] = React.useState<JobsFilter>({
     status: "",
     track: "",
+    tracks: [],
+    experience_levels: [],
     origin: "",
   });
   const [preview, setPreview] = React.useState<{ url: string; title: string } | null>(
     null,
   );
   const [page, setPage] = React.useState(1);
+
+  React.useEffect(() => {
+    setFilter((f) => ({
+      ...f,
+      tracks: selectedTracks,
+      experience_levels: selectedExpLevels,
+    }));
+    setPage(1);
+  }, [selectedTracks, selectedExpLevels]);
+
   React.useEffect(() => {
     setPage(1);
   }, [filter.status, filter.track, filter.origin]);
@@ -52,7 +101,10 @@ export default function JobsPage() {
   });
 
   const discover = useMutation({
-    mutationFn: () => jobsService.discover(),
+    mutationFn: () => jobsService.discover({
+      tracks: selectedTracks,
+      experience_levels: selectedExpLevels,
+    }),
     onSuccess: (rep) => {
       const summary = rep.sources
         .map((s) => (s.error ? `${s.source}: error` : `${s.source}: ${s.inserted}`))
@@ -69,9 +121,20 @@ export default function JobsPage() {
       const firstErr = rep.sources.find((s) => s.error);
       if (firstErr) toast.error(`${firstErr.source}: ${firstErr.error}`);
       // surface config gaps (no key / no board tokens) for sources that found nothing
+      const noteGroups: { [key: string]: string[] } = {};
       rep.sources
         .filter((s) => s.note && s.inserted === 0)
-        .forEach((s) => toast.message(`${s.source}: ${s.note}`));
+        .forEach((s) => {
+          if (s.note) {
+            if (!noteGroups[s.note]) {
+              noteGroups[s.note] = [];
+            }
+            noteGroups[s.note].push(s.source);
+          }
+        });
+      Object.entries(noteGroups).forEach(([note, sources]) => {
+        toast.message(`${sources.join(", ")}: ${note}`);
+      });
       if (rep.profiles === 0) {
         toast.error("No profile yet — finish Onboarding so discovery has skills to search.");
       }
@@ -105,8 +168,15 @@ export default function JobsPage() {
       headClassName: "w-[17%] min-w-[11rem]",
       className: "align-top",
       cell: (job) => (
-        <div className="line-clamp-2 text-coffee-700" title={job.role}>
-          {job.role}
+        <div className="space-y-1">
+          <div className="line-clamp-2 text-coffee-700 font-medium" title={job.role}>
+            {job.role}
+          </div>
+          {job.experience_level && (
+            <Badge variant="muted" className="text-[10px] py-0 px-1.5 uppercase font-semibold">
+              {job.experience_level}
+            </Badge>
+          )}
         </div>
       ),
     },
@@ -116,7 +186,9 @@ export default function JobsPage() {
       headClassName: "w-[7%] min-w-[5rem]",
       className: "align-top",
       cell: (job) => (
-        <Badge variant="outline">{TRACK_LABELS[job.track]}</Badge>
+        <Badge variant="outline">
+          {TRACK_LABELS[job.track as keyof typeof TRACK_LABELS] || job.track || "—"}
+        </Badge>
       ),
     },
     {
@@ -200,12 +272,62 @@ export default function JobsPage() {
             and tracked from first send to offer.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Custom Track Input */}
+          <div className="flex items-center gap-1.5">
+            <Input
+              placeholder="New track name"
+              value={newTrackInput}
+              onChange={(e) => setNewTrackInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  addCustomTrack();
+                }
+              }}
+              className="h-8 w-36 text-sm"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={addCustomTrack}
+              className="h-8 px-2"
+            >
+              +
+            </Button>
+          </div>
+
+          {/* Track Multi-Select */}
+          <MultiSelect
+            placeholder="All Tracks"
+            selected={selectedTracks}
+            options={[
+              { value: "frontend", label: "Frontend" },
+              { value: "backend", label: "Backend" },
+              { value: "general", label: "General" },
+              ...customTracks.map((ct) => ({ value: ct, label: ct })),
+            ]}
+            onChange={setSelectedTracks}
+          />
+
+          {/* Level of Experience Multi-Select */}
+          <MultiSelect
+            placeholder="All Levels"
+            selected={selectedExpLevels}
+            options={[
+              { value: "junior", label: "Junior" },
+              { value: "mid", label: "Mid" },
+              { value: "senior", label: "Senior" },
+              { value: "lead", label: "Lead" },
+            ]}
+            onChange={setSelectedExpLevels}
+          />
+
           <Button
             variant="primary"
             size="sm"
             onClick={() => discover.mutate()}
             disabled={discover.isPending}
+            className="h-8"
           >
             <Search className="size-4" />
             {discover.isPending ? "Finding…" : "Find jobs now"}
@@ -222,14 +344,6 @@ export default function JobsPage() {
       </div>
 
       <div className="flex shrink-0 flex-wrap items-end gap-4 rounded-lg border border-coffee-300 bg-white px-4 py-3">
-        <FilterSelect
-          label="Track"
-          value={filter.track ?? ""}
-          onChange={(v) =>
-            setFilter((f) => ({ ...f, track: v as Track | "" }))
-          }
-          options={TRACKS.map((t) => ({ value: t, label: TRACK_LABELS[t] }))}
-        />
         <FilterSelect
           label="Status"
           value={filter.status ?? ""}
@@ -252,11 +366,15 @@ export default function JobsPage() {
             { value: "manual", label: "Manual" },
           ]}
         />
-        {(filter.track || filter.status || filter.origin) && (
+        {(filter.status || filter.origin || selectedTracks.length > 0 || selectedExpLevels.length > 0) && (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setFilter({ track: "", status: "", origin: "" })}
+            onClick={() => {
+              setFilter({ status: "", track: "", origin: "", tracks: [], experience_levels: [] });
+              setSelectedTracks([]);
+              setSelectedExpLevels([]);
+            }}
           >
             Clear filters
           </Button>
