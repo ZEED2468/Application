@@ -117,6 +117,9 @@ async def regenerate(
     if track is None:
         raise DomainError("A track is required to regenerate.")
 
+    from app.api.tracks import require_track_resume
+    await require_track_resume(session, owner_id, track)
+
     owner = await session.get(User, owner_id)
     profile = await profiles_repo.get_by_user_track(session, user_id=owner_id, track=track)
     if profile is None:

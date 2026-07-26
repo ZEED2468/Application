@@ -18,6 +18,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { previewCoverLetterTemplate } from "@/lib/cover-letter-template";
 import { PageHeading, EmptyState } from "@/components/states";
+import { TracksManager } from "@/components/tracks-manager";
 import {
   Card,
   CardHeader,
@@ -183,6 +184,8 @@ export default function ProfilePage() {
         title="Profile"
         description="Upload your source CV once per track. Replace it anytime, per-job applications still get newly tailored PDFs."
       />
+
+      <TracksManager />
 
       <Card>
         <CardHeader>

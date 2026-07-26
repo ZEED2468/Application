@@ -502,6 +502,24 @@ export interface CoverLetterTemplate {
  * LaTeX templates / regeneration
  * ------------------------------------------------------------------------- */
 
+/* ----------------------------------------------------------------------------
+ * Tracks (first-class career tracks with readiness)
+ * ------------------------------------------------------------------------- */
+
+export type TrackStatus = "setup_required" | "ready" | "archived";
+
+/** A first-class career track. Incomplete until it has a resume (CV). */
+export interface CareerTrack {
+  id: string;
+  slug: string;
+  name: string;
+  status: TrackStatus;
+  resume: boolean;
+  cover_letter: boolean;
+  confirmed: boolean;
+  target_roles: string[];
+}
+
 export type LatexKind = "cv" | "cover";
 
 /** A per-track LaTeX skeleton the regeneration engine renders tailored content into. */

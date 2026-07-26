@@ -15,7 +15,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.core.enums import JobSourceName, JobStatus, Origin, Track, UserRole
+from app.core.enums import JobSourceName, JobStatus, Origin, ParseStatus, Track, UserRole
 from app.db import get_session
 from app.main import app
 from app.models import Base
@@ -23,6 +23,7 @@ from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
 from app.models.latex_template import LatexTemplate
 from app.models.master_profile import MasterProfile
+from app.models.role_cv import RoleCv
 from app.models.user import User
 from app.security import hash_password
 
@@ -49,6 +50,10 @@ async def ctx():
                          "bullets": ["Built Go microservices"]}],
             projects=[], education=[], links={},
         ))
+        # a source CV so the track passes the require_track_resume guard
+        s.add(RoleCv(user_id=user.id, track=Track.backend, original_filename="cv.pdf",
+                     source_file_key=f"{user.id}/role-cv/backend/source.pdf",
+                     parse_status=ParseStatus.parsed))
         await s.commit()
 
     async def _override():

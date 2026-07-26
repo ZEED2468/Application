@@ -85,7 +85,22 @@ export default function JobDetailPage({
       toast.success("Generation started, refreshing");
       queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: async (err) => {
+      const e = await toApiError(err);
+      // The track-resume guard returns an actionable route (e.g. upload a CV).
+      if (e.action) {
+        toast.error(e.message, {
+          action: {
+            label: e.action.label,
+            onClick: () => {
+              window.location.href = e.action!.route;
+            },
+          },
+        });
+      } else {
+        toast.error(e.message);
+      }
+    },
   });
 
   const applyMutation = useMutation({

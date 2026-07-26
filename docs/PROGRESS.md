@@ -5,12 +5,30 @@ context. The repo is the **Job Application & Outreach Engine** (FastAPI + Celery
 in `apps/api`, Next.js dashboard in `apps/web`, Go WhatsApp bridge in `apps/wa-bridge`,
 shared TS types in `packages/shared-types`).
 
-**State at last update:** Backend `uv run python -m pytest -q` → **114 passed** (migration head
-`f3c4d5e6f7a8`). `pnpm --filter web build` → green. The 10-refinement program shipped as 4 stacked
-PRs (#2 Resume Intelligence → #3 truth-corpus/tracks → #4 BYO-keys/errors → Phase 4 onboarding/
-career); **merge in order**. Reminder: secrets (Adzuna/SerpApi, **R2**, the **LLM** provider/model,
+**State at last update:** Backend `uv run python -m pytest -q` → **124 passed** (migration head
+`a1b2c3d4e5f6`). `pnpm --filter web build` → green. The 10-refinement program merged to `main`
+(via PR #5) + the `job` schema migration (#6); the **Track-entity readiness** feature is the
+newest branch. Reminder: secrets (Adzuna/SerpApi, **R2**, the **LLM** provider/model,
 **`CREDENTIAL_ENC_KEY`** for per-user keys) live in the **Render dashboard env** (the local `.env`
 is ignored by Render); the deploy must run `alembic upgrade head`.
+
+### Track-entity readiness (CV-required rule)  — newest
+First-class **Track** entity (lifecycle) layered on the existing per-`(user, track)` data by
+**slug** (no mass FK refactor). Additive migration `a1b2c3d4e5f6`. Backend **124 tests**.
+- **`track` table** ([models/track_entity.py](apps/api/app/models/track_entity.py)): `(user_id, slug)`,
+  `name`, `archived_at`. Readiness is DERIVED — `ready` iff a `RoleCv` exists for the slug, else
+  `setup_required`; `archived` when `archived_at` set.
+- **`/api/tracks`** ([api/tracks.py](apps/api/app/api/tracks.py)): list (with readiness, backfills a
+  row per data-slug), create, rename, archive/unarchive, and `POST /{id}/resume/from/{source_id}`
+  (duplicate a resume from another track). `_tv()` handles enum-or-string track values.
+- **Feature guard** `require_track_resume` — raises a structured `DomainError(code="track_resume_required",
+  action={label, route})` on `POST /jobs/{id}/generate` and `POST /latex/regenerate` when the track
+  has no CV. `DomainError` gained an optional **`action`** field (handler + `toApiError` surface it).
+- **Frontend**: `TracksManager` card on Profile (status pills + create + **Resume Required modal** →
+  copy-from-existing) + `TrackReminder` banner on Jobs + reusable `ui/dialog.tsx`; guard errors on
+  Generate show a clickable action. `tracksService`, `CareerTrack` type, `queryKeys.tracks`.
+- **Known follow-up**: custom-track *fresh* CV upload needs the same enum→string column widening the
+  `job` table already got (custom tracks currently get a CV via duplicate; built-ins upload as today).
 
 > **The #1 non-negotiable is the TRUTH BOUNDARY**: generation only reorders/reframes
 > facts already in the master profile / `truth_corpus` or VA-confirmed-true. Never

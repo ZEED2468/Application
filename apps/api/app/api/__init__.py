@@ -15,6 +15,7 @@ from app.api import (
     platforms,
     settings,
     sources,
+    tracks,
     va,
 )
 from app.api.webhooks import webhooks_router
@@ -32,5 +33,6 @@ api_router.include_router(invites.router)
 api_router.include_router(platforms.router)
 api_router.include_router(settings.router)
 api_router.include_router(sources.router)
+api_router.include_router(tracks.router)
 api_router.include_router(admin_email.router)
 api_router.include_router(webhooks_router)
