@@ -29,6 +29,27 @@ from sqlalchemy import select
 log = structlog.get_logger(__name__)
 
 
+async def _render_checked(tex: str, *, label: str, job_id) -> tuple[bytes, str | None]:
+    """Compile via the checked renderer so failures are visible; fall back to the stub
+    PDF (so the pipeline still completes) and return the stderr for the record."""
+    pdf, stderr = await render.render_pdf_checked(tex)
+    if pdf is not None:
+        return pdf, None
+    log.warning("generation.render_failed", label=label, job_id=str(job_id),
+                stderr=(stderr or "")[:500])
+    return await render.render_pdf(tex), (stderr or "compile failed")
+
+
+def _facts_present(tex: str, *, name: str, cv_json: dict) -> bool:
+    """Sanity check that the rendered LaTeX carries the candidate's real anchors."""
+    low = tex.lower()
+    anchors = [name]
+    exp = cv_json.get("experience") or []
+    if exp and isinstance(exp[0], dict) and exp[0].get("company"):
+        anchors.append(str(exp[0]["company"]))
+    return all(str(a).lower() in low for a in anchors if a)
+
+
 def merge_confirmed_facts(profile_dict: dict, confirmed: list[str] | None) -> dict:
     """Add VA-confirmed-true skills into the tailoring input (truth-bounded)."""
     if not confirmed:
@@ -65,7 +86,10 @@ async def generate_cv_and_cover(
         cv_json=cv_json, jd_text=job.description or "", role_title=job.role_title or job.title
     )
     tex = render.build_tex(cv_json, name=owner.name)
-    pdf = await render.render_pdf(tex)
+    pdf, cv_stderr = await _render_checked(tex, label="cv", job_id=job.id)
+    diff["render"] = {"cv_ok": cv_stderr is None, "facts_ok": _facts_present(tex, name=owner.name, cv_json=cv_json)}
+    if cv_stderr:
+        diff["render"]["cv_stderr"] = cv_stderr[:500]
     tex_key = f"{job.user_id}/{job.id}/cv.tex"
     pdf_key = f"{job.user_id}/{job.id}/cv.pdf"
     await r2.put_bytes(tex_key, tex.encode(), "application/x-tex")
@@ -95,7 +119,7 @@ async def generate_cv_and_cover(
         template_body=template.body if template else None,
     )
     cl_tex = render.build_cover_letter_tex(cl_body, name=owner.name)
-    cl_pdf = await render.render_pdf(cl_tex)
+    cl_pdf, _cl_stderr = await _render_checked(cl_tex, label="cover", job_id=job.id)
     cl_tex_key = f"{job.user_id}/{job.id}/cover.tex"
     cl_pdf_key = f"{job.user_id}/{job.id}/cover.pdf"
     await r2.put_bytes(cl_tex_key, cl_tex.encode(), "application/x-tex")

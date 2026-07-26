@@ -13,12 +13,12 @@ from app.core.enums import ParseStatus, Track
 from app.core.errors import DomainError
 from app.db import get_session
 from app.deps import current_user
-from app.llm import ats_analyze, track_classify
+from app.llm import ats_analyze, resume_intel, track_classify
 from app.models.cover_letter import CoverLetterTemplate
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
-from app.pipelines.apply import ats
+from app.pipelines.apply import ats, intel, verbs
 from app.pipelines.apply.cv_parse import cv_json_from_text, extract_text_from_bytes
 from app.pipelines.apply.profile_cv import cv_text_from_profile
 from app.repositories import profiles as profiles_repo
@@ -302,6 +302,25 @@ async def _run_check(
 
         ai_block["ai_powered"] = client.is_live("ats_analyze")
 
+    # --- Resume Intelligence (deterministic always; advisory when AI is on) ---
+    structure = intel.structure_review(cv_text=cv_text, cv_json=cv_json)
+    weak_verbs = verbs.detect(intel.bullets_of(cv_json))
+    intelligence = {
+        "tools": intel.tool_analysis(jd_text=jd_text, cv_json=cv_json),
+        "structure": structure,
+        "verbs": weak_verbs,
+        "lint": intel.ats_lint(
+            cv_json=cv_json, breakdown=breakdown, structure=structure, weak_verbs=weak_verbs
+        ),
+        "advisory": None,
+    }
+    if use_ai:
+        ri = await resume_intel.analyze(
+            cv_json=cv_json, cv_text=cv_text, jd_text=jd_text, role_title=role_title,
+            breakdown=breakdown, structure=structure,
+        )
+        intelligence["advisory"] = resume_intel.analysis_to_dict(ri)
+
     return {
         "role_title": role_title,
         "track": track.value if track else None,
@@ -316,4 +335,5 @@ async def _run_check(
             "gaps": ats.gap_skills(breakdown),
         },
         "ai": ai_block,
+        "intelligence": intelligence,
     }

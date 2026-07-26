@@ -21,7 +21,7 @@ from app.llm.providers import get as get_provider
 # so it shares the ATS scoring model with no extra configuration.
 FEATURES = {
     "tailoring", "cover_letter", "hookfinder", "draft_email", "classify_reply",
-    "ats_vet", "ats_analyze", "cv_structure", "track_classify",
+    "ats_vet", "ats_analyze", "resume_intel", "cv_structure", "track_classify",
 }
 
 

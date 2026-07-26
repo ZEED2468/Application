@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { FileText, ScanSearch, UploadCloud, Sparkles, Wand2 } from "lucide-react";
-import type { AtsCheckResult, RegenerateAtsRecs, Track } from "@jd/shared-types";
+import type {
+  AtsCheckResult,
+  RegenerateAtsRecs,
+  ResumeIntelligence,
+  Track,
+} from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
 import { atsService } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
@@ -27,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
+import { Tabs } from "@/components/ui/tabs";
 
 const CV_ACCEPT =
   ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -485,9 +491,212 @@ export default function AtsCheckerPage() {
               </Card>
             )}
           </div>
+
+          {result.intelligence && (
+            <ResumeIntelligencePanel intel={result.intelligence} />
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function ChipRow({
+  label,
+  items,
+  variant = "muted",
+  empty,
+}: {
+  label: string;
+  items: string[];
+  variant?: "default" | "outline" | "muted";
+  empty?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
+        {label}
+      </p>
+      {items.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((it) => (
+            <Badge key={it} variant={variant}>
+              {it}
+            </Badge>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-coffee-300">{empty ?? "None"}</p>
+      )}
+    </div>
+  );
+}
+
+function FlagList({ flags }: { flags: { code: string; severity: string; message: string }[] }) {
+  if (flags.length === 0) {
+    return <p className="text-sm text-status-offer">No issues detected.</p>;
+  }
+  return (
+    <ul className="space-y-2">
+      {flags.map((f) => (
+        <li
+          key={f.code + f.message}
+          className="flex gap-2 rounded-md border border-coffee-100 px-3 py-2 text-sm"
+        >
+          <Badge
+            variant={f.severity === "warn" ? "outline" : "muted"}
+            className="shrink-0 text-[0.65rem]"
+          >
+            {f.severity}
+          </Badge>
+          <span className="text-coffee-700">{f.message}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ResumeIntelligencePanel({ intel }: { intel: ResumeIntelligence }) {
+  const [tab, setTab] = React.useState("tools");
+  const a = intel.advisory;
+  const tabs = [
+    { value: "tools", label: "Tools" },
+    { value: "structure", label: "Structure" },
+    {
+      value: "verbs",
+      label: `Verbs${intel.verbs.length ? ` (${intel.verbs.length})` : ""}`,
+    },
+    {
+      value: "standards",
+      label: `Standards${intel.lint.count ? ` (${intel.lint.count})` : ""}`,
+    },
+    { value: "coaching", label: "Coaching" },
+  ];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="size-4 text-coffee-500" />
+          Resume Intelligence
+        </CardTitle>
+        <CardDescription>
+          Truthful, recruiter-focused suggestions you verify before applying — nothing
+          is rewritten automatically.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Tabs tabs={tabs} value={tab} onValueChange={setTab} />
+
+        {tab === "tools" && (
+          <div className="space-y-4">
+            <ChipRow label="Represented" items={intel.tools.represented} variant="default" empty="No required tools matched yet." />
+            <ChipRow label="Missing (required by JD)" items={intel.tools.missing} variant="outline" empty="Nothing missing." />
+            {intel.tools.underutilized_verified.length > 0 && (
+              <ChipRow label="Verified but underused" items={intel.tools.underutilized_verified} variant="muted" />
+            )}
+          </div>
+        )}
+
+        {tab === "structure" && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2 text-sm text-coffee-600">
+              <Badge variant="muted">{intel.structure.word_count} words</Badge>
+              <Badge variant="muted">~{intel.structure.est_pages} page(s)</Badge>
+              <Badge variant={intel.structure.summary_present ? "default" : "outline"}>
+                {intel.structure.summary_present ? "Summary ✓" : "No summary"}
+              </Badge>
+              {(["email", "phone", "linkedin", "github"] as const).map((k) => (
+                <Badge key={k} variant={intel.structure.contact[k] ? "default" : "outline"}>
+                  {k} {intel.structure.contact[k] ? "✓" : "—"}
+                </Badge>
+              ))}
+            </div>
+            {intel.structure.headings.length > 0 && (
+              <ChipRow label="Sections detected" items={intel.structure.headings} variant="muted" />
+            )}
+            <FlagList flags={intel.structure.ats_flags} />
+          </div>
+        )}
+
+        {tab === "verbs" && (
+          intel.verbs.length === 0 ? (
+            <p className="text-sm text-status-offer">No weak bullet openers detected.</p>
+          ) : (
+            <ul className="space-y-2">
+              {intel.verbs.map((v, i) => (
+                <li key={i} className="rounded-md border border-coffee-100 px-3 py-2 text-sm">
+                  <p className="text-coffee-700">
+                    <span className="rounded bg-coffee-100 px-1 font-medium text-coffee-900">
+                      {v.weak_verb}
+                    </span>{" "}
+                    {v.bullet}
+                  </p>
+                  <p className="mt-1 text-xs text-coffee-500">
+                    Stronger (if accurate): {v.suggestions.join(", ")}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )
+        )}
+
+        {tab === "standards" && <FlagList flags={intel.lint.findings} />}
+
+        {tab === "coaching" && (
+          !a ? (
+            <p className="text-sm text-coffee-500">
+              Enable “Include AI analysis” (and configure a provider) for tailored PAR/XYZ
+              bullet coaching and a summary rewrite.
+            </p>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ChipRow label="Strong matches" items={a.skills_alignment.strong} variant="default" empty="—" />
+                <ChipRow label="Omitted to stay truthful" items={a.skills_alignment.omitted_for_truth} variant="outline" empty="—" />
+              </div>
+              {a.summary_review.issues.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
+                    Summary
+                  </p>
+                  <ul className="list-inside list-disc text-sm text-coffee-700">
+                    {a.summary_review.issues.map((s) => (
+                      <li key={s}>{s}</li>
+                    ))}
+                  </ul>
+                  {a.summary_review.suggestion && (
+                    <p className="rounded-md border border-coffee-100 bg-coffee-50 px-3 py-2 text-sm text-coffee-800">
+                      {a.summary_review.suggestion}
+                    </p>
+                  )}
+                </div>
+              )}
+              {a.bullet_coaching.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
+                    Bullet coaching
+                  </p>
+                  <ul className="space-y-2">
+                    {a.bullet_coaching.map((c, i) => (
+                      <li key={i} className="rounded-md border border-coffee-100 px-3 py-2 text-sm">
+                        <Badge variant="muted" className="text-[0.65rem]">
+                          {c.framework}
+                        </Badge>
+                        {c.original && (
+                          <p className="mt-1 text-coffee-500 line-clamp-2">{c.original}</p>
+                        )}
+                        <p className="mt-1 text-coffee-800">{c.suggestion}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

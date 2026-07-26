@@ -20,6 +20,33 @@ Render); the deploy must run `alembic upgrade head`.
 
 ## Most recent (this session)
 
+### Resume Intelligence — Phase 1 of the refinement program (R5 + R9 + R6)
+First phase of the 10-refinement design spec (full spec lives in the plan file). **Extends** the
+ATS engine + generation with truthful resume-quality analysis; nothing rewrites the CV or changes
+the numeric `ats.score`. Backend **103 tests** (97 + 6 new); web typecheck green.
+- **R5 Resume Intelligence** — new deterministic modules: `pipelines/apply/verbs.py` (weak-verb
+  detect + truthful stronger-verb suggestions, read-only), `pipelines/apply/intel.py`
+  (`tool_analysis` required/represented/missing/underutilized-verified, `structure_review` = real
+  ATS-hygiene parse of the CV text — photo/address/objective/length/contact/first-person, and
+  `ats_lint`). Advisory LLM `llm/resume_intel.py` (feature `resume_intel`, mirrors `ats_vet`:
+  offline-deterministic + optional live pass returning **suggestions the human verifies**, PAR/XYZ
+  bullet coaching + summary review + skills alignment incl. `omitted_for_truth`). All surfaced via
+  a new additive `intelligence` block on `/api/ats/check` (`_run_check`); existing contract intact.
+- **Truth boundary preserved** — `assert_truth_bounded` is exact-substring, so no reworded
+  suggestion is ever routed through it; rewrites are advisory-only (verified before applying).
+- **R9 ATS standards** — `intel.ats_lint` (summary-not-objective, length, contact hygiene, weak
+  verbs, coverage, keyword-stuffing, outcome density) + reinforced **live** tailoring/cover prompts
+  (PAR/XYZ, strong verbs, recruiter summary, natural keywords) — live-only, so fake-mode tests are
+  unchanged.
+- **R6 LaTeX-first** — `generation.py` now renders via `render_pdf_checked` (compile failures
+  logged with stderr instead of silently stubbed) + a fact-presence check, recorded on the CV's
+  `tailoring_diff.render`.
+- **Frontend** — `components/ui/tabs.tsx` + a **Resume Intelligence workspace** in the ATS Checker
+  (Tools · Structure · Verbs · Standards · Coaching tabs); shared-types widened with
+  `ResumeIntelligence`.
+- Tests: `tests/test_resume_intel.py` (verb detection, tool split, structure hygiene, lint,
+  offline advisory truth-split, additive `intelligence` block).
+
 ### LaTeX-template-driven CV/cover regeneration (ATS recs → your design → preview → use on job)
 Hunters/VAs upload their own CV + cover-letter **LaTeX per track**; the ATS Checker's
 validated recommendations drive a **regenerated, truth-bounded** CV + cover rendered into that

@@ -66,8 +66,9 @@ async def generate_cover_letter(
     system = (
         "Write a cover letter of EXACTLY three paragraphs: (1) intro + a specific, "
         "REAL company hook, (2) a genuine accomplishment of the candidate that mirrors "
-        "that work, (3) why-join + mutual benefit. Use ONLY facts from the profile; "
-        "never invent. Seed tone from the template if provided."
+        "that work, stated with a strong, accurate action verb, (3) why-join + mutual "
+        "benefit. Use ONLY facts from the profile; never invent metrics or achievements. "
+        "Keep it recruiter-focused and concise. Seed tone from the template if provided."
     )
     prompt = (
         f"Candidate: {candidate_name}\nCompany: {company}\nRole: {role_title}\n"
