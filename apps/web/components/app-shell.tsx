@@ -15,6 +15,7 @@ import {
   Users,
   ShieldCheck,
   Settings,
+  LifeBuoy,
   LogOut,
 } from "lucide-react";
 import type { MeResponse } from "@jd/shared-types";
@@ -48,6 +49,7 @@ function navFor(me?: MeResponse): NavItem[] {
     items.push({ href: "/admin", label: "Admin", icon: ShieldCheck });
     items.push({ href: "/domains", label: "Domains", icon: Globe });
   }
+  items.push({ href: "/help", label: "Help", icon: LifeBuoy });
   return items;
 }
 

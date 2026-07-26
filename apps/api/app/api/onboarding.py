@@ -50,6 +50,7 @@ from app.models.latex_template import LatexTemplate
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
+from app.models.user_llm_credential import UserLlmCredential
 
 from app.llm import cv_structure
 from app.pipelines.apply.cv_parse import extract_text_from_bytes, naive_skills
@@ -83,10 +84,21 @@ class ProfileOut(BaseModel):
     verified_extras: dict = {}
     preferred_skills: list[str] = []
     career_preferences: dict = {}
+    links: dict = {}
+    preferred_locations: list[str] = []
+    preferred_job_types: list[str] = []
+    salary_expectation: dict = {}
 
 
 class VerifiedExtrasBody(BaseModel):
     extras: dict
+
+
+class CareerDetailsBody(BaseModel):
+    links: dict = {}
+    preferred_locations: list[str] = []
+    preferred_job_types: list[str] = []
+    salary_expectation: dict = {}
 
 
 class PreferencesBody(BaseModel):
@@ -213,6 +225,10 @@ async def list_profiles(
             verified_extras=p.verified_extras or {},
             preferred_skills=list(p.preferred_skills or []),
             career_preferences=p.career_preferences or {},
+            links=p.links or {},
+            preferred_locations=list(p.preferred_locations or []),
+            preferred_job_types=list(p.preferred_job_types or []),
+            salary_expectation=p.salary_expectation or {},
         ))
     return out
 
@@ -381,6 +397,30 @@ async def set_preferences(
     }
 
 
+@router.put("/profiles/{track}/career-details")
+async def set_career_details(
+    track: Track, body: CareerDetailsBody,
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Career Workspace details (R8): links + preferred locations/job-types + salary."""
+    profile = await _require_profile(session, user.id, track)
+    profile.links = body.links or {}
+    profile.preferred_locations = list(dict.fromkeys(
+        s.strip() for s in body.preferred_locations if s and s.strip()
+    ))[:30]
+    profile.preferred_job_types = list(dict.fromkeys(
+        s.strip() for s in body.preferred_job_types if s and s.strip()
+    ))[:15]
+    profile.salary_expectation = body.salary_expectation or {}
+    await session.flush()
+    return {
+        "track": track.value, "links": profile.links,
+        "preferred_locations": profile.preferred_locations,
+        "preferred_job_types": profile.preferred_job_types,
+        "salary_expectation": profile.salary_expectation,
+    }
+
+
 @router.put("/me/active-track")
 async def set_active_track(
     body: ActiveTrackBody,
@@ -390,6 +430,53 @@ async def set_active_track(
     user.active_track = body.track
     await session.flush()
     return {"active_track": body.track.value if body.track else None}
+
+
+@router.get("/onboarding/status")
+async def onboarding_status(
+    user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
+) -> dict:
+    """First-run completeness + the next required action (drives guided onboarding, R2)."""
+    profiles = (await session.execute(
+        select(MasterProfile).where(MasterProfile.user_id == user.id)
+    )).scalars().all()
+    role_cvs = {
+        rc.track: rc for rc in (await session.execute(
+            select(RoleCv).where(RoleCv.user_id == user.id)
+        )).scalars().all()
+    }
+    has_key = (await session.execute(
+        select(UserLlmCredential.id).where(UserLlmCredential.user_id == user.id).limit(1)
+    )).first() is not None
+
+    tracks = []
+    for p in profiles:
+        rc = role_cvs.get(p.track)
+        tracks.append({
+            "track": p.track.value,
+            "has_cv": rc is not None,
+            "parsed": rc is not None and rc.parse_status is ParseStatus.parsed,
+            "confirmed": bool(p.confirmed),
+            "has_target_roles": bool(p.target_roles),
+        })
+
+    steps = [
+        {"key": "upload_cv", "label": "Upload a source CV per track",
+         "done": bool(role_cvs), "href": "/profile"},
+        {"key": "confirm", "label": "Confirm a profile",
+         "done": any(p.confirmed for p in profiles), "href": "/profile"},
+        {"key": "target_roles", "label": "Set target roles",
+         "done": any(p.target_roles for p in profiles), "href": "/profile"},
+        {"key": "api_key", "label": "Add an AI provider key",
+         "done": has_key, "href": "/settings"},
+    ]
+    next_action = next((s for s in steps if not s["done"]), None)
+    return {
+        "tracks": tracks,
+        "steps": steps,
+        "next_action": next_action,
+        "complete": all(s["done"] for s in steps),
+    }
 
 
 @router.post("/profiles/{track}/confirm")

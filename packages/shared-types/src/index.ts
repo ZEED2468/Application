@@ -464,6 +464,31 @@ export interface MasterProfile {
   preferred_skills?: string[];
   /** freeform per-track career preferences */
   career_preferences?: Record<string, unknown>;
+  /** links (linkedin/github/portfolio) */
+  links?: Record<string, string>;
+  preferred_locations?: string[];
+  preferred_job_types?: string[];
+  salary_expectation?: Record<string, unknown>;
+}
+
+/* ---- Guided onboarding (R2) ---- */
+export interface OnboardingStep {
+  key: string;
+  label: string;
+  done: boolean;
+  href: string;
+}
+export interface OnboardingStatus {
+  tracks: {
+    track: Track;
+    has_cv: boolean;
+    parsed: boolean;
+    confirmed: boolean;
+    has_target_roles: boolean;
+  }[];
+  steps: OnboardingStep[];
+  next_action: OnboardingStep | null;
+  complete: boolean;
 }
 
 export interface CoverLetterTemplate {

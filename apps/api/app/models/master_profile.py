@@ -41,4 +41,8 @@ class MasterProfile(Base, TimestampMixin):
     # Per-track career preferences (R3): skills to emphasize + freeform prefs.
     preferred_skills: Mapped[list] = mapped_column(JsonB, default=list)
     career_preferences: Mapped[dict] = mapped_column(JsonB, default=dict)
+    # Career Workspace details (R8). links (linkedin/github/portfolio) reuse `links`.
+    preferred_locations: Mapped[list] = mapped_column(JsonB, default=list)
+    preferred_job_types: Mapped[list] = mapped_column(JsonB, default=list)
+    salary_expectation: Mapped[dict] = mapped_column(JsonB, default=dict)
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -5,11 +5,12 @@ context. The repo is the **Job Application & Outreach Engine** (FastAPI + Celery
 in `apps/api`, Next.js dashboard in `apps/web`, Go WhatsApp bridge in `apps/wa-bridge`,
 shared TS types in `packages/shared-types`).
 
-**State at last update:** Backend `uv run python -m pytest -q` → **97 passed** (migration head
-`e1f2a3b4c5d6`). `pnpm --filter web build` → green. All work below is in the working tree —
-**commit + redeploy (`api` + `web`) to ship**. Reminder: secrets (Adzuna/SerpApi, **R2**,
-the **LLM** provider/model) live in the **Render dashboard env** (the local `.env` is ignored by
-Render); the deploy must run `alembic upgrade head`.
+**State at last update:** Backend `uv run python -m pytest -q` → **114 passed** (migration head
+`f3c4d5e6f7a8`). `pnpm --filter web build` → green. The 10-refinement program shipped as 4 stacked
+PRs (#2 Resume Intelligence → #3 truth-corpus/tracks → #4 BYO-keys/errors → Phase 4 onboarding/
+career); **merge in order**. Reminder: secrets (Adzuna/SerpApi, **R2**, the **LLM** provider/model,
+**`CREDENTIAL_ENC_KEY`** for per-user keys) live in the **Render dashboard env** (the local `.env`
+is ignored by Render); the deploy must run `alembic upgrade head`.
 
 > **The #1 non-negotiable is the TRUTH BOUNDARY**: generation only reorders/reframes
 > facts already in the master profile / `truth_corpus` or VA-confirmed-true. Never
@@ -19,6 +20,19 @@ Render); the deploy must run `alembic upgrade head`.
 ---
 
 ## Most recent (this session)
+
+### Guided onboarding + Career Workspace — Phase 4 (R2 + R8)
+Final phase. Additive-only (migration `f3c4d5e6f7a8`). Backend **114 tests** (112 + 2); web typecheck green.
+- **R8 Career Workspace** — `MasterProfile.preferred_locations` / `preferred_job_types` /
+  `salary_expectation` (JSONB); links (linkedin/github/portfolio) reuse `MasterProfile.links`.
+  `PUT /api/profiles/{track}/career-details`; surfaced in `ProfileOut`. Profile page gains a
+  per-track **Career details** editor (links + location/job-type chips + salary).
+- **R2 Guided onboarding** — `GET /api/onboarding/status` computes completeness from existing data
+  (CV uploaded/parsed/confirmed, target roles, API key) → a checklist + `next_action`. New **/help**
+  route + nav (everyone) with the setup **checklist** and an **Accordion** of guides (overview, ATS
+  workflow, CV upload, tracks, LaTeX/cover templates, verified extras, AI providers, ATS scores,
+  applying). New `components/ui/accordion.tsx`.
+- Tests: `tests/test_onboarding_status.py` (status next-action + completeness; career-details roundtrip).
 
 ### BYO-key + actionable errors + reliability — Phase 3 (R1 + R7 + R10)
 Additive-only (migration `f2b3c4d5e6f7`; new dep `cryptography`). Backend **112 tests** (107 + 5);

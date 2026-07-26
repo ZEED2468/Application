@@ -336,6 +336,9 @@ export default function ProfilePage() {
                     track={track}
                     initial={profile?.verified_extras ?? {}}
                   />
+                  {profile && (
+                    <CareerDetailsEditor track={track} initial={profile} />
+                  )}
                 </div>
               );
             })
@@ -891,6 +894,67 @@ function VerifiedExtrasEditor({
             placeholder={`Add ${c.label.toLowerCase()}…`}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function CareerDetailsEditor({ track, initial }: { track: Track; initial: MasterProfile }) {
+  const links = initial.links ?? {};
+  const [linkedin, setLinkedin] = React.useState(links.linkedin ?? "");
+  const [github, setGithub] = React.useState(links.github ?? "");
+  const [portfolio, setPortfolio] = React.useState(links.portfolio ?? "");
+  const [locations, setLocations] = React.useState<string[]>(initial.preferred_locations ?? []);
+  const [jobTypes, setJobTypes] = React.useState<string[]>(initial.preferred_job_types ?? []);
+  const [salary, setSalary] = React.useState<string>(
+    typeof initial.salary_expectation?.note === "string" ? initial.salary_expectation.note : "",
+  );
+
+  const save = useMutation({
+    mutationFn: () =>
+      onboardingService.setCareerDetails(track, {
+        links: Object.fromEntries(
+          [
+            ["linkedin", linkedin],
+            ["github", github],
+            ["portfolio", portfolio],
+          ].filter(([, v]) => v.trim()),
+        ),
+        preferred_locations: locations,
+        preferred_job_types: jobTypes,
+        salary_expectation: salary.trim() ? { note: salary.trim() } : {},
+      }),
+    onSuccess: () => toast.success("Career details saved"),
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
+  return (
+    <div className="space-y-3 border-t border-coffee-100 pt-3">
+      <Label>Career details</Label>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Input placeholder="LinkedIn URL" value={linkedin} onChange={(e) => setLinkedin(e.target.value)} />
+        <Input placeholder="GitHub URL" value={github} onChange={(e) => setGithub(e.target.value)} />
+        <Input placeholder="Portfolio URL" value={portfolio} onChange={(e) => setPortfolio(e.target.value)} />
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <ChipField label="Preferred locations" values={locations} onChange={setLocations} placeholder="e.g. Remote" />
+        <ChipField label="Job types" values={jobTypes} onChange={setJobTypes} placeholder="e.g. Full-time" />
+      </div>
+      <Input
+        placeholder="Salary expectation (optional)"
+        value={salary}
+        onChange={(e) => setSalary(e.target.value)}
+      />
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={save.isPending}
+          onClick={() => save.mutate()}
+        >
+          Save career details
+        </Button>
       </div>
     </div>
   );
