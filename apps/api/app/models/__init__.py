@@ -23,6 +23,7 @@ from app.models.role_cv import RoleCv
 from app.models.sending_domain import SendingDomain
 from app.models.source_board import SourceBoard
 from app.models.thread import Thread
+from app.models.track_entity import Track as TrackEntity
 from app.models.user import RefreshToken, User
 from app.models.user_llm_credential import UserLlmCredential
 from app.models.va import Va
@@ -56,4 +57,5 @@ __all__ = [
     "Platform",
     "SourceBoard",
     "UserLlmCredential",
+    "TrackEntity",
 ]

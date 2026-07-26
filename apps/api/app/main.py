@@ -85,6 +85,8 @@ def create_app() -> FastAPI:
         body = {"error": exc.message, "code": exc.code}
         if exc.remediation:
             body["remediation"] = exc.remediation
+        if exc.action:
+            body["action"] = exc.action
         return JSONResponse(status_code=exc.status_code, content=body)
 
     @app.exception_handler(Exception)

@@ -94,6 +94,8 @@ export interface ApiError {
   code?: string;
   /** actionable next step for the user */
   remediation?: string;
+  /** structured next step, e.g. { label: "Upload Resume", route: "/profile?track=backend" } */
+  action?: { label: string; route: string };
   detail?: unknown;
 }
 
@@ -103,6 +105,7 @@ export async function toApiError(err: unknown): Promise<ApiError> {
     let message = err.message;
     let code: string | undefined;
     let remediation: string | undefined;
+    let action: { label: string; route: string } | undefined;
     try {
       const body = (await err.response.clone().json()) as {
         detail?: unknown;
@@ -110,6 +113,7 @@ export async function toApiError(err: unknown): Promise<ApiError> {
         error?: string;
         code?: string;
         remediation?: string;
+        action?: { label: string; route: string };
       };
       detail = body?.detail;
       if (typeof body?.detail === "string") message = body.detail;
@@ -117,10 +121,11 @@ export async function toApiError(err: unknown): Promise<ApiError> {
       else if (typeof body?.error === "string") message = body.error;
       code = body?.code;
       remediation = body?.remediation;
+      action = body?.action;
     } catch {
       // non-JSON body
     }
-    return { status: err.response.status, message, code, remediation, detail };
+    return { status: err.response.status, message, code, remediation, action, detail };
   }
   return { status: 0, message: (err as Error)?.message ?? "Network error" };
 }

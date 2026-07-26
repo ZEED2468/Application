@@ -1,0 +1,74 @@
+"use client";
+
+import * as React from "react";
+import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+/** A minimal accessible modal dialog (Esc + backdrop to close). */
+export function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  className,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children?: React.ReactNode;
+  footer?: React.ReactNode;
+  className?: string;
+}) {
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    if (open) document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div className="absolute inset-0 bg-coffee-900/40" onClick={onClose} />
+      <div
+        className={cn(
+          "relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-coffee-300 bg-white shadow-xl",
+          className,
+        )}
+      >
+        <div className="flex items-start justify-between border-b border-coffee-100 px-5 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-coffee-900">{title}</h2>
+            {description && (
+              <p className="mt-1 text-sm text-coffee-500">{description}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="shrink-0 text-coffee-500 hover:text-coffee-900"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+        {children && <div className="min-h-0 flex-1 overflow-auto px-5 py-4">{children}</div>}
+        {footer && (
+          <div className="flex flex-col gap-2 border-t border-coffee-100 px-5 py-4">
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

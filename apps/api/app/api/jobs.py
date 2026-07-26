@@ -403,6 +403,8 @@ async def generate(
         raise NotFoundError("Job not found")
     await authorize_owner(session, principal, job.user_id, track=job.track)
     track = service.classify_track(job)
+    from app.api.tracks import require_track_resume
+    await require_track_resume(session, job.user_id, track)
     profile = await profiles_repo.get_by_user_track(session, user_id=job.user_id, track=track)
     if profile is None:
         raise ConflictError(f"No master profile for track '{track.value}'")

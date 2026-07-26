@@ -10,12 +10,20 @@ class DomainError(Exception):
     code = "domain_error"
 
     def __init__(
-        self, message: str, *, code: str | None = None, remediation: str | None = None
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        remediation: str | None = None,
+        action: dict | None = None,
     ):
         self.message = message
         if code:
             self.code = code
         self.remediation = remediation
+        # Optional structured next-step for the client, e.g. {"label": "Upload Resume",
+        # "route": "/profile?track=backend"}.
+        self.action = action
         super().__init__(message)
 
 
