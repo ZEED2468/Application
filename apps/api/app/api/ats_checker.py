@@ -202,6 +202,7 @@ async def check_ats_multipart(
         cv_source=cv_source,
         track_match=track_match,
         cover_letter_template=_cover_letter_out(tpl),
+        verified_terms=await _verified_terms(session, user.id, parsed_track),
     )
     return result
 
@@ -242,6 +243,7 @@ async def check_ats_json(
         track=track,
         cv_source=cv_source,
         cover_letter_template=_cover_letter_out(tpl),
+        verified_terms=await _verified_terms(session, user.id, track),
     )
 
 
@@ -266,6 +268,14 @@ async def _load_profile_cv(
     return text, rc.original_filename, "profile"
 
 
+async def _verified_terms(session: AsyncSession, user_id, track: Track | None) -> list[str]:
+    """Flatten a track profile's verified extras + preferred skills (empty if none)."""
+    if track is None:
+        return []
+    profile = await profiles_repo.get_by_user_track(session, user_id=user_id, track=track)
+    return profiles_repo._extra_terms(profile) if profile else []
+
+
 async def _run_check(
     *,
     jd_text: str,
@@ -277,6 +287,7 @@ async def _run_check(
     cv_source: str = "paste",
     track_match=None,
     cover_letter_template: dict | None = None,
+    verified_terms: list[str] | None = None,
 ) -> dict:
     cv_json = cv_json_from_text(cv_text)
     breakdown = ats.score(cv_json=cv_json, jd_text=jd_text, role_title=role_title)
@@ -306,7 +317,7 @@ async def _run_check(
     structure = intel.structure_review(cv_text=cv_text, cv_json=cv_json)
     weak_verbs = verbs.detect(intel.bullets_of(cv_json))
     intelligence = {
-        "tools": intel.tool_analysis(jd_text=jd_text, cv_json=cv_json),
+        "tools": intel.tool_analysis(jd_text=jd_text, cv_json=cv_json, verified_terms=verified_terms),
         "structure": structure,
         "verbs": weak_verbs,
         "lint": intel.ats_lint(
@@ -317,7 +328,7 @@ async def _run_check(
     if use_ai:
         ri = await resume_intel.analyze(
             cv_json=cv_json, cv_text=cv_text, jd_text=jd_text, role_title=role_title,
-            breakdown=breakdown, structure=structure,
+            breakdown=breakdown, structure=structure, verified_terms=verified_terms,
         )
         intelligence["advisory"] = resume_intel.analysis_to_dict(ri)
 

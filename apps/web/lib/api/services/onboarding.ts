@@ -93,4 +93,31 @@ export const onboardingService = {
       .put(path(`/api/profiles/${track}/target-roles`), { json: { roles } })
       .json<{ track: Track; target_roles: string[] }>();
   },
+
+  async setVerifiedExtras(
+    track: Track,
+    extras: Record<string, string[]>,
+  ): Promise<{ track: Track; verified_extras: Record<string, string[]> }> {
+    return api
+      .put(path(`/api/profiles/${track}/verified-extras`), { json: { extras } })
+      .json();
+  },
+
+  async setPreferences(
+    track: Track,
+    preferredSkills: string[],
+    careerPreferences: Record<string, unknown> = {},
+  ): Promise<{ track: Track; preferred_skills: string[] }> {
+    return api
+      .put(path(`/api/profiles/${track}/preferences`), {
+        json: { preferred_skills: preferredSkills, career_preferences: careerPreferences },
+      })
+      .json();
+  },
+
+  async setActiveTrack(track: Track | null): Promise<{ active_track: Track | null }> {
+    return api
+      .put(path("/api/me/active-track"), { json: { track } })
+      .json<{ active_track: Track | null }>();
+  },
 };

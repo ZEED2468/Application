@@ -33,4 +33,12 @@ class MasterProfile(Base, TimestampMixin):
     target_roles: Mapped[list] = mapped_column(JsonB, default=list)
     # Ground truth that bounds tailoring — the LLM may only reframe what is here.
     truth_corpus: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Structured, user-verified knowledge NOT on the uploaded CV (frameworks, tools,
+    # certifications, open-source, side projects, languages, …). Category -> list[str].
+    # Part of the truth corpus: generation may reference it only because the user
+    # asserts it is genuinely true.
+    verified_extras: Mapped[dict] = mapped_column(JsonB, default=dict)
+    # Per-track career preferences (R3): skills to emphasize + freeform prefs.
+    preferred_skills: Mapped[list] = mapped_column(JsonB, default=list)
+    career_preferences: Mapped[dict] = mapped_column(JsonB, default=dict)
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

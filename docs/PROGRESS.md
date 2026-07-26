@@ -20,6 +20,24 @@ Render); the deploy must run `alembic upgrade head`.
 
 ## Most recent (this session)
 
+### Truth corpus + track-centric — Phase 2 of the refinement program (R4 + R3)
+Additive-only (migration `f1a2b3c4d5e6`). Backend **107 tests** (103 + 4 new); web typecheck green.
+- **R4 Expanded Truth Corpus** — `MasterProfile.verified_extras` (JSONB, category → terms:
+  frameworks/tools/certifications/coursework/open-source/side-projects/languages…). Surfaced in
+  `repositories/profiles.profile_to_dict` (joined into the allowed skill set → tailoring can use
+  them; still truth-bounded because the user asserts they're true) and fed as `verified_terms` into
+  `intel.tool_analysis` (drives the "underutilized verified" signal in Resume Intelligence).
+  `PUT /api/profiles/{track}/verified-extras`.
+- **R3 Track-centric** — `MasterProfile.preferred_skills` + `career_preferences`; `User.active_track`
+  (returned on `/auth/me`). `PUT /api/profiles/{track}/preferences`, `PUT /api/me/active-track`.
+  `profile_to_dict` surfaces preferred skills too.
+- **Frontend** — Profile page gains a per-track **Verified extras** editor (category chip fields),
+  a **Preferred skills** editor, and an **Active track** selector; reusable `ChipField`; onboarding
+  service + shared-types (`MasterProfile.verified_extras/preferred_skills/career_preferences`,
+  `MeResponse.active_track`) extended.
+- Tests: `tests/test_truth_corpus.py` (extras surface into allowed skills, drive underutilized
+  signal, setter/active-track roundtrips).
+
 ### Resume Intelligence — Phase 1 of the refinement program (R5 + R9 + R6)
 First phase of the 10-refinement design spec (full spec lives in the plan file). **Extends** the
 ATS engine + generation with truthful resume-quality analysis; nothing rewrites the CV or changes

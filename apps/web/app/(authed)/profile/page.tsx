@@ -158,6 +158,15 @@ export default function ProfilePage() {
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
 
+  const activeTrackMutation = useMutation({
+    mutationFn: (track: Track) => onboardingService.setActiveTrack(track),
+    onSuccess: (_d, track) => {
+      toast.success(`Active track: ${TRACK_LABELS[track]}`);
+      queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+
   if (me?.type === "va") {
     return (
       <EmptyState
@@ -208,6 +217,28 @@ export default function ProfilePage() {
                 </button>
               );
             })}
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-coffee-100 pt-4">
+            <Label htmlFor="active-track">Active track</Label>
+            <select
+              id="active-track"
+              value={me?.active_track ?? ""}
+              onChange={(e) => activeTrackMutation.mutate(e.target.value as Track)}
+              disabled={activeTrackMutation.isPending}
+              className="h-9 rounded-md border border-coffee-300 bg-white px-2 text-sm text-coffee-900"
+            >
+              <option value="" disabled>
+                Select…
+              </option>
+              {TRACKS.map((t) => (
+                <option key={t} value={t}>
+                  {TRACK_LABELS[t]}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-coffee-400">
+              drives which jobs + templates the dashboard prioritizes
+            </span>
           </div>
         </CardContent>
       </Card>
@@ -296,6 +327,14 @@ export default function ProfilePage() {
                   <TargetRolesEditor
                     track={track}
                     initial={profile?.target_roles ?? []}
+                  />
+                  <PreferredSkillsEditor
+                    track={track}
+                    initial={profile?.preferred_skills ?? []}
+                  />
+                  <VerifiedExtrasEditor
+                    track={track}
+                    initial={profile?.verified_extras ?? {}}
                   />
                 </div>
               );
@@ -701,6 +740,157 @@ function TargetRolesEditor({
         >
           Add
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function ChipField({
+  label,
+  values,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  values: string[];
+  onChange: (next: string[]) => void;
+  placeholder?: string;
+}) {
+  const [input, setInput] = React.useState("");
+  function add() {
+    const v = input.trim();
+    setInput("");
+    if (!v || values.includes(v)) return;
+    onChange([...values, v]);
+  }
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      {values.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {values.map((r) => (
+            <span
+              key={r}
+              className="inline-flex items-center gap-1.5 rounded-full border border-coffee-300 bg-coffee-100 px-2.5 py-1 text-xs text-coffee-800"
+            >
+              {r}
+              <button
+                type="button"
+                onClick={() => onChange(values.filter((x) => x !== r))}
+                aria-label={`Remove ${r}`}
+                className="text-coffee-500 hover:text-coffee-900"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder={placeholder}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={input.trim().length === 0}
+          onClick={add}
+        >
+          Add
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PreferredSkillsEditor({ track, initial }: { track: Track; initial: string[] }) {
+  const [values, setValues] = React.useState<string[]>(initial);
+  const key = initial.join("|");
+  React.useEffect(() => {
+    setValues(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const save = useMutation({
+    mutationFn: (next: string[]) => onboardingService.setPreferences(track, next),
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+  function update(next: string[]) {
+    setValues(next);
+    save.mutate(next);
+  }
+  return (
+    <div className="border-t border-coffee-100 pt-3">
+      <ChipField
+        label="Preferred skills (emphasize when tailoring)"
+        values={values}
+        onChange={update}
+        placeholder="e.g. Kafka"
+      />
+    </div>
+  );
+}
+
+const EXTRA_CATEGORIES: { key: string; label: string }[] = [
+  { key: "frameworks", label: "Frameworks" },
+  { key: "tools", label: "Tools" },
+  { key: "methodologies", label: "Methodologies" },
+  { key: "certifications", label: "Certifications" },
+  { key: "coursework", label: "Coursework" },
+  { key: "open_source", label: "Open source" },
+  { key: "side_projects", label: "Side projects" },
+  { key: "languages", label: "Languages" },
+];
+
+function VerifiedExtrasEditor({
+  track,
+  initial,
+}: {
+  track: Track;
+  initial: Record<string, string[]>;
+}) {
+  const [extras, setExtras] = React.useState<Record<string, string[]>>(initial);
+  const key = JSON.stringify(initial);
+  React.useEffect(() => {
+    setExtras(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const save = useMutation({
+    mutationFn: (next: Record<string, string[]>) =>
+      onboardingService.setVerifiedExtras(track, next),
+    onError: async (err) => toast.error((await toApiError(err)).message),
+  });
+  function update(cat: string, next: string[]) {
+    const merged = { ...extras, [cat]: next };
+    setExtras(merged);
+    save.mutate(merged);
+  }
+  return (
+    <div className="space-y-3 border-t border-coffee-100 pt-3">
+      <div>
+        <Label>Verified extras (truthful, not on your CV)</Label>
+        <p className="text-xs text-coffee-500">
+          Only add what is genuinely true — these join your truth corpus and may be used
+          when tailoring.
+        </p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {EXTRA_CATEGORIES.map((c) => (
+          <ChipField
+            key={c.key}
+            label={c.label}
+            values={extras[c.key] ?? []}
+            onChange={(next) => update(c.key, next)}
+            placeholder={`Add ${c.label.toLowerCase()}…`}
+          />
+        ))}
       </div>
     </div>
   );

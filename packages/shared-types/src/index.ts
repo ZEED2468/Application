@@ -77,6 +77,8 @@ export interface MeResponse {
   /** the platform an admin is attached to (label; admins are still global) */
   platform_id?: string | null;
   platform_name?: string | null;
+  /** the hunter's currently-active track (drives the dashboard track switcher) */
+  active_track?: Track | null;
 }
 
 export interface LoginRequest {
@@ -456,6 +458,12 @@ export interface MasterProfile {
   latex_cv?: boolean;
   /** a cover-letter LaTeX template is on file for this track */
   latex_cover?: boolean;
+  /** structured, user-verified knowledge not on the CV (category -> terms) */
+  verified_extras?: Record<string, string[]>;
+  /** per-track skills to emphasize */
+  preferred_skills?: string[];
+  /** freeform per-track career preferences */
+  career_preferences?: Record<string, unknown>;
 }
 
 export interface CoverLetterTemplate {
