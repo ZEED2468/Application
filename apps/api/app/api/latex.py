@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.enums import LatexKind, PrincipalType, Track
 from app.core.errors import DomainError, ForbiddenError, NotFoundError
 from app.db import get_session
-from app.deps import Principal, authorize_owner, current_principal
+from app.deps import Principal, authorize_owner, bind_user_llm, current_principal
 from app.llm import cover_letter as cl
 from app.llm import hookfinder
 from app.models.cover_letter import CoverLetterTemplate
@@ -31,7 +31,7 @@ from app.pipelines.apply import ats, latex_regen, render
 from app.pipelines.apply.latex_safety import assert_safe
 from app.repositories import profiles as profiles_repo
 
-router = APIRouter(prefix="/latex", tags=["latex"])
+router = APIRouter(prefix="/latex", tags=["latex"], dependencies=[Depends(bind_user_llm)])
 log = structlog.get_logger(__name__)
 
 

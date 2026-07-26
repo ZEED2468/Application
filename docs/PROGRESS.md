@@ -20,6 +20,31 @@ Render); the deploy must run `alembic upgrade head`.
 
 ## Most recent (this session)
 
+### BYO-key + actionable errors + reliability — Phase 3 (R1 + R7 + R10)
+Additive-only (migration `f2b3c4d5e6f7`; new dep `cryptography`). Backend **112 tests** (107 + 5);
+web typecheck green.
+- **R1 per-user encrypted LLM keys** — new `user_llm_credential` table; `llm/crypto.py` (Fernet,
+  key from `CREDENTIAL_ENC_KEY` or jwt_secret fallback; keys **never returned in plaintext**,
+  masked on read). Per-user resolution via a contextvar (`llm/context.py`) that
+  `config.resolve()` prefers over env — **no signature changes** anywhere; set per-request by the
+  `deps.bind_user_llm` dependency (added to the ats/jobs/latex/chat routers; no-op for VAs;
+  background tasks fall back to env). `llm/credentials.py` loads/validates keys. Settings API
+  `app/api/settings.py`: `GET/POST/DELETE /api/settings/llm-keys`,
+  `POST .../{provider}/validate`, `PUT .../{provider}/preferred` (providers: anthropic / openai
+  [+ base_url for Groq/Together/OpenRouter/Ollama/local] / google).
+- **R7 actionable errors** — `DomainError` gains `code` + `remediation`; the handler returns
+  `{error, code, remediation}`; a global `Exception` handler turns unhandled errors into a clean
+  500 (was raw). LLM-not-configured now raises an actionable `DomainError` ("Add a provider key in
+  Settings") instead of a bare `RuntimeError`; the manual-path `ValueError`s became `NotFoundError`s.
+  Frontend `toApiError` now surfaces `error`/`code`/`remediation`.
+- **R10 reliability** — the openai-compatible + google provider adapters retry transient
+  429/5xx + transport errors with backoff.
+- **Frontend** — new **/settings** route + nav entry (hunter-only) with per-provider cards
+  (save / test connection / set preferred / remove, status badges); `settingsService`, shared-types
+  (`LlmKey`), `queryKeys.llmKeys`.
+- Tests: `tests/test_settings.py` (crypto roundtrip/mask, resolve prefers user override, CRUD +
+  validate + preferred + delete, user-scoping, actionable error envelope).
+
 ### Truth corpus + track-centric — Phase 2 of the refinement program (R4 + R3)
 Additive-only (migration `f1a2b3c4d5e6`). Backend **107 tests** (103 + 4 new); web typecheck green.
 - **R4 Expanded Truth Corpus** — `MasterProfile.verified_extras` (JSONB, category → terms:

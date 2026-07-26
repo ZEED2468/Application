@@ -82,7 +82,24 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(DomainError)
     async def _domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content={"error": exc.message})
+        body = {"error": exc.message, "code": exc.code}
+        if exc.remediation:
+            body["remediation"] = exc.remediation
+        return JSONResponse(status_code=exc.status_code, content=body)
+
+    @app.exception_handler(Exception)
+    async def _unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
+        log = structlog.get_logger(__name__)
+        log.error("unhandled_error", path=str(request.url.path),
+                  error=str(exc), exc_type=type(exc).__name__)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Something went wrong on our end.",
+                "code": "internal",
+                "remediation": "Please retry. If it keeps happening, contact support.",
+            },
+        )
 
     @app.get("/health", tags=["health"], summary="Liveness probe")
     async def health() -> dict:

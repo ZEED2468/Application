@@ -30,8 +30,12 @@ async def complete_text(
     """Single-turn completion via the configured provider for `feature`."""
     resolved = llm_config.resolve(feature)
     if not resolved.is_usable():
-        raise RuntimeError(
-            f"LLM not configured for feature={feature!r} (provider={resolved.provider})"
+        from app.core.errors import DomainError
+
+        raise DomainError(
+            f"No usable LLM is configured for '{feature}' (provider {resolved.provider}).",
+            code="llm_not_configured",
+            remediation="Add a provider API key in Settings, or set one on the server.",
         )
     provider = get_provider(resolved.provider)
     log.info("llm.complete", feature=feature, provider=resolved.provider, model=resolved.model)

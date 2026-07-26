@@ -522,6 +522,33 @@ export interface LatexPreviewError {
 }
 
 /* ----------------------------------------------------------------------------
+ * User settings — per-user LLM provider keys (R1 BYO-key)
+ * ------------------------------------------------------------------------- */
+
+export type LlmKeyStatus = "configured" | "invalid" | "unreachable" | "unknown";
+
+export interface LlmKey {
+  provider: string; // anthropic | openai | google
+  label?: string | null;
+  masked_key?: string | null;
+  has_key: boolean;
+  base_url?: string | null;
+  model?: string | null;
+  is_active: boolean;
+  is_preferred: boolean;
+  status: LlmKeyStatus;
+  last_validated_at?: string | null;
+}
+
+export interface LlmKeyInput {
+  provider: string;
+  api_key?: string;
+  base_url?: string;
+  model?: string;
+  label?: string;
+}
+
+/* ----------------------------------------------------------------------------
  * Manual chatbot
  * ------------------------------------------------------------------------- */
 

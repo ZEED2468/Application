@@ -13,6 +13,7 @@ from app.api import (
     latex,
     onboarding,
     platforms,
+    settings,
     sources,
     va,
 )
@@ -29,6 +30,7 @@ api_router.include_router(chat.router)
 api_router.include_router(va.router)
 api_router.include_router(invites.router)
 api_router.include_router(platforms.router)
+api_router.include_router(settings.router)
 api_router.include_router(sources.router)
 api_router.include_router(admin_email.router)
 api_router.include_router(webhooks_router)

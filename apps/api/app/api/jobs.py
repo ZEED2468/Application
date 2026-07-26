@@ -28,6 +28,7 @@ from app.db import get_session
 from app.deps import (
     Principal,
     authorize_owner,
+    bind_user_llm,
     current_principal,
     current_user,
     scoped_user_ids,
@@ -55,7 +56,7 @@ from app.schemas.jobs import (
     TrackOverrideRequest,
 )
 
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(bind_user_llm)])
 log = structlog.get_logger(__name__)
 
 

@@ -7,11 +7,15 @@ keyless local server works.
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 from app.llm.providers.base import register
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
+_MAX_RETRIES = 2
+_RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
 @register
@@ -37,7 +41,16 @@ class OpenAICompatProvider:
             ],
         }
         async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(url, headers=headers, json=body)
-            resp.raise_for_status()
-            data = resp.json()
-        return data["choices"][0]["message"]["content"]
+            for attempt in range(_MAX_RETRIES + 1):
+                try:
+                    resp = await client.post(url, headers=headers, json=body)
+                    if resp.status_code in _RETRY_STATUS and attempt < _MAX_RETRIES:
+                        await asyncio.sleep(0.5 * (2**attempt))
+                        continue
+                    resp.raise_for_status()
+                    return resp.json()["choices"][0]["message"]["content"]
+                except httpx.TransportError:
+                    if attempt >= _MAX_RETRIES:
+                        raise
+                    await asyncio.sleep(0.5 * (2**attempt))
+        raise RuntimeError("unreachable")

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.enums import ParseStatus, Track
 from app.core.errors import DomainError
 from app.db import get_session
-from app.deps import current_user
+from app.deps import bind_user_llm, current_user
 from app.llm import ats_analyze, resume_intel, track_classify
 from app.models.cover_letter import CoverLetterTemplate
 from app.models.master_profile import MasterProfile
@@ -24,7 +24,7 @@ from app.pipelines.apply.profile_cv import cv_text_from_profile
 from app.repositories import profiles as profiles_repo
 from app.repositories import track_match as track_match_repo
 
-router = APIRouter(prefix="/ats", tags=["ats"])
+router = APIRouter(prefix="/ats", tags=["ats"], dependencies=[Depends(bind_user_llm)])
 
 
 def _default_role_title(jd_text: str) -> str:

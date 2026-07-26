@@ -24,6 +24,7 @@ from app.models.sending_domain import SendingDomain
 from app.models.source_board import SourceBoard
 from app.models.thread import Thread
 from app.models.user import RefreshToken, User
+from app.models.user_llm_credential import UserLlmCredential
 from app.models.va import Va
 from app.models.va_assignment import VaAssignment
 
@@ -54,4 +55,5 @@ __all__ = [
     "Invite",
     "Platform",
     "SourceBoard",
+    "UserLlmCredential",
 ]

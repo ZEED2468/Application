@@ -14,6 +14,7 @@ import {
   UploadCloud,
   Users,
   ShieldCheck,
+  Settings,
   LogOut,
 } from "lucide-react";
 import type { MeResponse } from "@jd/shared-types";
@@ -40,6 +41,7 @@ function navFor(me?: MeResponse): NavItem[] {
   ];
   if (me?.type !== "va") {
     items.push({ href: "/profile", label: "Profile", icon: UploadCloud });
+    items.push({ href: "/settings", label: "Settings", icon: Settings });
     items.push({ href: "/team", label: "Team", icon: Users });
   }
   if (me?.role === "admin") {
