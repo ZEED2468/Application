@@ -23,6 +23,7 @@ import { authService } from "@/lib/api/services";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { OnboardingLauncher } from "@/components/onboarding-launcher";
 
 interface NavItem {
   href: string;
@@ -99,6 +100,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
+                data-tour={item.href}
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-[0.95rem] transition-colors",
                   active
@@ -162,6 +164,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      <OnboardingLauncher />
     </div>
   );
 }

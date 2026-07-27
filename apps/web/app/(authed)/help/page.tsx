@@ -3,8 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Circle, ArrowRight } from "lucide-react";
+import { CheckCircle2, Circle, ArrowRight, Compass } from "lucide-react";
 import { onboardingService } from "@/lib/api/services";
+import { START_TOUR_EVENT } from "@/components/onboarding-launcher";
 import { queryKeys } from "@/lib/query-keys";
 import { PageHeading } from "@/components/states";
 import { Accordion, type AccordionItemData } from "@/components/ui/accordion";
@@ -87,6 +88,16 @@ export default function HelpPage() {
       <PageHeading
         title="Help & getting started"
         description="Your setup checklist and short guides for every part of the platform."
+        actions={
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event(START_TOUR_EVENT))}
+            className="inline-flex items-center gap-1.5 rounded-md border border-coffee-300 px-3 py-1.5 text-sm text-coffee-700 hover:bg-coffee-100"
+          >
+            <Compass className="size-4" />
+            Take the tour
+          </button>
+        }
       />
 
       <Card>
