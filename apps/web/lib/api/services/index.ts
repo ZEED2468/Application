@@ -6,6 +6,7 @@ export { chatService } from "./chat";
 export { atsService } from "./ats";
 export { latexService, LatexCompileError } from "./latex";
 export { tracksService } from "./tracks";
+export { readinessService } from "./readiness";
 export { settingsService } from "./settings";
 export { vaService } from "./va";
 export { adminService } from "./admin";

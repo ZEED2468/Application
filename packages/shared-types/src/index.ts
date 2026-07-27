@@ -508,6 +508,31 @@ export interface CoverLetterTemplate {
 
 export type TrackStatus = "setup_required" | "ready" | "archived";
 
+/** A single onboarding/setup milestone from the readiness service. */
+export interface ReadinessStep {
+  id: string;
+  label: string;
+  completed: boolean;
+  action: { label: string; route: string };
+}
+
+/** Centralized onboarding/setup readiness (GET /api/user/readiness). */
+export interface UserReadiness {
+  progress: number;
+  complete: boolean;
+  steps: ReadinessStep[];
+  next_action: ReadinessStep | null;
+  api_key_validated: boolean;
+  tracks: {
+    id: string | null;
+    slug: string;
+    name: string;
+    status: TrackStatus;
+    resume: boolean;
+    cover_letter: boolean;
+  }[];
+}
+
 /** A first-class career track. Incomplete until it has a resume (CV). */
 export interface CareerTrack {
   id: string;
