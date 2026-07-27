@@ -7,6 +7,7 @@ export { atsService } from "./ats";
 export { latexService, LatexCompileError } from "./latex";
 export { tracksService } from "./tracks";
 export { readinessService } from "./readiness";
+export { integrationsService, type IntegrationInput } from "./integrations";
 export { settingsService } from "./settings";
 export { vaService } from "./va";
 export { adminService } from "./admin";

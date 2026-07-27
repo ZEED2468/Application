@@ -17,6 +17,8 @@ export const queryKeys = {
   latexTemplates: ["latex-templates"] as const,
   tracks: ["tracks"] as const,
   readiness: ["readiness"] as const,
+  integrations: ["integrations"] as const,
+  integrationTemplates: ["integration-templates"] as const,
   llmKeys: ["llm-keys"] as const,
   onboardingStatus: ["onboarding-status"] as const,
   atsSources: ["ats-sources"] as const,
