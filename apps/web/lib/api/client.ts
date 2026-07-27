@@ -90,6 +90,8 @@ export const api: KyInstance = ky.create({
 export interface ApiError {
   status: number;
   message: string;
+  /** short human-readable heading (e.g. "Resume Required") */
+  title?: string;
   /** machine-readable slug (e.g. "llm_not_configured") */
   code?: string;
   /** actionable next step for the user */
@@ -104,6 +106,7 @@ export async function toApiError(err: unknown): Promise<ApiError> {
     let detail: unknown;
     let message = err.message;
     let code: string | undefined;
+    let title: string | undefined;
     let remediation: string | undefined;
     let action: { label: string; route: string } | undefined;
     try {
@@ -112,6 +115,7 @@ export async function toApiError(err: unknown): Promise<ApiError> {
         message?: string;
         error?: string;
         code?: string;
+        title?: string;
         remediation?: string;
         action?: { label: string; route: string };
       };
@@ -120,12 +124,13 @@ export async function toApiError(err: unknown): Promise<ApiError> {
       else if (typeof body?.message === "string") message = body.message;
       else if (typeof body?.error === "string") message = body.error;
       code = body?.code;
+      title = body?.title;
       remediation = body?.remediation;
       action = body?.action;
     } catch {
       // non-JSON body
     }
-    return { status: err.response.status, message, code, remediation, action, detail };
+    return { status: err.response.status, message, title, code, remediation, action, detail };
   }
   return { status: 0, message: (err as Error)?.message ?? "Network error" };
 }

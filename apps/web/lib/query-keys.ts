@@ -16,6 +16,7 @@ export const queryKeys = {
   coverLetterTemplate: ["cover-letter-template"] as const,
   latexTemplates: ["latex-templates"] as const,
   tracks: ["tracks"] as const,
+  readiness: ["readiness"] as const,
   llmKeys: ["llm-keys"] as const,
   onboardingStatus: ["onboarding-status"] as const,
   atsSources: ["ats-sources"] as const,

@@ -14,12 +14,15 @@ class DomainError(Exception):
         message: str,
         *,
         code: str | None = None,
+        title: str | None = None,
         remediation: str | None = None,
         action: dict | None = None,
     ):
         self.message = message
         if code:
             self.code = code
+        # Short human-readable heading, e.g. "Resume Required".
+        self.title = title
         self.remediation = remediation
         # Optional structured next-step for the client, e.g. {"label": "Upload Resume",
         # "route": "/profile?track=backend"}.

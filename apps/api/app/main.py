@@ -82,7 +82,16 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(DomainError)
     async def _domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
-        body = {"error": exc.message, "code": exc.code}
+        # `success:false` + `title` + `message` is the standardized contract; `error` is
+        # kept as an alias for backward compatibility with existing clients.
+        body = {
+            "success": False,
+            "code": exc.code,
+            "error": exc.message,
+            "message": exc.message,
+        }
+        if exc.title:
+            body["title"] = exc.title
         if exc.remediation:
             body["remediation"] = exc.remediation
         if exc.action:
@@ -97,8 +106,11 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=500,
             content={
-                "error": "Something went wrong on our end.",
+                "success": False,
                 "code": "internal",
+                "title": "Something went wrong",
+                "error": "Something went wrong on our end.",
+                "message": "Something went wrong on our end.",
                 "remediation": "Please retry. If it keeps happening, contact support.",
             },
         )
