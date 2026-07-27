@@ -52,6 +52,7 @@ export function TracksManager() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: queryKeys.tracks });
     qc.invalidateQueries({ queryKey: queryKeys.onboardingStatus });
+    qc.invalidateQueries({ queryKey: queryKeys.readiness });
   };
 
   const create = useMutation({
