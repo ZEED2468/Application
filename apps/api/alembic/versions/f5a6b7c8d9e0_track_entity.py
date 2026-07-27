@@ -4,7 +4,7 @@ Additive-only. A `track` table keyed (user_id, slug) that sits on top of the exi
 per-(user, track) data by slug; readiness is derived from CV presence, `archived_at`
 is the only stored lifecycle state.
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: f5a6b7c8d9e0
 Revises: f4d5e6f7a8b9
 """
 
@@ -13,7 +13,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f6"
+revision: str = "f5a6b7c8d9e0"
 down_revision: str | None = "f4d5e6f7a8b9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
