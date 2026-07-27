@@ -5,11 +5,33 @@ context. The repo is the **Job Application & Outreach Engine** (FastAPI + Celery
 in `apps/api`, Next.js dashboard in `apps/web`, Go WhatsApp bridge in `apps/wa-bridge`,
 shared TS types in `packages/shared-types`).
 
-**State at last update:** Backend `uv run python -m pytest -q` → **126 passed** (migration head
-`f5a6b7c8d9e0` after the collision hotfix). `pnpm --filter web build` → green. Everything merged to
-`main`. Reminder: secrets (Adzuna/SerpApi, **R2**, the **LLM** provider/model, **`CREDENTIAL_ENC_KEY`**
-for per-user keys) live in the **Render dashboard env**; the deploy must run `alembic upgrade head`.
+**State at last update:** Backend `uv run python -m pytest -q` → **130 passed** (migration head
+`a2b3c4d5e6f7`). `pnpm --filter web build` → green. Everything merged to `main`. Reminder: secrets
+(Adzuna/SerpApi, **R2**, the **LLM** provider/model, **`CREDENTIAL_ENC_KEY`** for per-user keys) live
+in the **Render dashboard env**; the deploy must run `alembic upgrade head`.
 ⚠️ The live Render backend was last on a **broken pre-fix commit** — redeploy the latest `main`.
+
+### AI Integration Management (2 PRs: #12 backend + integration dashboard)
+Evolves the Phase-3 BYO-key into a multi-integration subsystem. Additive migration `a2b3c4d5e6f7`
+(backfills `user_llm_credential` → `ai_integration` on Postgres). New web dep: **zustand**.
+- **`ai_integration`** ([models/ai_integration.py](apps/api/app/models/ai_integration.py)) — many per
+  user, from a **template** or fully **custom**; encrypted keys never returned (masked); `is_default`
+  selects the routing target.
+- **Template Registry** ([llm/templates.py](apps/api/app/llm/templates.py)) — anthropic/google/openai/
+  custom + **config-field schemas**; `GET /api/integrations/templates`. The frontend renders forms
+  purely from these (no provider-specific FE code).
+- **Integrations API** ([api/integrations.py](apps/api/app/api/integrations.py)) — list/create/update/
+  delete, `PUT /{id}/default`, `POST /{id}/validate` (+latency), `GET /{id}/health`,
+  `GET /{id}/models/discover` ([llm/discovery.py](apps/api/app/llm/discovery.py)), `POST /{id}/models`.
+- **Routing** — `credentials.load_preferred_override` now reads the **default `ai_integration`**,
+  falling back to legacy `user_llm_credential`. No LLM signature changes.
+- **Frontend** — `/settings` is now the **AI Integrations dashboard**: quick-setup template cards,
+  a **dynamic form renderer** from the template schema, per-integration Test/Discover-models/Set-
+  default/Edit/Delete + status badges + model chips. `integrationsService`, `Integration`/
+  `IntegrationTemplate` types, a small **zustand** UI store ([lib/stores/integrations-ui.ts]).
+  The old `/api/settings/llm-keys` API is retained (superseded) for rollback.
+- Tests: `tests/test_integrations.py` (templates, CRUD/default/validate/health, discovery, routing
+  prefers default).
 
 ### Onboarding & readiness system (3 PRs: #9 / #10 / first-login tour)
 - **PR A #9 — readiness service + error standardization**: `GET /api/user/readiness`

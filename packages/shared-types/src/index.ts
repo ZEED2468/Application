@@ -506,6 +506,48 @@ export interface CoverLetterTemplate {
  * Tracks (first-class career tracks with readiness)
  * ------------------------------------------------------------------------- */
 
+/* ----------------------------------------------------------------------------
+ * AI Integrations (provider configuration)
+ * ------------------------------------------------------------------------- */
+
+export interface TemplateField {
+  id: string;
+  label: string;
+  type: string; // password | url | text | …
+  required: boolean;
+  placeholder?: string;
+  help?: string;
+}
+
+/** A built-in provider preset + its dynamic config-field schema. */
+export interface IntegrationTemplate {
+  id: string;
+  name: string;
+  provider: string;
+  icon: string;
+  description: string;
+  fields: TemplateField[];
+  default_model: string;
+  discovery: boolean;
+}
+
+/** A user's configured AI provider connection. */
+export interface Integration {
+  id: string;
+  name: string;
+  provider: string;
+  template?: string | null;
+  base_url?: string | null;
+  model?: string | null;
+  masked_key?: string | null;
+  has_key: boolean;
+  models: string[];
+  capabilities: Record<string, unknown>;
+  status: string; // unknown | configured | invalid | unreachable | offline | rate_limited
+  is_default: boolean;
+  last_validated_at?: string | null;
+}
+
 export type TrackStatus = "setup_required" | "ready" | "archived";
 
 /** A single onboarding/setup milestone from the readiness service. */
