@@ -5,6 +5,7 @@ additive only (new nullable columns / new tables).
 """
 
 from app.db import Base
+from app.models.ai_integration import AiIntegration
 from app.models.application import Application
 from app.models.application_event import ApplicationEvent
 from app.models.chat import ChatPrompt, ChatSession
@@ -58,4 +59,5 @@ __all__ = [
     "SourceBoard",
     "UserLlmCredential",
     "TrackEntity",
+    "AiIntegration",
 ]
