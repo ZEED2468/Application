@@ -26,6 +26,7 @@ import {
   applicationsService,
 } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
+import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { formatDateTime, cn } from "@/lib/utils";
@@ -85,22 +86,7 @@ export default function JobDetailPage({
       toast.success("Generation started, refreshing");
       queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
     },
-    onError: async (err) => {
-      const e = await toApiError(err);
-      // The track-resume guard returns an actionable route (e.g. upload a CV).
-      if (e.action) {
-        toast.error(e.message, {
-          action: {
-            label: e.action.label,
-            onClick: () => {
-              window.location.href = e.action!.route;
-            },
-          },
-        });
-      } else {
-        toast.error(e.message);
-      }
-    },
+    onError: (err) => toastApiError(err),
   });
 
   const applyMutation = useMutation({
@@ -114,7 +100,7 @@ export default function JobDetailPage({
       );
       queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   if (isError) {

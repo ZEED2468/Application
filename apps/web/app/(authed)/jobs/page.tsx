@@ -17,6 +17,7 @@ import {
   TRACK_LABELS,
 } from "@/lib/status";
 import { EmptyState, ErrorState } from "@/components/states";
+import { SetupProgress } from "@/components/setup-progress";
 import { TrackReminder } from "@/components/track-reminder";
 import { PdfPreviewModal } from "@/components/pdf-preview-modal";
 import { Pagination } from "@/components/pagination";
@@ -263,6 +264,7 @@ export default function JobsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <SetupProgress />
       <TrackReminder />
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-4 border-b border-coffee-200 pb-4">
         <div className="space-y-1">
