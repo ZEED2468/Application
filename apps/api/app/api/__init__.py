@@ -8,6 +8,7 @@ from app.api import (
     ats_checker,
     auth,
     chat,
+    integrations,
     invites,
     jobs,
     latex,
@@ -33,6 +34,7 @@ api_router.include_router(va.router)
 api_router.include_router(invites.router)
 api_router.include_router(platforms.router)
 api_router.include_router(settings.router)
+api_router.include_router(integrations.router)
 api_router.include_router(sources.router)
 api_router.include_router(tracks.router)
 api_router.include_router(user.router)

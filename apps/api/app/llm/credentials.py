@@ -13,20 +13,36 @@ from sqlalchemy import select
 from app.config import settings
 from app.llm import crypto
 from app.llm.providers import get as get_provider
+from app.models.ai_integration import AiIntegration
 from app.models.user_llm_credential import UserLlmCredential
 
 
 async def load_preferred_override(session, user_id) -> dict | None:
-    """The user's preferred (else any active) usable credential as a resolve override."""
+    """The user's default (else any) usable provider config as a resolve override.
+
+    Prefers the new AI Integrations; falls back to the legacy `user_llm_credential`
+    during the transition so nobody's key stops working before backfill/migration.
+    """
+    integrations = (await session.execute(
+        select(AiIntegration).where(AiIntegration.user_id == user_id)
+    )).scalars().all()
+    if integrations:
+        integrations = sorted(integrations, key=lambda r: (not r.is_default))  # default first
+        for r in integrations:
+            if not r.encrypted_api_key:
+                continue
+            key = crypto.decrypt(r.encrypted_api_key)
+            if key:
+                return {"provider": r.provider, "model": r.model, "api_key": key,
+                        "base_url": r.base_url or ""}
+
     rows = (await session.execute(
         select(UserLlmCredential).where(
             UserLlmCredential.user_id == user_id,
             UserLlmCredential.is_active.is_(True),
         )
     )).scalars().all()
-    if not rows:
-        return None
-    rows.sort(key=lambda r: (not r.is_preferred,))  # preferred first
+    rows = sorted(rows, key=lambda r: (not r.is_preferred))  # preferred first
     for r in rows:
         if not r.encrypted_api_key:
             continue
