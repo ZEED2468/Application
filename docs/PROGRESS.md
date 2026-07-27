@@ -5,16 +5,31 @@ context. The repo is the **Job Application & Outreach Engine** (FastAPI + Celery
 in `apps/api`, Next.js dashboard in `apps/web`, Go WhatsApp bridge in `apps/wa-bridge`,
 shared TS types in `packages/shared-types`).
 
-**State at last update:** Backend `uv run python -m pytest -q` → **124 passed** (migration head
-`a1b2c3d4e5f6`). `pnpm --filter web build` → green. The 10-refinement program merged to `main`
-(via PR #5) + the `job` schema migration (#6); the **Track-entity readiness** feature is the
-newest branch. Reminder: secrets (Adzuna/SerpApi, **R2**, the **LLM** provider/model,
-**`CREDENTIAL_ENC_KEY`** for per-user keys) live in the **Render dashboard env** (the local `.env`
-is ignored by Render); the deploy must run `alembic upgrade head`.
+**State at last update:** Backend `uv run python -m pytest -q` → **126 passed** (migration head
+`f5a6b7c8d9e0` after the collision hotfix). `pnpm --filter web build` → green. Everything merged to
+`main`. Reminder: secrets (Adzuna/SerpApi, **R2**, the **LLM** provider/model, **`CREDENTIAL_ENC_KEY`**
+for per-user keys) live in the **Render dashboard env**; the deploy must run `alembic upgrade head`.
+⚠️ The live Render backend was last on a **broken pre-fix commit** — redeploy the latest `main`.
 
-### Track-entity readiness (CV-required rule)  — newest
+### Onboarding & readiness system (3 PRs: #9 / #10 / first-login tour)
+- **PR A #9 — readiness service + error standardization**: `GET /api/user/readiness`
+  ([api/user.py](apps/api/app/api/user.py)) is the single source of truth (progress %, `steps[]` +
+  `next_action`, `api_key_validated`, per-track readiness — reuses the tracks helpers). `DomainError`
+  gained `title`; the handler now returns `{success:false, code, title?, error, message, action?}`
+  (`error` kept as an alias). `toApiError` surfaces `title`.
+- **PR B #10 — dashboard UX**: `SetupProgress` banner on Jobs (overall % + next action; auto-hides
+  when complete) + `toastApiError()` (standardized actionable error toasts w/ title + clickable
+  `action`) wired into the job-detail Generate/Apply mutations.
+- **PR C — first-login coach-mark tour**: `ProductTour` (spotlight overlay + tooltip, Back/Next/Skip)
+  + `OnboardingLauncher` (auto-starts once per hunter via a `localStorage` flag; replay via the
+  `od:start-tour` event + a "Take the tour" button on /help). Nav items carry `data-tour` anchors.
+- **Note:** `email_connected` / `notifications` readiness steps from the spec were omitted (no such
+  user-facing setup exists). AI features degrade gracefully without a key, so `api_key` is a
+  readiness signal, not a hard block.
+
+### Track-entity readiness (CV-required rule)  — migration renumbered to `f5a6b7c8d9e0`
 First-class **Track** entity (lifecycle) layered on the existing per-`(user, track)` data by
-**slug** (no mass FK refactor). Additive migration `a1b2c3d4e5f6`. Backend **124 tests**.
+**slug** (no mass FK refactor). Additive migration `f5a6b7c8d9e0` (renumbered from a colliding id). Backend **124 tests**.
 - **`track` table** ([models/track_entity.py](apps/api/app/models/track_entity.py)): `(user_id, slug)`,
   `name`, `archived_at`. Readiness is DERIVED — `ready` iff a `RoleCv` exists for the slug, else
   `setup_required`; `archived` when `archived_at` set.
