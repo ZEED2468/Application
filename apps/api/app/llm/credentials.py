@@ -63,10 +63,13 @@ async def validate_key(*, provider: str, api_key: str, base_url: str | None, mod
     except ValueError:
         return "invalid"
     try:
+        # A real round-trip: max_tokens=1 makes some providers (Gemini) return a
+        # truncated response with no text, which used to read as "unreachable".
         await asyncio.wait_for(
-            prov.complete(system="ping", prompt="ping", model=model or prov.default_model,
-                          api_key=api_key, base_url=base_url or "", max_tokens=1),
-            timeout=15,
+            prov.complete(system="You are a health check.", prompt="Reply with: ok",
+                          model=model or prov.default_model,
+                          api_key=api_key, base_url=base_url or "", max_tokens=16),
+            timeout=20,
         )
         return "configured"
     except Exception as exc:  # noqa: BLE001
