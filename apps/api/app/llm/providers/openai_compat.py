@@ -18,6 +18,13 @@ _MAX_RETRIES = 2
 _RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
+def _extract_text(data: dict) -> str:
+    """Pull the assistant text, tolerating a null/absent content field (e.g. a
+    truncated response from a tiny max_tokens ping)."""
+    choices = data.get("choices") or [{}]
+    return (choices[0].get("message") or {}).get("content") or ""
+
+
 @register
 class OpenAICompatProvider:
     name = "openai"
@@ -48,7 +55,7 @@ class OpenAICompatProvider:
                         await asyncio.sleep(0.5 * (2**attempt))
                         continue
                     resp.raise_for_status()
-                    return resp.json()["choices"][0]["message"]["content"]
+                    return _extract_text(resp.json())
                 except httpx.TransportError:
                     if attempt >= _MAX_RETRIES:
                         raise
