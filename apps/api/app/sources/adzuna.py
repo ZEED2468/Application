@@ -26,13 +26,19 @@ class AdzunaSource:
             return  # no creds -> no-op (tests/dev use the fake source)
         country = settings.adzuna_country or "gb"
         url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1"
+        # Scope the outbound query to what the hunter actually wants (saves tokens):
+        # prefer target role titles + seniority over raw skills. `what_or` = match ANY
+        # of the terms (AND-style `what` over many skills returns almost nothing).
+        terms = list(query.role_titles) or list(query.keywords) or [query.track.value]
+        if query.experience_level:
+            terms = [f"{query.experience_level} {t}" for t in terms]
         params = {
             "app_id": settings.adzuna_app_id,
             "app_key": settings.adzuna_app_key,
-            # `what_or` = match ANY of the terms (AND-style `what` over 6 skills
-            # returns almost nothing).
-            "what_or": " ".join(query.keywords) or query.track.value,
+            "what_or": " ".join(terms),
             "results_per_page": min(query.limit, 50),
+            "max_days_old": 30,  # don't re-pull stale postings
+            "sort_by": "date",
         }
         if query.location:
             params["where"] = query.location

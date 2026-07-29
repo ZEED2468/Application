@@ -85,7 +85,11 @@ export const jobsService = {
       .json<Paginated<JobOut>>();
   },
 
-  async discover(body?: { tracks?: string[]; experience_levels?: string[] }): Promise<DiscoverReport> {
+  async discover(body?: {
+    tracks?: string[];
+    experience_levels?: string[];
+    force?: boolean;
+  }): Promise<DiscoverReport> {
     // 60s: discovery makes live HTTP calls to each source.
     return api
       .post(path("/api/jobs/discover"), { json: body || {}, timeout: 60000 })

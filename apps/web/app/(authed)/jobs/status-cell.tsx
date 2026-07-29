@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { JobOut, TrackerStatus } from "@jd/shared-types";
+import type { JobOut, Paginated, TrackerStatus } from "@jd/shared-types";
 import { TRACKER_STATUSES_POST_SUBMIT } from "@jd/shared-types";
 import { jobsService, type JobsFilter } from "@/lib/api/services";
 import { queryKeys } from "@/lib/query-keys";
@@ -19,18 +19,27 @@ type StatusJob = Pick<
 
 export function StatusCell({
   job,
-  filter,
   jobDetailId,
 }: {
   job: StatusJob;
+  /** Accepted for call-site compatibility; the cache is now the broad `jobs({})` list. */
   filter?: JobsFilter;
   /** When set, also refresh the job detail query after a status change. */
   jobDetailId?: string;
 }) {
   const queryClient = useQueryClient();
-  const jobsKey = queryKeys.jobs(filter ?? {});
+  // The jobs page caches the whole list under the broad key `jobs({})` (Paginated<JobOut>);
+  // optimistic updates patch `.items`.
+  const jobsKey = queryKeys.jobs({});
 
   const current: TrackerStatus = job.application_status ?? "not_applied";
+
+  const patch = (updater: (j: JobOut) => JobOut) =>
+    queryClient.setQueryData<Paginated<JobOut>>(jobsKey, (old) =>
+      old
+        ? { ...old, items: old.items.map((j) => (j.id === job.id ? updater(j) : j)) }
+        : old,
+    );
 
   const mutation = useMutation({
     mutationFn: async (status: TrackerStatus) => {
@@ -43,18 +52,12 @@ export function StatusCell({
     },
     onMutate: async (status) => {
       await queryClient.cancelQueries({ queryKey: jobsKey });
-      const prev = queryClient.getQueryData<JobOut[]>(jobsKey);
-      queryClient.setQueryData<JobOut[]>(jobsKey, (old) =>
-        (old ?? []).map((j) =>
-          j.id === job.id
-            ? {
-                ...j,
-                application_status: status,
-                application_id: j.application_id ?? "pending",
-              }
-            : j,
-        ),
-      );
+      const prev = queryClient.getQueryData<Paginated<JobOut>>(jobsKey);
+      patch((j) => ({
+        ...j,
+        application_status: status,
+        application_id: j.application_id ?? "pending",
+      }));
       return { prev };
     },
     onError: async (err, _status, ctx) => {
@@ -64,11 +67,7 @@ export function StatusCell({
     },
     onSuccess: (updated, status) => {
       toast.success(`Marked as ${STATUS_LABELS[status]}`);
-      if (updated) {
-        queryClient.setQueryData<JobOut[]>(jobsKey, (old) =>
-          (old ?? []).map((j) => (j.id === job.id ? { ...j, ...updated } : j)),
-        );
-      }
+      if (updated) patch((j) => ({ ...j, ...updated }));
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: jobsKey });

@@ -29,7 +29,7 @@ from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.user import User
-from app.pipelines.apply import render
+from app.pipelines.apply import discover_cache, render
 from app.repositories import applications as app_repo
 from app.repositories import jobs as jobs_repo
 from app.repositories import profiles as profiles_repo
@@ -47,6 +47,11 @@ def _emphasis_keywords(profile: MasterProfile) -> list[str]:
 
 def _target_roles(profile: MasterProfile) -> list[str]:
     return [r for r in (profile.target_roles or []) if isinstance(r, str) and r.strip()]
+
+
+def _location(profile: MasterProfile) -> str | None:
+    locs = getattr(profile, "preferred_locations", None) or []
+    return next((loc for loc in locs if isinstance(loc, str) and loc.strip()), None)
 
 
 def title_matches_roles(title: str, roles: list[str]) -> bool:
@@ -82,6 +87,7 @@ async def _run_sources(
     session, *, user_id: UUID, profile: MasterProfile, boards: list[str] | None = None,
     selected_tracks: list[str] | None = None,
     selected_experience_levels: list[str] | None = None,
+    cooldown: bool = True,
     emit=_real_emit,
 ) -> tuple[list[Job], list[dict]]:
     """Run active sources for the hunter's track; dedupe-insert; emit job.discovered.
@@ -91,11 +97,16 @@ async def _run_sources(
     per-source report for the on-demand diagnostics endpoint.
     """
     roles = _target_roles(profile)
+    # Scope the outbound query so providers return only relevant postings (saves tokens):
+    # role titles + location + (on-demand) seniority all narrow the fetch, not just a
+    # post-fetch discard.
     query = SourceQuery(
         track=profile.track,
         keywords=_emphasis_keywords(profile),
         boards=boards or [],
         role_titles=roles,
+        location=_location(profile),
+        experience_level=next(iter(selected_experience_levels or []), None),
     )
     actives = [s for s in active_sources() if s.supports(profile.track)]
     
@@ -125,6 +136,13 @@ async def _run_sources(
             None if settings.use_fake_integrations
             else _config_note(source.name, query.boards)
         )
+        # Skip an identical query fetched within the cooldown window (saves API tokens).
+        qhash = discover_cache.query_hash(name, query)
+        if cooldown and await discover_cache.should_skip(user_id, name, qhash):
+            log.info("discover.source.cooldown_skip", source=name)
+            report.append({"source": name, "found": 0, "inserted": 0, "off_target": 0,
+                           "error": None, "note": "skipped: fetched recently (cooldown)"})
+            continue
         found = inserted = off_target = 0
         error: str | None = None
         log.info("discover.source.fetch", source=name, boards=query.boards or None, note=note)
@@ -173,6 +191,8 @@ async def _run_sources(
                     new_jobs.append(job)
                     emit(names.JOB_DISCOVERED,
                          JobDiscovered(user_id=user_id, job_id=job.id, source=name))
+            # A completed fetch (even 0 results) starts the cooldown for this query.
+            await discover_cache.mark_ran(user_id, name, qhash)
         except Exception as exc:  # noqa: BLE001 — one bad source shouldn't stop the rest
             error = f"{type(exc).__name__}: {exc}"
             log.warning("discover.source.failed", source=name, error=error)
