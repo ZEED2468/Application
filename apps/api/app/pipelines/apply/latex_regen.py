@@ -106,38 +106,59 @@ def _cover_prompt(*, template_tex, cl_body, owner_name, company, role_title) -> 
     )
 
 
+async def _rewrite_once(system, prompt, max_tokens) -> str:
+    raw = await client.complete_text(system, prompt, max_tokens=max_tokens, feature=_FEATURE)
+    return sanitize_latex(_strip_fences(raw)).strip()
+
+
 async def _regen(*, template_tex, system, prompt, max_tokens, fallback_tex) -> RegenResult:
-    """Try the LLM rewrite of `template_tex` (using the shared ATS model); fall back to
-    `fallback_tex` (always compilable) on no template / no LLM / empty / non-compiling
-    output."""
-    fell_back: str | None
-    stderr: str | None = None
+    """Render tailored content into the user's uploaded template — **honor-or-explain**.
+
+    When a template was provided we always render into it: try the LLM rewrite, and on a
+    compile failure **retry once** feeding the model the tectonic error. If it still won't
+    compile we return the best attempt (in the user's format) with `compiled=False` + the
+    error — we do **not** silently swap to the generic `build_tex` layout. The deterministic
+    `fallback_tex` is used only when there is genuinely no template / no LLM configured.
+    """
     has_template = bool(template_tex and template_tex.strip())
 
     if has_template and client.is_live(_FEATURE):
+        attempt = ""
+        stderr: str | None = None
         try:
-            raw = await client.complete_text(
-                system, prompt, max_tokens=max_tokens, feature=_FEATURE
-            )
-            tex = sanitize_latex(_strip_fences(raw)).strip()
-            if tex:
-                pdf, err = await render.render_pdf_checked(tex)
+            attempt = await _rewrite_once(system, prompt, max_tokens)
+            if attempt:
+                pdf, err = await render.render_pdf_checked(attempt)
                 if pdf is not None:
-                    return RegenResult(latex=tex, pdf=pdf, compiled=True, fell_back=None, stderr=None)
-                fell_back, stderr = "no_compile", err
-            else:
-                fell_back = "empty_output"
-        except Exception as exc:  # noqa: BLE001 — never break regeneration
+                    return RegenResult(latex=attempt, pdf=pdf, compiled=True, fell_back=None, stderr=None)
+                stderr = err
+                # Repair retry: re-prompt with the compiler error, keep the template layout.
+                repair = (
+                    f"{prompt}\n\nYour previous LaTeX did NOT compile. tectonic error:\n"
+                    f"{(err or '')[:1500]}\n\nReturn a corrected, complete .tex that compiles —"
+                    " keep the template's \\documentclass, packages, layout and sections"
+                    " unchanged; only fix what caused the error. Return ONLY the .tex."
+                )
+                fixed = await _rewrite_once(system, repair, max_tokens)
+                if fixed:
+                    pdf2, err2 = await render.render_pdf_checked(fixed)
+                    if pdf2 is not None:
+                        return RegenResult(latex=fixed, pdf=pdf2, compiled=True, fell_back=None, stderr=None)
+                    attempt, stderr = fixed, err2  # keep the latest attempt + its error
+        except Exception as exc:  # noqa: BLE001 — surface, don't swap to a generic CV
             log.warning("latex_regen.llm_failed", feature=_FEATURE,
                         error=str(exc), exc_type=type(exc).__name__)
-            fell_back = "llm_failed"
-    elif not has_template:
-        fell_back = "no_template"
-    else:
-        fell_back = "no_llm"
+            return RegenResult(latex=(attempt or template_tex), pdf=None, compiled=False,
+                               fell_back="llm_failed", stderr=str(exc)[:1500])
+        # Template provided but it won't compile even after repair: return the attempt in the
+        # user's format (editable in the builder) + the error — NOT the generic layout.
+        return RegenResult(latex=(attempt or template_tex), pdf=None, compiled=False,
+                           fell_back="no_compile", stderr=stderr)
 
+    # No template uploaded / no LLM configured → the documented built-in layout.
+    fell_back = "no_template" if not has_template else "no_llm"
     pdf = await render.render_pdf(fallback_tex)
-    return RegenResult(latex=fallback_tex, pdf=pdf, compiled=True, fell_back=fell_back, stderr=stderr)
+    return RegenResult(latex=fallback_tex, pdf=pdf, compiled=True, fell_back=fell_back, stderr=None)
 
 
 async def regenerate_cv_latex(
