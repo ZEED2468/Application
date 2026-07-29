@@ -31,6 +31,8 @@ class SerpApiSource:
             q = " OR ".join(query.role_titles[:3])
         else:
             q = " ".join(query.keywords[:3]) or query.track.value
+        if query.experience_level:
+            q = f"{query.experience_level} {q}"  # narrow by seniority
         if not query.location:
             q = f"{q} remote"  # remote/global default when no location is set
         params = {

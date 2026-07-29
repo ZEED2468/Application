@@ -136,6 +136,8 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
 class DiscoverRequest(BaseModel):
     tracks: list[str] | None = None
     experience_levels: list[str] | None = None
+    # Bypass the per-query cooldown for an explicit user-requested refresh.
+    force: bool = False
 
 
 @router.post("/discover")
@@ -187,7 +189,8 @@ async def discover(
             user_id=user.id,
             profile=profile,
             selected_tracks=requested_tracks,
-            selected_experience_levels=requested_levels
+            selected_experience_levels=requested_levels,
+            cooldown=not (body.force if body else False),
         )
         total += len(new_jobs)
         for r in report:

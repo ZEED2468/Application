@@ -42,6 +42,8 @@ class SourceQuery:
     boards: list[str] = field(default_factory=list)
     # Hunter's target job titles; keyword sources query by these, all sources filter to them.
     role_titles: list[str] = field(default_factory=list)
+    # Optional seniority to narrow the outbound query (junior|mid|senior|lead).
+    experience_level: str | None = None
     limit: int = 50
 
 

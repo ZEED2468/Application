@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     # --- Email warm-up ---
     weekly_cap_per_hunter: int = 20
     use_fake_integrations: bool = Field(default=True)
+    # Skip an identical Adzuna/SerpApi discovery query if it ran within this window
+    # (seconds) — saves API tokens across the 30-min beat + on-demand runs. 0 disables.
+    discover_cooldown_seconds: int = 3600
 
     @property
     def cors_origins_list(self) -> list[str]:
