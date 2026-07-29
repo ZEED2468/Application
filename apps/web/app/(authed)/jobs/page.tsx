@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Download, Briefcase, Search } from "lucide-react";
-import type { JobOut, Origin, Track, TrackerStatus } from "@jd/shared-types";
-import { TRACKER_STATUSES, TRACKS } from "@jd/shared-types";
+import type { JobOut, Origin, Paginated, TrackerStatus } from "@jd/shared-types";
+import { TRACKER_STATUSES } from "@jd/shared-types";
 import { jobsService, applicationsService, type JobsFilter } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
@@ -34,6 +34,22 @@ import { JdCell } from "./jd-cell";
 import { DocLinkCell } from "./doc-link-cell";
 
 export const dynamic = "force-dynamic";
+
+// Fetch the whole list once, cache it (react-query + localStorage), and do all
+// filtering + pagination client-side — so filter/page changes never re-hit the server.
+const JOBS_CACHE_KEY = "jd_jobs_cache_v1";
+const PAGE_SIZE = 25;
+const MAX_FETCH = 500;
+
+function readCachedJobs(): Paginated<JobOut> | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const c = localStorage.getItem(JOBS_CACHE_KEY);
+    return c ? (JSON.parse(c) as Paginated<JobOut>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export default function JobsPage() {
   const router = useRouter();
@@ -97,15 +113,48 @@ export default function JobsPage() {
     setPage(1);
   }, [filter.status, filter.track, filter.origin]);
 
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: [...queryKeys.jobs(filter), page],
-    queryFn: () => jobsService.list(filter, page),
+  // One broad fetch of all jobs, cached in memory (5 min) + persisted to localStorage
+  // so reloads/navigation don't refetch. Filtering + pagination happen client-side.
+  const { data: all, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: queryKeys.jobs({}),
+    queryFn: async () => {
+      const res = await jobsService.list({}, 1, MAX_FETCH);
+      try {
+        localStorage.setItem(JOBS_CACHE_KEY, JSON.stringify(res));
+      } catch {
+        /* ignore quota */
+      }
+      return res;
+    },
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    initialData: readCachedJobs,
   });
+
+  // Client-side filtering (no server round-trip when filters change).
+  const filtered = React.useMemo(() => {
+    const items = all?.items ?? [];
+    return items.filter((j) => {
+      if (filter.status && j.application_status !== filter.status) return false;
+      if (filter.origin && j.origin !== filter.origin) return false;
+      if (selectedTracks.length && !selectedTracks.includes(j.track as string)) return false;
+      if (
+        selectedExpLevels.length &&
+        !(j.experience_level && selectedExpLevels.includes(j.experience_level))
+      )
+        return false;
+      return true;
+    });
+  }, [all, filter.status, filter.origin, selectedTracks, selectedExpLevels]);
+
+  const total = filtered.length;
+  const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const discover = useMutation({
     mutationFn: () => jobsService.discover({
       tracks: selectedTracks,
       experience_levels: selectedExpLevels,
+      force: true, // explicit user refresh bypasses the server cooldown
     }),
     onSuccess: (rep) => {
       const summary = rep.sources
@@ -397,7 +446,7 @@ export default function JobsPage() {
           <div className="min-h-0 flex-1 overflow-auto">
             <DataTable<JobOut>
               columns={columns}
-              data={data?.items}
+              data={pageItems}
               isLoading={isLoading}
               rowKey={(j) => j.id}
               onRowClick={(j) => router.push(`/jobs/${j.id}`)}
@@ -425,11 +474,11 @@ export default function JobsPage() {
         )}
         {!isError && (
           <Pagination
-            page={data?.page ?? page}
-            pageSize={data?.page_size ?? 25}
-            total={data?.total ?? 0}
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
             onPage={setPage}
-            isLoading={isLoading}
+            isLoading={isLoading || isFetching}
           />
         )}
       </div>
