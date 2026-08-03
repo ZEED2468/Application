@@ -101,6 +101,18 @@ async def test_serpapi_parenthesizes_role_title_or_group(monkeypatch):
     assert qstr.endswith(")remote") or qstr.endswith(") remote")  # remote appended after the group
 
 
+def test_query_hash_includes_boards():
+    # Adding/removing a company board must bust the cooldown so the new board is fetched.
+    base = SourceQuery(track=Track.backend, role_titles=["Backend Engineer"], boards=["acme"])
+    more = SourceQuery(track=Track.backend, role_titles=["Backend Engineer"],
+                       boards=["acme", "globex"])
+    assert discover_cache.query_hash("greenhouse", base) != discover_cache.query_hash("greenhouse", more)
+    # order-insensitive (boards are sorted before hashing)
+    reordered = SourceQuery(track=Track.backend, role_titles=["Backend Engineer"],
+                            boards=["globex", "acme"])
+    assert discover_cache.query_hash("greenhouse", more) == discover_cache.query_hash("greenhouse", reordered)
+
+
 @pytest.mark.asyncio
 async def test_cooldown_disabled_in_fake_mode():
     # fake mode -> cooldown never blocks discovery (fail-open)
