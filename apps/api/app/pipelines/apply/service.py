@@ -106,7 +106,14 @@ async def _run_sources(
         boards=boards or [],
         role_titles=roles,
         location=_location(profile),
-        experience_level=next(iter(selected_experience_levels or []), None),
+        # Only narrow the outbound query by seniority when a single level is chosen;
+        # with several selected we fetch broadly and let the post-fetch filter decide,
+        # otherwise the other levels would never be fetched.
+        experience_level=(
+            selected_experience_levels[0]
+            if selected_experience_levels and len(selected_experience_levels) == 1
+            else None
+        ),
     )
     actives = [s for s in active_sources() if s.supports(profile.track)]
     
