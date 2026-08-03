@@ -9,7 +9,9 @@ from __future__ import annotations
 from fastapi import Query
 
 PageParam = Query(default=1, ge=1, description="1-based page number")
-PageSizeParam = Query(default=25, ge=1, le=100, description="items per page")
+# Up to 500 so the dashboard can fetch the whole list once and filter/paginate
+# client-side. Rows are loaded then Python-sliced, so a larger page is cheap.
+PageSizeParam = Query(default=25, ge=1, le=500, description="items per page")
 
 
 def paginate(items: list, page: int, page_size: int) -> dict:
