@@ -14,7 +14,7 @@ from uuid import UUID
 import structlog
 
 from app.config import settings
-from app.core.enums import ApplicationStatus, CvStatus, JobSourceName, JobStatus
+from app.core.enums import ApplicationStatus, CvStatus, JobSourceName, JobStatus, Track
 from app.events import names
 from app.events.bus import emit as _real_emit
 from app.events.contracts import (
@@ -167,7 +167,13 @@ async def _run_sources(
                             matched_track = st
                             break
                     if matched_track:
-                        job_track = matched_track
+                        # Only relabel to a *built-in* track — a custom string cannot be
+                        # stored in the Enum(Track) column (it reads back as a LookupError
+                        # and 500s the whole jobs list). Custom tracks stay a filter concept.
+                        try:
+                            job_track = Track(matched_track.lower())
+                        except ValueError:
+                            pass  # keep the classified (valid) track
                     elif job_track not in selected_tracks:
                         # Skip: job classified track does not match the selected tracks
                         off_target += 1
