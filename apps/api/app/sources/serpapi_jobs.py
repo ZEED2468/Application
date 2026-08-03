@@ -28,7 +28,9 @@ class SerpApiSource:
         # postings); fall back to the top few skills. Google Jobs narrows hard with
         # many terms, so keep it short.
         if query.role_titles:
-            q = " OR ".join(query.role_titles[:3])
+            # Parenthesize the OR group so seniority/remote qualifiers bind to all terms,
+            # not just the first/last under Google Jobs boolean parsing.
+            q = "(" + " OR ".join(query.role_titles[:3]) + ")"
         else:
             q = " ".join(query.keywords[:3]) or query.track.value
         if query.experience_level:

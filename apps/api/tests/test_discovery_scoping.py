@@ -85,6 +85,23 @@ def test_query_hash_stable_and_sensitive():
 
 
 @pytest.mark.asyncio
+async def test_serpapi_parenthesizes_role_title_or_group(monkeypatch):
+    # Multiple target roles must be OR'd inside a parenthesized group so the
+    # seniority/remote qualifiers bind to *all* titles, not just the first/last.
+    monkeypatch.setattr(settings, "serpapi_api_key", "k")
+    cap = _capture_get(monkeypatch, {"jobs_results": []})
+    q = SourceQuery(track=Track.frontend,
+                    role_titles=["React Engineer", "Frontend Engineer"],
+                    experience_level="senior")
+    async for _ in SerpApiSource().fetch(q):
+        pass
+    qstr = cap["params"]["q"].lower()
+    assert "(react engineer or frontend engineer)" in qstr
+    assert qstr.startswith("senior (")  # seniority prefix binds to the whole group
+    assert qstr.endswith(")remote") or qstr.endswith(") remote")  # remote appended after the group
+
+
+@pytest.mark.asyncio
 async def test_cooldown_disabled_in_fake_mode():
     # fake mode -> cooldown never blocks discovery (fail-open)
     assert settings.use_fake_integrations is True
