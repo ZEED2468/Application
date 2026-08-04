@@ -3,17 +3,19 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
-import { tracksService } from "@/lib/api/services";
+import { readinessService } from "@/lib/api/services";
 import { queryKeys } from "@/lib/query-keys";
 
-/** Persistent dashboard reminder for tracks that still need a resume. */
+/** Persistent dashboard reminder for tracks that still need a resume. Reads the same
+ * readiness query as SetupProgress (react-query dedupes it) so the two banners can
+ * never disagree about setup state. */
 export function TrackReminder() {
   const { data } = useQuery({
-    queryKey: queryKeys.tracks,
-    queryFn: () => tracksService.list(),
+    queryKey: queryKeys.readiness,
+    queryFn: () => readinessService.get(),
     staleTime: 60_000,
   });
-  const incomplete = (data ?? []).filter((t) => t.status === "setup_required");
+  const incomplete = (data?.tracks ?? []).filter((t) => t.status === "setup_required");
   if (incomplete.length === 0) return null;
 
   return (
