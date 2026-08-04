@@ -255,6 +255,9 @@ export interface AtsCheckResult {
   cover_letter_template?: CoverLetterTemplate | null;
   /** Whether the AI review layer was live for this run (capability, declared up front). */
   ai_live?: boolean;
+  /** Id + version of the persisted `ats_analysis` row this result was recorded as. */
+  analysis_id?: string | null;
+  version?: number | null;
   rule_based: {
     /** null when the format gate failed — a fix-first state, never a fabricated number. */
     score: number | null;
@@ -264,6 +267,15 @@ export interface AtsCheckResult {
   ai: AtsAiAnalysis | null;
   /** Resume Intelligence workspace (deterministic + advisory); optional/back-compat. */
   intelligence?: ResumeIntelligence | null;
+}
+
+/** The latest persisted ATS analysis for a job (or standalone) — GET /api/ats/analysis. */
+export interface AtsLatestAnalysis {
+  analysis_id: string;
+  version: number;
+  gate_status: "pass" | "fail" | "unevaluated";
+  score: number | null;
+  recs: RegenerateAtsRecs;
 }
 
 /* ---- Resume Intelligence (R5) ---- */
