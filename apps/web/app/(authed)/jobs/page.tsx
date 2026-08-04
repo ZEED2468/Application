@@ -29,9 +29,12 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { SubmittedApplications } from "@/components/submitted-applications";
 import { StatusCell } from "./status-cell";
 import { JdCell } from "./jd-cell";
 import { DocLinkCell } from "./doc-link-cell";
+
+type JobsView = "pipeline" | "submitted";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +79,16 @@ export default function JobsPage() {
     return [];
   });
   
+  // Pipeline (discover/tailor) vs Submitted (the former Tracker) — one screen, two
+  // segments. Deep links from /applications arrive as ?view=submitted.
+  const [view, setView] = React.useState<JobsView>(() => {
+    if (typeof window !== "undefined") {
+      const v = new URLSearchParams(window.location.search).get("view");
+      if (v === "submitted") return "submitted";
+    }
+    return "pipeline";
+  });
+
   const [newTrackInput, setNewTrackInput] = React.useState("");
   const [selectedTracks, setSelectedTracks] = React.useState<string[]>([]);
   const [selectedExpLevels, setSelectedExpLevels] = React.useState<string[]>([]);
@@ -356,15 +369,28 @@ export default function JobsPage() {
       <SetupProgress />
       <TrackReminder />
       <div className="flex shrink-0 flex-wrap items-end justify-between gap-4 border-b border-coffee-200 pb-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-coffee-900">
-            Jobs / Tracker
-          </h1>
-          <p className="text-sm text-coffee-500">
-            Every discovered and manually-added application, tailored, scored,
-            and tracked from first send to offer.
-          </p>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-coffee-900">Jobs</h1>
+          <div className="inline-flex rounded-md border border-coffee-300 bg-white p-0.5 text-sm">
+            {([["pipeline", "Pipeline"], ["submitted", "Submitted"]] as const).map(
+              ([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={`rounded px-3 py-1 transition-colors ${
+                    view === v
+                      ? "bg-coffee-700 font-medium text-cream"
+                      : "text-coffee-600 hover:bg-coffee-100"
+                  }`}
+                >
+                  {label}
+                </button>
+              ),
+            )}
+          </div>
         </div>
+        {view === "pipeline" ? (
         <div className="flex flex-wrap items-center gap-3">
           {/* Custom Track Input */}
           <div className="flex items-center gap-1.5">
@@ -448,8 +474,22 @@ export default function JobsPage() {
             Export .xlsx
           </a>
         </div>
+        ) : (
+          <a
+            href={applicationsService.exportUrl()}
+            download
+            className={buttonVariants({ variant: "secondary", size: "sm" })}
+          >
+            <Download className="size-4" />
+            Export .xlsx
+          </a>
+        )}
       </div>
 
+      {view === "submitted" ? (
+        <SubmittedApplications />
+      ) : (
+      <>
       <div className="flex shrink-0 flex-wrap items-end gap-4 rounded-lg border border-coffee-300 bg-white px-4 py-3">
         <FilterSelect
           label="Status"
@@ -557,6 +597,8 @@ export default function JobsPage() {
         title={preview?.title ?? ""}
         url={preview?.url}
       />
+      </>
+      )}
     </div>
   );
 }
