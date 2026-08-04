@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.enums import LatexKind, Track
 from app.db import Base
 from app.models.base import TimestampMixin, pk, user_fk
+from app.models.master_profile import JsonB
 
 
 class LatexTemplate(Base, TimestampMixin):
@@ -29,3 +30,5 @@ class LatexTemplate(Base, TimestampMixin):
     source: Mapped[str | None] = mapped_column(Text, nullable=True)  # the raw .tex skeleton
     original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_file_key: Mapped[str | None] = mapped_column(String(512), nullable=True)  # R2
+    # Cached ATS format gate from a trial compile at upload/save (status/flags/reasons).
+    gate: Mapped[dict | None] = mapped_column(JsonB, nullable=True)

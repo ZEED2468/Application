@@ -625,6 +625,12 @@ export interface LatexTemplate {
   filename?: string | null;
   has_source: boolean;
   source?: string | null;
+  /** ATS format gate from a trial compile at save (status: pass | fail | unevaluated). */
+  gate?: {
+    status: "pass" | "fail" | "unevaluated";
+    reasons?: string[];
+    flags?: Record<string, boolean>;
+  } | null;
 }
 
 /** ATS recommendations that drive a regeneration (subset of AtsCheckResult). */
