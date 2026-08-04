@@ -9,7 +9,7 @@ import { Download, Briefcase, Search } from "lucide-react";
 import type { JobOut, Origin, Paginated, TrackerStatus } from "@jd/shared-types";
 import { TRACKER_STATUSES } from "@jd/shared-types";
 import { jobsService, applicationsService, type JobsFilter } from "@/lib/api/services";
-import { toApiError } from "@/lib/api/client";
+import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
 import {
   ORIGIN_LABELS,
@@ -231,7 +231,7 @@ export default function JobsPage() {
       clearFilters();
       setPage(1);
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err, "Couldn't search for jobs"),
   });
 
   const columns: Column<JobOut>[] = [

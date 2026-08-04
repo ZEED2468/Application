@@ -13,7 +13,8 @@ import type {
 } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
 import { authService, onboardingService } from "@/lib/api/services";
-import { absoluteApiUrl, toApiError } from "@/lib/api/client";
+import { absoluteApiUrl } from "@/lib/api/client";
+import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { previewCoverLetterTemplate } from "@/lib/cover-letter-template";
@@ -123,7 +124,7 @@ export default function ProfilePage() {
       toast.success(detail);
       queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
     onSettled: () => setUploadingTrack(null),
   });
 
@@ -136,7 +137,7 @@ export default function ProfilePage() {
       setTemplateLoaded(true);
       queryClient.invalidateQueries({ queryKey: queryKeys.coverLetterTemplate });
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   const templateMutation = useMutation({
@@ -147,7 +148,7 @@ export default function ProfilePage() {
       setTemplateFilename(data.filename ?? null);
       queryClient.invalidateQueries({ queryKey: queryKeys.coverLetterTemplate });
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   const confirmMutation = useMutation({
@@ -156,7 +157,7 @@ export default function ProfilePage() {
       toast.success(`${TRACK_LABELS[track]} profile confirmed`);
       queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   const activeTrackMutation = useMutation({
@@ -165,7 +166,7 @@ export default function ProfilePage() {
       toast.success(`Active track: ${TRACK_LABELS[track]}`);
       queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   if (me?.type === "va") {
@@ -502,6 +503,32 @@ export default function ProfilePage() {
   );
 }
 
+/** Plain-language ATS format-gate note from the trial compile done at save time —
+ * so a two-column / non-compiling template is legible here, not a surprise at export. */
+function GateNote({ gate }: { gate: NonNullable<LatexTemplate["gate"]> }) {
+  const reasons = Array.isArray((gate as { reasons?: unknown }).reasons)
+    ? ((gate as { reasons?: string[] }).reasons ?? [])
+    : [];
+  if (gate.status === "pass") {
+    return (
+      <p className="text-xs text-status-offer">
+        ✓ Compiles cleanly — your tailored content will render in this design.
+      </p>
+    );
+  }
+  if (gate.status === "fail") {
+    return (
+      <p className="text-xs text-status-interviewed">
+        ⚠ This template couldn’t be compiled, so regeneration falls back to the built-in
+        layout{reasons.length > 0 ? `: ${reasons.join("; ")}` : ""}.
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-coffee-400">Format check unavailable in this environment.</p>
+  );
+}
+
 function LatexTemplateField({
   track,
   kind,
@@ -538,7 +565,7 @@ function LatexTemplateField({
       toast.success(`${kind === "cv" ? "CV" : "Cover-letter"} LaTeX uploaded`);
       invalidate();
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   const save = useMutation({
@@ -547,7 +574,7 @@ function LatexTemplateField({
       toast.success("LaTeX template saved");
       invalidate();
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   return (
@@ -612,6 +639,7 @@ function LatexTemplateField({
           Save
         </Button>
       </div>
+      {initial?.gate && <GateNote gate={initial.gate} />}
     </div>
   );
 }
@@ -682,7 +710,7 @@ function TargetRolesEditor({
   const save = useMutation({
     mutationFn: (next: string[]) => onboardingService.setTargetRoles(track, next),
     onSuccess: (res) => setRoles(res.target_roles),
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   function add() {
@@ -826,7 +854,7 @@ function PreferredSkillsEditor({ track, initial }: { track: Track; initial: stri
   }, [key]);
   const save = useMutation({
     mutationFn: (next: string[]) => onboardingService.setPreferences(track, next),
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
   function update(next: string[]) {
     setValues(next);
@@ -871,7 +899,7 @@ function VerifiedExtrasEditor({
   const save = useMutation({
     mutationFn: (next: Record<string, string[]>) =>
       onboardingService.setVerifiedExtras(track, next),
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
   function update(cat: string, next: string[]) {
     const merged = { ...extras, [cat]: next };
@@ -928,7 +956,7 @@ function CareerDetailsEditor({ track, initial }: { track: Track; initial: Master
         salary_expectation: salary.trim() ? { note: salary.trim() } : {},
       }),
     onSuccess: () => toast.success("Career details saved"),
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   return (

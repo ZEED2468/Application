@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Sparkles } from "lucide-react";
 import type { LatexKind, RegenerateAtsRecs, Track } from "@jd/shared-types";
 import { latexService } from "@/lib/api/services";
-import { toApiError } from "@/lib/api/client";
+import { toastApiError } from "@/lib/toast-error";
 import { PageHeading } from "@/components/states";
 import { LatexBuilder } from "@/components/latex-builder";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ export default function StandaloneBuilderPage() {
   const [coverLatex, setCoverLatex] = React.useState("");
   const [payload, setPayload] = React.useState<StandalonePayload | null>(null);
   const [ready, setReady] = React.useState(false);
+  const [note, setNote] = React.useState<string | null>(null);
   const autoRan = React.useRef(false);
 
   React.useEffect(() => {
@@ -59,8 +60,21 @@ export default function StandaloneBuilderPage() {
     onSuccess: (res) => {
       setCvLatex(res.cv_latex);
       setCoverLatex(res.cover_latex);
+      // Honor-or-explain, same as the job builder: never present a fallback silently.
+      if (res.cv_fell_back === "no_template") {
+        setNote(
+          "Rendered with the default layout — upload a LaTeX template on your Profile to use your own design.",
+        );
+      } else if (res.cv_compiled === false) {
+        setNote(
+          `Couldn't fully render into your template. Compiler error: ${(res.cv_stderr ?? "").slice(0, 300)} — edit the LaTeX below and click "Compile preview".`,
+        );
+        toast.error("CV couldn't be rendered into your template — fix the error shown below.");
+      } else {
+        setNote(null);
+      }
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   React.useEffect(() => {
@@ -104,6 +118,11 @@ export default function StandaloneBuilderPage() {
         </p>
       ) : (
         <>
+          {note && (
+            <p className="rounded-md border border-status-interviewed/40 bg-status-interviewed/5 px-4 py-3 text-sm text-coffee-800">
+              {note}
+            </p>
+          )}
           <div className="flex items-center gap-1.5">
             {(["cv", "cover"] as LatexKind[]).map((k) => (
               <button

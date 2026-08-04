@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Sparkles } from "lucide-react";
 import type { LatexKind, Track } from "@jd/shared-types";
 import { atsService, jobsService, latexService } from "@/lib/api/services";
-import { toApiError } from "@/lib/api/client";
+import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
 import { PageHeading, ErrorState } from "@/components/states";
 import { LatexBuilder } from "@/components/latex-builder";
@@ -70,7 +70,7 @@ export default function JobBuilderPage({
         setNote(null);
       }
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   // Effortless path: regenerate once on first load (recs are read from the persisted analysis).
@@ -88,7 +88,7 @@ export default function JobBuilderPage({
       toast.success("CV updated for this job.");
       router.push(`/jobs/${id}`);
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   const useCover = useMutation({
@@ -98,7 +98,7 @@ export default function JobBuilderPage({
       toast.success("Cover letter updated for this job.");
       router.push(`/jobs/${id}`);
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err),
   });
 
   if (isError) {

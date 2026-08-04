@@ -13,7 +13,7 @@ import type {
 } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
 import { atsService } from "@/lib/api/services";
-import { toApiError } from "@/lib/api/client";
+import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { previewCoverLetterTemplate } from "@/lib/cover-letter-template";
@@ -154,7 +154,7 @@ export default function AtsCheckerPage() {
       }
       toast.success("ATS check complete");
     },
-    onError: async (err) => toast.error((await toApiError(err)).message),
+    onError: (err) => toastApiError(err, "Couldn't run the ATS check"),
   });
 
   const canRun =
