@@ -23,6 +23,7 @@ def query_hash(source: str, query) -> str:
         source, track,
         ",".join(sorted(query.keywords or [])),
         ",".join(sorted(query.role_titles or [])),
+        ",".join(sorted(query.boards or [])),  # a new company board must bust the cooldown
         query.location or "",
         query.experience_level or "",
     ])
