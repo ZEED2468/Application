@@ -54,16 +54,30 @@ def _location(profile: MasterProfile) -> str | None:
     return next((loc for loc in locs if isinstance(loc, str) and loc.strip()), None)
 
 
+# Generic job words that don't distinguish a role — dropped so a search for "Frontend
+# Engineer" matches "Frontend Developer" (both distinctively about *frontend*) while a
+# plain "Software Engineer" is not pulled in by the shared word "engineer".
+_GENERIC_ROLE_WORDS = frozenset({
+    "engineer", "engineering", "developer", "development", "dev", "programmer",
+    "architect", "manager", "specialist", "analyst", "consultant", "lead", "senior",
+    "junior", "mid", "staff", "principal", "associate", "contract", "contractor",
+    "permanent", "remote", "hybrid", "officer", "assistant", "role", "position",
+})
+
+
 def title_matches_roles(title: str, roles: list[str]) -> bool:
-    """True if `title` matches any target role — every significant word of the role
-    appears in the title (so 'React Engineer' matches 'Senior React Engineer'). No
-    roles set ⇒ everything matches (no filtering)."""
+    """True if `title` matches any target role by its DISTINCTIVE word(s) — the
+    generic job words (engineer/developer/senior/…) are dropped, so 'Frontend Engineer'
+    matches 'Senior Frontend Developer' but a plain 'Software Engineer' does not. A role
+    with only generic words falls back to matching all of them. No roles ⇒ no filtering."""
     if not roles:
         return True
     title_tokens = set(re.findall(r"[a-z0-9]+", (title or "").lower()))
     for role in roles:
-        role_tokens = [t for t in re.findall(r"[a-z0-9]+", role.lower()) if len(t) > 2]
-        if role_tokens and all(t in title_tokens for t in role_tokens):
+        tokens = [t for t in re.findall(r"[a-z0-9]+", role.lower()) if len(t) > 2]
+        distinctive = [t for t in tokens if t not in _GENERIC_ROLE_WORDS]
+        required = distinctive or tokens
+        if required and all(t in title_tokens for t in required):
             return True
     return False
 
@@ -85,6 +99,7 @@ def _config_note(name: JobSourceName, boards: list[str]) -> str | None:
 
 async def _run_sources(
     session, *, user_id: UUID, profile: MasterProfile, boards: list[str] | None = None,
+    role_titles: list[str] | None = None,
     selected_tracks: list[str] | None = None,
     selected_experience_levels: list[str] | None = None,
     cooldown: bool = True,
@@ -96,7 +111,10 @@ async def _run_sources(
     `source_board` table) can never kill the whole run. Returns the new jobs plus a
     per-source report for the on-demand diagnostics endpoint.
     """
-    roles = _target_roles(profile)
+    # User-supplied search roles (the on-demand role box) win; else the hunter's saved
+    # target roles. With NEITHER set we don't search at all (see the guard below) — a
+    # role-less query returns broad, mostly-irrelevant postings and burns provider tokens.
+    roles = [r.strip() for r in (role_titles or []) if r and r.strip()] or _target_roles(profile)
     # Scope the outbound query so providers return only relevant postings (saves tokens):
     # role titles + location + (on-demand) seniority all narrow the fetch, not just a
     # post-fetch discard.
@@ -119,8 +137,21 @@ async def _run_sources(
     
     track_val = profile.track.value if hasattr(profile.track, "value") else profile.track
     log.info("discover.start", user_id=str(user_id), track=track_val,
-             keywords=query.keywords, fake_mode=settings.use_fake_integrations,
+             keywords=query.keywords, roles=roles, fake_mode=settings.use_fake_integrations,
              sources=[s.name.value for s in actives])
+
+    # No role scope → skip EVERY source (zero provider API calls). A role-less search
+    # returns mostly irrelevant jobs and wastes Adzuna/SerpApi tokens; the user drives the
+    # search via the on-demand role box, and the 30-min beat stays quiet for a hunter with
+    # no target roles set. Only enforced with REAL integrations — fake mode has no token
+    # cost, so dev/tests keep discovering without a role. Single choke point for both paths.
+    if not roles and not settings.use_fake_integrations:
+        log.info("discover.skipped_no_roles", user_id=str(user_id), track=track_val)
+        report = [{"source": s.name.value, "found": 0, "inserted": 0, "off_target": 0,
+                   "error": None,
+                   "note": "skipped: enter a search role (or set target roles) to search"}
+                  for s in actives]
+        return [], report
 
     # Board scrapers (Greenhouse/Lever/Ashby) pull per-company tokens. Resilient: a
     # missing/un-migrated `source_board` table must not break discovery.
@@ -194,7 +225,7 @@ async def _run_sources(
                     continue
 
                 fields = to_job_fields(raw)
-                fields.setdefault("role_title", raw.title)  # auto jobs: posting title
+                fields.setdefault("role_title", fields["title"])  # auto jobs: posting title (capped)
                 fields["track"] = job_track
                 fields["experience_level"] = job_exp
                 
