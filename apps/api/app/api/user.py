@@ -18,10 +18,10 @@ from app.db import get_session
 from app.deps import current_user
 from app.models.cover_letter import CoverLetterTemplate
 from app.models.latex_template import LatexTemplate
+from app.llm.credentials import provider_status
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
-from app.models.user_llm_credential import UserLlmCredential
 
 router = APIRouter(prefix="/user", tags=["user"])
 log = structlog.get_logger(__name__)
@@ -38,11 +38,9 @@ def _step(step_id: str, label: str, completed: bool, route: str, action_label: s
 async def readiness(
     user: User = Depends(current_user), session: AsyncSession = Depends(get_session),
 ) -> dict:
-    creds = (await session.execute(
-        select(UserLlmCredential).where(UserLlmCredential.user_id == user.id)
-    )).scalars().all()
-    has_key = any(c.encrypted_api_key for c in creds)
-    key_valid = any(c.encrypted_api_key and c.status == "configured" for c in creds)
+    # Read the SAME source runtime resolution uses (AiIntegration first, legacy
+    # fallback) so "Configure an AI provider" completes once the settings UI saves.
+    has_key, key_valid = await provider_status(session, user.id)
 
     profiles = (await session.execute(
         select(MasterProfile).where(MasterProfile.user_id == user.id)

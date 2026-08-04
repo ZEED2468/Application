@@ -50,7 +50,7 @@ from app.models.latex_template import LatexTemplate
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
-from app.models.user_llm_credential import UserLlmCredential
+from app.llm.credentials import provider_status
 
 import shutil
 
@@ -463,9 +463,8 @@ async def onboarding_status(
             select(RoleCv).where(RoleCv.user_id == user.id)
         )).scalars().all()
     }
-    has_key = (await session.execute(
-        select(UserLlmCredential.id).where(UserLlmCredential.user_id == user.id).limit(1)
-    )).first() is not None
+    # Same source as /user/readiness — the AI Integrations UI writes AiIntegration.
+    has_key, _ = await provider_status(session, user.id)
 
     tracks = []
     for p in profiles:
