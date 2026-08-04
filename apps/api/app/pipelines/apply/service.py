@@ -74,7 +74,9 @@ def title_matches_roles(title: str, roles: list[str]) -> bool:
         return True
     title_tokens = set(re.findall(r"[a-z0-9]+", (title or "").lower()))
     for role in roles:
-        tokens = [t for t in re.findall(r"[a-z0-9]+", role.lower()) if len(t) > 2]
+        # Keep 2-char tokens — short role words like UI, UX, Go, ML, AI, QA are meaningful
+        # (a search for "UI/UX" or "Go Developer" must not filter to nothing).
+        tokens = [t for t in re.findall(r"[a-z0-9]+", role.lower()) if len(t) >= 2]
         distinctive = [t for t in tokens if t not in _GENERIC_ROLE_WORDS]
         required = distinctive or tokens
         if required and all(t in title_tokens for t in required):
