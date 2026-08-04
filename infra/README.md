@@ -6,11 +6,12 @@ worker + beat.
 
 ## Layout
 
-| File                 | Purpose                                                        |
-| -------------------- | ------------------------------------------------------------- |
-| `docker-compose.yml` | The full stack: postgres, redis, api, worker, beat, wa-bridge, web. |
-| `.env.example`       | Every env var the stack needs, with safe dev defaults.        |
-| `README.md`          | This file — run instructions + DNS / email-domain checklist.  |
+| File                      | Purpose                                                        |
+| ------------------------- | ------------------------------------------------------------- |
+| `docker-compose.yml`      | The full stack: postgres, redis, api, worker, beat, wa-bridge, web. |
+| `docker-compose.test.yml` | Hermetic, offline test runner (`make test-docker`) — no datastores, no network, no prod. |
+| `.env.example`            | Every env var the stack needs, with safe dev defaults.        |
+| `README.md`               | This file — run instructions + DNS / email-domain checklist.  |
 
 ## Quick start
 
@@ -30,8 +31,32 @@ Other targets (see root `Makefile`):
 
 - `make down` — stop the stack (named volumes are kept).
 - `make logs` — tail all service logs.
-- `make test` — run the api pytest suite.
+- `make test` — run the api pytest suite on the host.
+- `make test-docker` — run the api pytest suite **inside a container** (see below).
 - `make fmt` — ruff format + lint-fix the api.
+
+## Running the tests without reaching prod
+
+`make test-docker` spins up a throwaway container and runs the api suite in it,
+so you never need a local Python/uv toolchain and can't accidentally hit a real
+service:
+
+```bash
+make test-docker         # build the image (INSTALL_DEV=1) + run pytest, exit code = pytest's
+make test-docker-down    # clean up the container/network afterwards
+```
+
+It is deliberately **hermetic**:
+
+- The image builds with `INSTALL_DEV=1`, adding the `dev` dependency group
+  (pytest, pytest-asyncio, aiosqlite, ruff) on top of the runtime deps. Prod
+  images build with `INSTALL_DEV=0` and never ship test tooling.
+- The suite builds its own **in-memory SQLite** database and runs with
+  `USE_FAKE_INTEGRATIONS=true`, so it needs **no Postgres, no Redis, no network**.
+- The container runs with `network_mode: none` (loopback only) — a stray real
+  `DATABASE_URL` or integration call physically cannot leave the container.
+
+The container exits with pytest's exit code, so CI/`make` fails on a red suite.
 
 ### Services & ports
 

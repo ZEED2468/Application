@@ -39,7 +39,13 @@ WORKDIR /app
 # Copy the project (source + pyproject) then install it + its deps. Editable
 # install needs the `app` package present, so source must be copied first.
 COPY . .
-RUN uv pip install --system -e .
+# Runtime image installs main deps only. Set INSTALL_DEV=1 (the test image / CI)
+# to also install the `dev` dependency group — pytest, pytest-asyncio, aiosqlite,
+# ruff — so the suite can run inside the container. Prod builds leave INSTALL_DEV=0
+# and never ship the test tooling.
+ARG INSTALL_DEV=0
+RUN uv pip install --system -e . \
+    && if [ "$INSTALL_DEV" = "1" ]; then uv pip install --system --group dev; fi
 
 EXPOSE 8000
 

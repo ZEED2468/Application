@@ -11,8 +11,10 @@ export ENV_FILE := $(ENV)
 # `env_file:` injection — same file for both.
 COMPOSE      := docker compose --env-file "$(ENV)" -f infra/docker-compose.yml
 COMPOSE_FULL := $(COMPOSE) -f infra/docker-compose.nginx.yml
+# Test runner is self-contained (no env file, no datastores) — see its compose file.
+COMPOSE_TEST := docker compose -f infra/docker-compose.test.yml
 
-.PHONY: dev up down logs migrate seed openapi test fmt envcheck
+.PHONY: dev up down logs migrate seed openapi test test-docker test-docker-down fmt envcheck
 
 ## dev: build + start the app stack (no nginx) — local development
 dev:
@@ -47,9 +49,18 @@ envcheck:
 openapi:
 	cd apps/api && uv run python -m scripts.export_openapi
 
-## test: run the api test suite (pytest)
+## test: run the api test suite on the host (pytest)
 test:
 	cd apps/api && uv run pytest
+
+## test-docker: run the api test suite INSIDE a container — offline (sqlite + fakes,
+## no datastores, no network), so it can never reach prod. Exits with pytest's code.
+test-docker:
+	$(COMPOSE_TEST) up --build --abort-on-container-exit --exit-code-from api-test
+
+## test-docker-down: remove the test container/image artifacts
+test-docker-down:
+	$(COMPOSE_TEST) down -v --remove-orphans
 
 ## fmt: format + lint-fix the api code with ruff
 fmt:
