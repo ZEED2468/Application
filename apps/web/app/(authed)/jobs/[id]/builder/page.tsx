@@ -7,8 +7,8 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Sparkles } from "lucide-react";
-import type { LatexKind, RegenerateAtsRecs, Track } from "@jd/shared-types";
-import { jobsService, latexService } from "@/lib/api/services";
+import type { LatexKind, Track } from "@jd/shared-types";
+import { atsService, jobsService, latexService } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query-keys";
 import { PageHeading, ErrorState } from "@/components/states";
@@ -18,19 +18,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
-
-/** ATS checker stashes its recommendations here before routing to the builder. */
-function takeAtsRecs(jobId: string): RegenerateAtsRecs | undefined {
-  if (typeof window === "undefined") return undefined;
-  const raw = window.sessionStorage.getItem(`latex-regen-ats:${jobId}`);
-  if (!raw) return undefined;
-  window.sessionStorage.removeItem(`latex-regen-ats:${jobId}`);
-  try {
-    return JSON.parse(raw) as RegenerateAtsRecs;
-  } catch {
-    return undefined;
-  }
-}
 
 export default function JobBuilderPage({
   params,
@@ -45,7 +32,6 @@ export default function JobBuilderPage({
   const [cvLatex, setCvLatex] = React.useState("");
   const [coverLatex, setCoverLatex] = React.useState("");
   const [note, setNote] = React.useState<string | null>(null);
-  const recsRef = React.useRef<RegenerateAtsRecs | undefined>(undefined);
   const autoRan = React.useRef(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -54,14 +40,17 @@ export default function JobBuilderPage({
   });
 
   const regenerate = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const job = data!.job;
+      // Recommendations come from the persisted ATS analysis for this job (from the DB,
+      // not a browser handoff) — undefined if no ATS check has been run for it yet.
+      const recs = (await atsService.latestRecs(id)) ?? undefined;
       return latexService.regenerate({
         job_id: id,
         track: job.track as Track,
         jd_text: job.jd_text ?? job.description ?? null,
         role_title: job.role,
-        ats: recsRef.current,
+        ats: recs,
       });
     },
     onSuccess: (res) => {
@@ -84,11 +73,10 @@ export default function JobBuilderPage({
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
 
-  // Effortless path: regenerate once on first load (recs come from the ATS checker).
+  // Effortless path: regenerate once on first load (recs are read from the persisted analysis).
   React.useEffect(() => {
     if (data && !autoRan.current) {
       autoRan.current = true;
-      recsRef.current = takeAtsRecs(id);
       regenerate.mutate();
     }
   }, [data, id, regenerate]);
