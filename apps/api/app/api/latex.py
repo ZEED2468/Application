@@ -13,7 +13,7 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +43,12 @@ class PreviewBody(BaseModel):
 class AtsRecs(BaseModel):
     missing_critical: list[str] = []
     gaps: list[str] = []
-    ai_recommendations: list[str] = []
+    # Canonical key is `recommendations` (what the ATS analyzer emits). Still accepts the
+    # legacy `ai_recommendations` so no client silently drops its guidance.
+    recommendations: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("recommendations", "ai_recommendations"),
+    )
 
 
 class RegenerateBody(BaseModel):

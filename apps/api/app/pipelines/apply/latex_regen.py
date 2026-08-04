@@ -92,7 +92,7 @@ def _cv_prompt(*, template_tex, cv_json, owner_name, job_title, priority_techs, 
         f"PRIORITY TECHNOLOGIES: {', '.join(priority_techs or [])}\n"
         f"ATS MISSING-CRITICAL: {', '.join(recs.get('missing_critical') or [])}\n"
         f"ATS GAPS: {', '.join(recs.get('gaps') or [])}\n"
-        f"ATS RECOMMENDATIONS: {' | '.join(recs.get('ai_recommendations') or [])}\n\n"
+        f"ATS RECOMMENDATIONS: {' | '.join(recs.get('recommendations') or recs.get('ai_recommendations') or [])}\n\n"
         "Return only the .tex source."
     )
 

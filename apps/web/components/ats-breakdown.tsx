@@ -99,13 +99,12 @@ export function AtsBreakdown({
         <AtsScoreRing score={score} />
         <div className="space-y-1">
           <p className="text-sm font-medium text-coffee-900">
-            Internal ATS match
+            Content readiness
           </p>
           <p className="max-w-prose text-sm leading-relaxed text-coffee-500">
-            This is our internal ATS match, optimized toward a 90–95% target. It
-            estimates how well the tailored CV aligns with this job&apos;s
-            keywords and formatting, it is not a guarantee of any employer&apos;s
-            applicant-tracking system.
+            How well this CV covers the job&apos;s must-have and supporting keywords.
+            It is not a guarantee of any employer&apos;s applicant-tracking system, and
+            title/seniority fit is shown separately as a stretch signal.
           </p>
         </div>
       </div>
@@ -132,24 +131,26 @@ export function AtsBreakdown({
                 : ""}
             </p>
           )}
-          {Array.isArray(breakdown.format_flags) && breakdown.format_flags.length > 0 && (
-            <div className="space-y-2 sm:col-span-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-                Format flags
-              </p>
-              <ul className="space-y-1">
-                {breakdown.format_flags.map((flag) => (
-                  <li
-                    key={flag}
-                    className="flex items-center gap-2 text-sm text-coffee-700"
-                  >
+          {typeof breakdown.criticals_total === "number" &&
+            breakdown.criticals_total > 0 && (
+              <div className="space-y-2 sm:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
+                  Must-haves
+                </p>
+                <p className="flex items-center gap-2 text-sm text-coffee-700">
+                  {(breakdown.missing_critical?.length ?? 0) > 0 && (
                     <AlertTriangle className="size-3.5 text-status-interviewed" />
-                    {flag}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+                  )}
+                  <span>
+                    {breakdown.criticals_covered ?? 0} of {breakdown.criticals_total}{" "}
+                    addressed
+                    {breakdown.missing_critical && breakdown.missing_critical.length > 0
+                      ? ` — missing: ${breakdown.missing_critical.join(", ")}`
+                      : ""}
+                  </span>
+                </p>
+              </div>
+            )}
         </div>
       ) : (
         <p className="text-sm text-coffee-300">

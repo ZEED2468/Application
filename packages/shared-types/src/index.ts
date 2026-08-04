@@ -182,10 +182,24 @@ export interface InviteCreatedResponse extends InviteOut {
 export interface AtsBreakdown {
   matched_keywords: string[];
   missing_keywords: string[];
-  format_flags: Record<string, boolean> | string[];
+  /** Structural parseability of the rendered artifact. `unevaluated` when no artifact was
+   *  inspected — absence of a measurement is never a pass. */
+  gate?: { status: "pass" | "fail" | "unevaluated"; [k: string]: unknown };
   coverage?: number;
+  supporting_coverage?: number;
+  critical_keywords?: string[];
+  matched_critical?: string[];
+  missing_critical?: string[];
+  criticals_total?: number;
+  criticals_covered?: number;
+  criticals_coverage?: number;
+  /** Title/seniority fit — a reach signal, deliberately NOT folded into the score. */
+  stretch?: { title_alignment: number; is_stretch: boolean };
   title_alignment?: number;
+  false_positives?: string[];
   framing?: string;
+  /** deprecated: the hardcoded format flags were removed; use `gate` */
+  format_flags?: Record<string, boolean> | string[];
   /** set after optional AI vet pass */
   ai_vetted?: boolean;
   ai_removed?: string[];
@@ -239,8 +253,11 @@ export interface AtsCheckResult {
     reason: string;
   } | null;
   cover_letter_template?: CoverLetterTemplate | null;
+  /** Whether the AI review layer was live for this run (capability, declared up front). */
+  ai_live?: boolean;
   rule_based: {
-    score: number;
+    /** null when the format gate failed — a fix-first state, never a fabricated number. */
+    score: number | null;
     breakdown: AtsBreakdown;
     gaps: string[];
   };
@@ -602,7 +619,7 @@ export interface LatexTemplate {
 export interface RegenerateAtsRecs {
   missing_critical?: string[];
   gaps?: string[];
-  ai_recommendations?: string[];
+  recommendations?: string[];
 }
 
 export interface RegenerateRequest {
