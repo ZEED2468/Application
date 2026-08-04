@@ -60,8 +60,9 @@ export default function AtsCheckerPage() {
   function goRegenerate() {
     if (!result) return;
     const recs: RegenerateAtsRecs = {
+      missing_critical: result.rule_based.breakdown.missing_critical ?? [],
       gaps: result.rule_based.gaps ?? [],
-      ai_recommendations: result.ai?.recommendations ?? [],
+      recommendations: result.ai?.recommendations ?? [],
     };
     if (jobId) {
       window.sessionStorage.setItem(
