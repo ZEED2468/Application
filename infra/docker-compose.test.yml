@@ -1,0 +1,34 @@
+# JD Engine — hermetic test runner.
+#
+# Runs the api test suite INSIDE a container, fully offline. The suite builds its
+# own in-memory SQLite database and runs with USE_FAKE_INTEGRATIONS, so it needs no
+# Postgres, no Redis, and no network — and so it can never touch a real/prod service.
+# This is the "spin up the tests without reaching prod" path.
+#
+#   make test-docker
+#   # or directly:
+#   docker compose -f infra/docker-compose.test.yml up --build \
+#     --abort-on-container-exit --exit-code-from api-test
+#
+# The container exits with pytest's exit code, so CI/make fails on a red suite.
+
+name: jd-test
+
+services:
+  api-test:
+    build:
+      context: ../apps/api
+      args:
+        INSTALL_DEV: "1"          # pull in pytest / pytest-asyncio / aiosqlite / ruff
+    image: jd-api-test:local
+    command: python -m pytest -q
+    # Deliberately isolated: only loopback, no bridge network, so a stray real
+    # DATABASE_URL / integration call cannot leave the container.
+    network_mode: none
+    environment:
+      # Hermetic + offline. Tests build their own in-memory SQLite engine, so the
+      # app's DATABASE_URL is never connected; fakes stand in for every integration.
+      USE_FAKE_INTEGRATIONS: "true"
+      RUN_MIGRATIONS: "0"          # entrypoint skips `alembic upgrade`; just execs pytest
+      ENVIRONMENT: test
+      JWT_SECRET: test-secret-not-a-real-secret
