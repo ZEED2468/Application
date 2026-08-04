@@ -16,8 +16,10 @@ def test_ats_scores_and_breakdown():
     result = ats.score(cv_json=cv_json, jd_text=jd, role_title="Backend Engineer")
     assert 0 <= result["score"] <= 100
     assert "go" in [m.lower() for m in result["matched_keywords"]]
-    assert result["format_flags"]["single_column"] is True
-    assert "internal ATS match" in result["framing"]
+    # No artifact was inspected → the format gate is honestly "unevaluated", never a fake pass.
+    assert result["gate"]["status"] == "unevaluated"
+    assert "stretch" in result and "title_alignment" in result["stretch"]
+    assert "content readiness" in result["framing"]
 
 
 def test_ats_surfaces_missing_as_gaps():

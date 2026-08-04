@@ -289,17 +289,17 @@ async def _run_check(
     cover_letter_template: dict | None = None,
     verified_terms: list[str] | None = None,
 ) -> dict:
+    from app.llm import client
+
     cv_json = cv_json_from_text(cv_text)
+    ai_live = client.is_live("ats_analyze")
+
+    # Initial rule pass (feeds the AI prompt).
     breakdown = ats.score(cv_json=cv_json, jd_text=jd_text, role_title=role_title)
-    if track_match is not None:
-        breakdown["track_match"] = {
-            "track": track_match.track.value,
-            "method": track_match.method,
-            "reason": track_match.reason,
-        }
     rule_score = breakdown["score"]
 
     ai_block: dict | None = None
+    false_positives: list[str] = []
     if use_ai:
         analysis = await ats_analyze.analyze(
             cv_text=cv_text,
@@ -309,9 +309,23 @@ async def _run_check(
             breakdown=breakdown,
         )
         ai_block = ats_analyze.analysis_to_dict(analysis)
-        from app.llm import client
+        ai_block["ai_powered"] = ai_live
+        false_positives = analysis.false_positives
 
-        ai_block["ai_powered"] = client.is_live("ats_analyze")
+    # Apply the AI's false-positive retractions and recompute the single number so the
+    # score, gaps and intelligence all reflect the corrected keyword set (one number out).
+    if false_positives:
+        breakdown = ats.score(
+            cv_json=cv_json, jd_text=jd_text, role_title=role_title,
+            false_positives=false_positives,
+        )
+        rule_score = breakdown["score"]
+    if track_match is not None:
+        breakdown["track_match"] = {
+            "track": track_match.track.value,
+            "method": track_match.method,
+            "reason": track_match.reason,
+        }
 
     # --- Resume Intelligence (deterministic always; advisory when AI is on) ---
     structure = intel.structure_review(cv_text=cv_text, cv_json=cv_json)
@@ -340,6 +354,7 @@ async def _run_check(
         "cv_word_count": len(re.findall(r"\w+", cv_text)),
         "track_match": breakdown.get("track_match"),
         "cover_letter_template": cover_letter_template,
+        "ai_live": ai_live,
         "rule_based": {
             "score": rule_score,
             "breakdown": breakdown,

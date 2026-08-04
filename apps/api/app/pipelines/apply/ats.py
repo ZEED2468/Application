@@ -77,8 +77,6 @@ _NON_REQUIREMENT_HEADER = re.compile(
     r"how\s+to\s+apply|equal\s+opportunity)"
 )
 
-TARGET_BAND = (90, 95)
-
 # JD phrases that mark a technology as critical / strongly-recommended (drives the
 # explicit achievement reframe + prioritizes confirm-true prompts).
 _EMPHASIS = re.compile(
@@ -318,17 +316,52 @@ def _keyword_matches(keyword: str, _text: str, cv_tokens: set[str]) -> bool:
     return _normalize_token(keyword) in cv_tokens
 
 
-def score(*, cv_json: dict, jd_text: str, role_title: str | None = None) -> dict:
-    keywords = extract_keywords(jd_text)
+def _saturate(p: float) -> float:
+    """Concave, diminishing-returns transform on [0,1]: rewards early coverage and
+    saturates — so supporting-keyword stuffing (which the tailoring prompt forbids)
+    earns nothing extra. p*(2-p): 0->0, 0.5->0.75, 1->1."""
+    p = max(0.0, min(1.0, p))
+    return round(p * (2 - p), 4)
+
+
+def score(
+    *,
+    cv_json: dict,
+    jd_text: str,
+    role_title: str | None = None,
+    false_positives: list[str] | None = None,
+    gate: dict | None = None,
+) -> dict:
+    """Consolidated content-readiness score — **gate -> cap -> score**, one number out.
+
+    - GATE: structural parseability of the *rendered artifact* (`pass | fail | unevaluated`).
+      Supplied by the caller that actually has the artifact; with only `cv_json` it stays
+      `unevaluated` — absence of a measurement is NEVER encoded as a pass. A failed gate
+      yields `score=None` (a fix-first state), not a number.
+    - CAP: missing emphasis-marked must-haves lower the achievable *ceiling* (not a linear
+      subtraction) — a CV missing must-haves is not "an 80", it is not ready.
+    - SCORE: critical coverage (0.70) + saturating supporting coverage (0.30).
+
+    Title/seniority alignment is deliberately NOT in the number (it measures fit, not the
+    document); it is returned separately as a `stretch` signal. `false_positives` (AI-
+    retracted bogus rule keywords) are dropped *before* the computation.
+    """
+    fp = {_normalize_token(k) for k in (false_positives or [])}
+
+    keywords = [k for k in extract_keywords(jd_text) if _normalize_token(k) not in fp]
     text = _cv_text(cv_json)
     cv_tokens = _cv_tokens(text)
     matched = [k for k in keywords if _keyword_matches(k, text, cv_tokens)]
     missing = [k for k in keywords if k not in matched]
-    coverage = len(matched) / len(keywords) if keywords else 1.0
+    supporting = len(matched) / len(keywords) if keywords else 1.0
 
-    critical = critical_keywords(jd_text)
-    missing_critical = [k for k in critical if not _keyword_matches(k, text, cv_tokens)]
+    critical = [k for k in critical_keywords(jd_text) if _normalize_token(k) not in fp]
+    crit_matched = [k for k in critical if _keyword_matches(k, text, cv_tokens)]
+    missing_critical = [k for k in critical if k not in crit_matched]
+    crit_total = len(critical)
+    crit_cov = len(crit_matched) / crit_total if crit_total else 1.0
 
+    # Stretch / reach — title & seniority fit. Reported, never folded into the score.
     title_tokens = [
         t for t in _TOKEN.findall((role_title or "").lower())
         if _is_skill_token(t, in_requirement_zone=True)
@@ -336,24 +369,46 @@ def score(*, cv_json: dict, jd_text: str, role_title: str | None = None) -> dict
     title_hits = [t for t in title_tokens if _keyword_matches(t, text, cv_tokens)]
     title_alignment = len(title_hits) / len(title_tokens) if title_tokens else 1.0
 
-    format_flags = {
-        "single_column": True,
-        "standard_headings": True,
-        "no_tables_or_graphics": True,
-    }
-    format_ok = sum(format_flags.values()) / len(format_flags)
+    gate = gate or {}
+    gate_status = gate.get("status", "unevaluated")
+    gate_out = {"status": gate_status}
+    gate_out.update({k: v for k, v in gate.items() if k != "status"})
 
-    value = round(100 * (0.70 * coverage + 0.15 * title_alignment + 0.15 * format_ok), 1)
+    # cap: missing criticals lower the ceiling; score: 0.70 critical + 0.30 saturating
+    # support. When the JD names no explicit must-haves, the number rests wholly on the
+    # (saturating) supporting coverage rather than getting a free 0.70 critical baseline.
+    if crit_total:
+        ceiling = crit_cov
+        blended = 0.70 * crit_cov + 0.30 * _saturate(supporting)
+    else:
+        ceiling = 1.0
+        blended = _saturate(supporting)
+    content = min(blended, ceiling)
+    value = None if gate_status == "fail" else round(100 * content, 1)
+
     return {
         "score": value,
+        "gate": gate_out,
+        "coverage": round(supporting, 2),              # back-compat alias for supporting
+        "supporting_coverage": round(supporting, 2),
         "matched_keywords": matched,
         "missing_keywords": missing,
         "critical_keywords": critical,
+        "matched_critical": crit_matched,
         "missing_critical": missing_critical,
-        "title_alignment": round(title_alignment, 2),
-        "format_flags": format_flags,
-        "coverage": round(coverage, 2),
-        "framing": "internal ATS match (optimized toward 90-95%); not an employer-ATS guarantee",
+        "criticals_total": crit_total,
+        "criticals_covered": len(crit_matched),
+        "criticals_coverage": round(crit_cov, 2),
+        "stretch": {
+            "title_alignment": round(title_alignment, 2),
+            "is_stretch": bool(title_tokens) and title_alignment < 0.5,
+        },
+        "title_alignment": round(title_alignment, 2),  # back-compat
+        "false_positives": list(false_positives or []),
+        "framing": (
+            f"content readiness (gate: {gate_status}); must-have + supporting keyword "
+            "coverage, not an employer-ATS guarantee"
+        ),
     }
 
 
