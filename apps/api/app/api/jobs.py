@@ -134,6 +134,9 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
 
 
 class DiscoverRequest(BaseModel):
+    # The role titles the user is searching for (drives the provider query). Required for
+    # a search to run — an empty search is skipped so no provider API tokens are wasted.
+    roles: list[str] | None = None
     tracks: list[str] | None = None
     experience_levels: list[str] | None = None
     # Bypass the per-query cooldown for an explicit user-requested refresh.
@@ -150,6 +153,7 @@ async def discover(
     return a per-source report. Newly-found jobs appear in the list immediately."""
     log.info("discover.requested", user_id=str(user.id), email=user.email, body=body)
     
+    requested_roles = body.roles if body and body.roles else []
     requested_tracks = body.tracks if body and body.tracks else []
     requested_levels = body.experience_levels if body and body.experience_levels else []
     
@@ -188,6 +192,7 @@ async def discover(
             session,
             user_id=user.id,
             profile=profile,
+            role_titles=requested_roles,
             selected_tracks=requested_tracks,
             selected_experience_levels=requested_levels,
             cooldown=not (body.force if body else False),

@@ -21,14 +21,20 @@ def dedupe_key(raw: RawJob) -> str:
     return hashlib.sha256(basis.encode()).hexdigest()[:32]
 
 
+def _cap(value: str | None, n: int) -> str | None:
+    """Clamp to a VARCHAR(n) column. Providers can return very long values — SerpApi's
+    `source_job_id` is a long base64 token — which must not blow up the insert."""
+    return value[:n] if isinstance(value, str) and len(value) > n else value
+
+
 def to_job_fields(raw: RawJob) -> dict:
     return {
         "source": raw.source,
-        "source_job_id": raw.source_job_id,
+        "source_job_id": _cap(raw.source_job_id, 255),
         "dedupe_key": dedupe_key(raw),
-        "company": raw.company,
-        "title": raw.title,
-        "location": raw.location,
+        "company": _cap(raw.company, 255),
+        "title": _cap(raw.title, 255),
+        "location": _cap(raw.location, 255),
         "url": raw.url,
         "description": raw.description,
         "raw": raw.raw,
