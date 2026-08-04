@@ -232,14 +232,16 @@ export default function JobDetailPage({
           {/* ATS */}
           <Card>
             <CardHeader>
-              <CardTitle>ATS match</CardTitle>
+              <CardTitle>Ready to apply?</CardTitle>
               <CardDescription>
-                Internal ATS match, optimized toward 90–95%. Not a guarantee in
-                any employer&apos;s applicant-tracking system.
+                Whether this tailored CV is ready for the role — and what would make
+                it readier.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <AtsBreakdown
+                variant="summary"
+                detailsHref={`/ats-checker?job_id=${id}`}
                 score={generated_cv?.ats_score ?? null}
                 breakdown={generated_cv?.ats_breakdown ?? null}
               />
