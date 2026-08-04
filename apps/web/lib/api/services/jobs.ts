@@ -86,6 +86,7 @@ export const jobsService = {
   },
 
   async discover(body?: {
+    roles?: string[];
     tracks?: string[];
     experience_levels?: string[];
     force?: boolean;

@@ -79,6 +79,9 @@ export default function JobsPage() {
   const [newTrackInput, setNewTrackInput] = React.useState("");
   const [selectedTracks, setSelectedTracks] = React.useState<string[]>([]);
   const [selectedExpLevels, setSelectedExpLevels] = React.useState<string[]>([]);
+  // The role(s) the user is searching for — comma-separated. Required to run a search
+  // (an empty search is blocked so no provider API tokens are wasted).
+  const [searchRoles, setSearchRoles] = React.useState("");
 
   const addCustomTrack = () => {
     const trimmed = newTrackInput.trim();
@@ -179,8 +182,11 @@ export default function JobsPage() {
   // tell the user so an "older job I can't see" reads as a cap, not a missing record.
   const capped = Boolean(all && all.total > all.items.length);
 
+  const roleList = searchRoles.split(",").map((r) => r.trim()).filter(Boolean);
+
   const discover = useMutation({
     mutationFn: () => jobsService.discover({
+      roles: roleList,
       tracks: selectedTracks,
       experience_levels: selectedExpLevels,
       force: true, // explicit user refresh bypasses the server cooldown
@@ -404,11 +410,25 @@ export default function JobsPage() {
             onChange={setSelectedExpLevels}
           />
 
+          {/* Search roles — required to run a search (no empty/broad searches) */}
+          <Input
+            placeholder="Search roles, e.g. Frontend Engineer, React Developer"
+            value={searchRoles}
+            onChange={(e) => setSearchRoles(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && roleList.length > 0 && !discover.isPending) {
+                discover.mutate();
+              }
+            }}
+            className="h-8 w-64 text-sm"
+          />
+
           <Button
             variant="primary"
             size="sm"
             onClick={() => discover.mutate()}
-            disabled={discover.isPending}
+            disabled={discover.isPending || roleList.length === 0}
+            title={roleList.length === 0 ? "Enter a role to search" : undefined}
             className="h-8"
           >
             <Search className="size-4" />
