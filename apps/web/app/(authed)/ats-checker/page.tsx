@@ -58,6 +58,9 @@ export default function AtsCheckerPage() {
   const [cvFile, setCvFile] = React.useState<File | null>(null);
   const [useAi, setUseAi] = React.useState(true);
   const [result, setResult] = React.useState<AtsCheckResult | null>(null);
+  // Tracks whether the shown result was restored (from a job or the local cache) vs
+  // freshly run — so we can label it honestly and offer a "start fresh" escape.
+  const [restored, setRestored] = React.useState<null | "job" | "cache">(null);
   const [selectedTrack, setSelectedTrack] = React.useState<Track | "">("");
   const [trackManual, setTrackManual] = React.useState(false);
   // Read the job (if launched from one) synchronously so context restore has no race.
@@ -68,6 +71,23 @@ export default function AtsCheckerPage() {
   );
   const fileRef = React.useRef<HTMLInputElement>(null);
   const restoredFromJob = React.useRef(false);
+
+  /** Clear the form + cached check so the user can start a genuinely new analysis. */
+  function startFresh() {
+    setJdText("");
+    setCvText("");
+    setRoleTitle("");
+    setCvFile(null);
+    setSelectedTrack("");
+    setTrackManual(false);
+    setResult(null);
+    setRestored(null);
+    try {
+      localStorage.removeItem(LAST_CHECK_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
 
   /** Hand the validated ATS recommendations to the LaTeX builder and route there. */
   function goRegenerate() {
@@ -141,6 +161,7 @@ export default function AtsCheckerPage() {
         ai: null,
         intelligence: null,
       });
+      setRestored("job");
     }
   }, [jobId, jobDetailQuery.data]);
 
@@ -162,6 +183,7 @@ export default function AtsCheckerPage() {
         setTrackManual(true);
       }
       setResult(s.result);
+      setRestored("cache");
     } catch {
       /* ignore malformed cache */
     }
@@ -228,6 +250,7 @@ export default function AtsCheckerPage() {
       }),
     onSuccess: (data) => {
       setResult(data);
+      setRestored(null); // a freshly-run check is no longer a "restored" view
       if (data.track && !trackManual) {
         setSelectedTrack(data.track);
       }
@@ -439,6 +462,22 @@ export default function AtsCheckerPage() {
 
       {result && (
         <div className="space-y-6">
+          {restored && (
+            <div className="flex flex-col gap-2 rounded-lg border border-coffee-300 bg-coffee-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-coffee-700">
+                {restored === "job"
+                  ? "Showing the analysis from when this CV was generated — run the check on the left for the full AI review."
+                  : "Restored your last check — edit and re-run, or start fresh."}
+              </span>
+              <button
+                type="button"
+                onClick={startFresh}
+                className="shrink-0 self-start rounded-md border border-coffee-300 bg-white px-3 py-1 text-sm font-medium text-coffee-700 hover:bg-coffee-100 sm:self-auto"
+              >
+                Start a new check
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline">{result.role_title}</Badge>
             {result.track && (
@@ -450,9 +489,11 @@ export default function AtsCheckerPage() {
             {result.cv_filename && (
               <Badge variant="muted">{result.cv_filename}</Badge>
             )}
-            <span className="text-sm text-coffee-500">
-              {result.cv_word_count.toLocaleString()} words in CV
-            </span>
+            {result.cv_word_count > 0 && (
+              <span className="text-sm text-coffee-500">
+                {result.cv_word_count.toLocaleString()} words in CV
+              </span>
+            )}
           </div>
 
           {result.track_match?.reason && (
