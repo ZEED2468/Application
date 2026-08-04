@@ -414,6 +414,15 @@ async def generate(
     job = await service.score_relevance(session, job=job, profile=profile)
     if job.status is JobStatus.rejected:
         return GenerateResponse(job_id=job.id, status=job.status)
+    # Idempotent: if a CV was already generated for this job, return it rather than
+    # regenerating — a second cover-letter insert would violate uq_cover_letter_job.
+    # (Re-tailoring an existing CV goes through the LaTeX builder, not this endpoint.)
+    existing = await _cv_for(session, job.id)
+    if existing is not None:
+        return GenerateResponse(
+            job_id=job.id, status=job.status,
+            generated_cv_id=existing.id, pdf_url=existing.pdf_url,
+        )
     cv = await service.generate_cv(session, job=job, profile=profile)
     return GenerateResponse(
         job_id=job.id, status=job.status, generated_cv_id=cv.id, pdf_url=cv.pdf_url
