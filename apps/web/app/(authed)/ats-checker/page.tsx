@@ -12,7 +12,7 @@ import type {
   Track,
 } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
-import { atsService } from "@/lib/api/services";
+import { atsService, jobsService } from "@/lib/api/services";
 import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
@@ -37,6 +37,19 @@ import { Tabs } from "@/components/ui/tabs";
 const CV_ACCEPT =
   ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+// Persist the last standalone check so a reload/return doesn't lose the analysis
+// (and doesn't re-paste the JD or re-spend AI tokens). Job-scoped checks restore
+// from the job itself instead.
+const LAST_CHECK_KEY = "jd_ats_last_check_v1";
+
+interface StoredCheck {
+  jdText: string;
+  cvText: string;
+  roleTitle: string;
+  selectedTrack: Track | "";
+  result: AtsCheckResult;
+}
+
 export default function AtsCheckerPage() {
   const router = useRouter();
   const [jdText, setJdText] = React.useState("");
@@ -47,14 +60,14 @@ export default function AtsCheckerPage() {
   const [result, setResult] = React.useState<AtsCheckResult | null>(null);
   const [selectedTrack, setSelectedTrack] = React.useState<Track | "">("");
   const [trackManual, setTrackManual] = React.useState(false);
-  const [jobId, setJobId] = React.useState<string | null>(null);
+  // Read the job (if launched from one) synchronously so context restore has no race.
+  const [jobId] = React.useState<string | null>(() =>
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("job_id")
+      : null,
+  );
   const fileRef = React.useRef<HTMLInputElement>(null);
-
-  // When launched from a job ("Improve this CV"), carry the job so the builder can
-  // commit back to it; read from the URL without useSearchParams (no Suspense needed).
-  React.useEffect(() => {
-    setJobId(new URLSearchParams(window.location.search).get("job_id"));
-  }, []);
+  const restoredFromJob = React.useRef(false);
 
   /** Hand the validated ATS recommendations to the LaTeX builder and route there. */
   function goRegenerate() {
@@ -88,6 +101,72 @@ export default function AtsCheckerPage() {
     queryKey: queryKeys.atsSources,
     queryFn: () => atsService.sources(),
   });
+
+  // When arriving from a job, pull the JD + the analysis already computed for its CV
+  // so the checker opens with full context — no blank form, no re-run, no re-spend.
+  const jobDetailQuery = useQuery({
+    queryKey: queryKeys.job(jobId ?? ""),
+    queryFn: () => jobsService.detail(jobId!),
+    enabled: Boolean(jobId),
+  });
+
+  React.useEffect(() => {
+    if (!jobId || restoredFromJob.current) return;
+    const d = jobDetailQuery.data;
+    if (!d) return;
+    restoredFromJob.current = true;
+    const jd = d.job.jd_text ?? d.job.description ?? "";
+    if (jd) setJdText(jd);
+    if (d.job.role) setRoleTitle(d.job.role);
+    if (d.job.track) {
+      setSelectedTrack(d.job.track as Track);
+      setTrackManual(true); // the job fixes the track — don't let auto-suggest override
+    }
+    const cv = d.generated_cv;
+    if (cv?.ats_breakdown) {
+      setResult({
+        role_title: d.job.role ?? "Role",
+        track: (d.job.track as Track) ?? null,
+        cv_source: "profile",
+        cv_filename: null,
+        cv_word_count: 0,
+        rule_based: {
+          score: cv.ats_score ?? null,
+          breakdown: cv.ats_breakdown,
+          gaps:
+            cv.ats_breakdown.missing_critical ??
+            cv.ats_breakdown.missing_keywords?.slice(0, 5) ??
+            [],
+        },
+        ai: null,
+        intelligence: null,
+      });
+    }
+  }, [jobId, jobDetailQuery.data]);
+
+  // Standalone: restore the last check (inputs + result) on mount, so a reload doesn't
+  // wipe the analysis. Read job_id from the URL directly to avoid a first-render race.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("job_id")) return;
+    try {
+      const raw = localStorage.getItem(LAST_CHECK_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw) as StoredCheck;
+      if (!s?.result) return;
+      if (s.jdText) setJdText(s.jdText);
+      if (s.cvText) setCvText(s.cvText);
+      if (s.roleTitle) setRoleTitle(s.roleTitle);
+      if (s.selectedTrack) {
+        setSelectedTrack(s.selectedTrack);
+        setTrackManual(true);
+      }
+      setResult(s.result);
+    } catch {
+      /* ignore malformed cache */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const profileTracks = sourcesQuery.data?.tracks ?? [];
   const profileByTrack = React.useMemo(() => {
@@ -151,6 +230,22 @@ export default function AtsCheckerPage() {
       setResult(data);
       if (data.track && !trackManual) {
         setSelectedTrack(data.track);
+      }
+      // Remember standalone checks so a reload restores the analysis (job-scoped checks
+      // restore from the job itself).
+      if (!jobId) {
+        try {
+          const stored: StoredCheck = {
+            jdText,
+            cvText,
+            roleTitle,
+            selectedTrack: data.track ?? selectedTrack,
+            result: data,
+          };
+          localStorage.setItem(LAST_CHECK_KEY, JSON.stringify(stored));
+        } catch {
+          /* ignore quota */
+        }
       }
       toast.success("ATS check complete");
     },
