@@ -5,8 +5,12 @@ something the hunter genuinely did (drawn from the profile)."""
 
 from __future__ import annotations
 
+import structlog
+
 from app.core.enums import Track
 from app.llm.hookfinder import Hook
+
+_log = structlog.get_logger(__name__)
 
 
 def _pick_mirror(profile: dict, jd_text: str | None) -> str:
@@ -75,4 +79,12 @@ async def generate_cover_letter(
         f"Hook (real): {hook.text}\nTemplate: {template_body or ''}\n"
         f"Profile: {json.dumps(profile)}\nJD: {jd_text or ''}"
     )
-    return await client.complete_text(system, prompt, max_tokens=900, feature="cover_letter")
+    try:
+        return await client.complete_text(system, prompt, max_tokens=900, feature="cover_letter")
+    except Exception as exc:  # noqa: BLE001 — a bad key / provider outage must not crash
+        # generation. Fall back to the deterministic 3-paragraph builder (truth-bounded).
+        _log.warning("cover_letter.live_failed", error=str(exc), exc_type=type(exc).__name__)
+        return build_three_paragraphs(
+            candidate_name=candidate_name, company=company, role_title=role_title,
+            hook=hook, profile=profile, jd_text=jd_text,
+        )
