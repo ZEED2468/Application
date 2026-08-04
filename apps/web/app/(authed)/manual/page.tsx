@@ -1,10 +1,19 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Sparkles, FileText, ArrowRight, Plus, Pencil, Wand2 } from "lucide-react";
+import {
+  Sparkles,
+  FileText,
+  ArrowRight,
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Wand2,
+} from "lucide-react";
 import type {
   ChatSession,
   ChatGenerateResult,
@@ -74,6 +83,29 @@ export default function ManualPage() {
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
+
+  // Arriving from Tailor's "Create application": start the session from the handed-off
+  // JD so it isn't re-pasted or re-analyzed.
+  const autoStarted = React.useRef(false);
+  React.useEffect(() => {
+    if (autoStarted.current) return;
+    let jd = "";
+    try {
+      const raw = window.sessionStorage.getItem("tailor-apply-handoff");
+      if (raw) {
+        window.sessionStorage.removeItem("tailor-apply-handoff");
+        jd = (JSON.parse(raw) as { jd_text?: string }).jd_text ?? "";
+      }
+    } catch {
+      jd = "";
+    }
+    if (jd.trim().length >= 20) {
+      autoStarted.current = true;
+      setJdText(jd);
+      createSession.mutate(jd);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updateDetails = useMutation({
     mutationFn: (_vars: { trackChanged: boolean }) =>
@@ -165,9 +197,16 @@ export default function ManualPage() {
 
   return (
     <div className="space-y-6">
+      <Link
+        href="/ats-checker"
+        className="inline-flex items-center gap-1.5 text-sm text-coffee-500 hover:text-coffee-700"
+      >
+        <ArrowLeft className="size-4" />
+        Back to analysis
+      </Link>
       <PageHeading
-        title="Manual Apply"
-        description="Paste a job description and we'll match a CV, surface the ATS gaps, and walk through a few confirm-true questions before generating a truthful, tailored application."
+        title="Create application"
+        description="Confirm a few true details, then generate a tailored CV, cover letter, and a tracked application. Paste a JD to start, or continue from a Tailor analysis."
       />
 
       {/* JD input */}

@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
-  MessageSquareText,
   ScanSearch,
   Inbox,
   Globe,
@@ -48,8 +47,7 @@ function navFor(me?: MeResponse): NavGroup[] {
       label: "Workspace",
       items: [
         { href: "/jobs", label: "Jobs", icon: Briefcase },
-        { href: "/ats-checker", label: "ATS Checker", icon: ScanSearch },
-        { href: "/manual", label: "Manual Apply", icon: MessageSquareText },
+        { href: "/ats-checker", label: "Tailor", icon: ScanSearch },
       ],
     },
   ];

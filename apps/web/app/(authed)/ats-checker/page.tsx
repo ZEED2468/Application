@@ -4,7 +4,14 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileText, ScanSearch, UploadCloud, Sparkles, Wand2 } from "lucide-react";
+import {
+  FileText,
+  ScanSearch,
+  UploadCloud,
+  Sparkles,
+  Wand2,
+  ArrowRight,
+} from "lucide-react";
 import type {
   AtsCheckResult,
   RegenerateAtsRecs,
@@ -87,6 +94,24 @@ export default function AtsCheckerPage() {
     } catch {
       /* ignore */
     }
+  }
+
+  /** Continue into the apply flow: carry the JD (+ role/track) so it isn't re-pasted,
+   *  then the confirm-true prompts + generate create the tracked application. */
+  function goCreateApplication() {
+    try {
+      window.sessionStorage.setItem(
+        "tailor-apply-handoff",
+        JSON.stringify({
+          jd_text: jdText,
+          role_title: roleTitle || result?.role_title || "",
+          track: result?.track ?? selectedTrack ?? null,
+        }),
+      );
+    } catch {
+      /* ignore quota */
+    }
+    router.push("/manual");
   }
 
   /** Hand the validated ATS recommendations to the LaTeX builder and route there. */
@@ -282,8 +307,8 @@ export default function AtsCheckerPage() {
   return (
     <div className="space-y-6">
       <PageHeading
-        title="ATS Checker"
-        description="Vet any CV against any job description. Uses your profile CV when uploaded, otherwise paste or upload. Rule-based keyword match first, then optional AI review."
+        title="Tailor"
+        description="Check any CV against any job description, then turn it into a tailored application. Uses your profile CV when uploaded, otherwise paste or upload — rule-based keyword match first, then optional AI review."
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -504,20 +529,32 @@ export default function AtsCheckerPage() {
           )}
 
           <Card>
-            <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-medium text-coffee-900">
-                  Regenerate in your LaTeX template
+                  {jobId ? "Regenerate in your LaTeX template" : "Turn this into an application"}
                 </p>
                 <p className="text-sm text-coffee-500">
-                  Apply these recommendations to a fresh CV + cover letter, truth-bounded,
-                  then preview and {jobId ? "use it on the job." : "download it."}
+                  {jobId
+                    ? "Apply these recommendations to a fresh CV + cover letter, then preview and use it on the job."
+                    : "Confirm a few true details, then generate the tailored CV, cover letter, and application — tracked as a job. Or just regenerate the CV in your template."}
                 </p>
               </div>
-              <Button variant="primary" onClick={goRegenerate} className="shrink-0">
-                <Wand2 className="size-4" />
-                Regenerate CV
-              </Button>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                {!jobId && (
+                  <Button variant="primary" onClick={goCreateApplication}>
+                    Create application
+                    <ArrowRight className="size-4" />
+                  </Button>
+                )}
+                <Button
+                  variant={jobId ? "primary" : "secondary"}
+                  onClick={goRegenerate}
+                >
+                  <Wand2 className="size-4" />
+                  Regenerate CV
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
