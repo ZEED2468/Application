@@ -65,10 +65,8 @@ export default function AtsCheckerPage() {
       recommendations: result.ai?.recommendations ?? [],
     };
     if (jobId) {
-      window.sessionStorage.setItem(
-        `latex-regen-ats:${jobId}`,
-        JSON.stringify(recs),
-      );
+      // The check already persisted its analysis against this job (server-side); the
+      // builder reads it from the DB — no browser handoff needed.
       router.push(`/jobs/${jobId}/builder`);
     } else {
       window.sessionStorage.setItem(
@@ -147,6 +145,7 @@ export default function AtsCheckerPage() {
         cvFile: useProfileCv ? undefined : cvFile,
         roleTitle: roleTitle || undefined,
         useAi,
+        jobId: jobId ?? undefined,
       }),
     onSuccess: (data) => {
       setResult(data);
