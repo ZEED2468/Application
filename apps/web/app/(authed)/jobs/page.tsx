@@ -224,7 +224,12 @@ export default function JobsPage() {
       if (rep.profiles === 0) {
         toast.error("No profile yet — finish Onboarding so discovery has skills to search.");
       }
+      // Show the results the user just searched for: pull the fresh list, reset to the
+      // newest page, and clear the client-side filters so a leftover Track/Level/Status
+      // selection can't silently hide brand-new rows (the searched roles stay in the box).
       refetch();
+      clearFilters();
+      setPage(1);
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
