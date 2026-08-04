@@ -37,15 +37,22 @@ export const dynamic = "force-dynamic";
 
 // Fetch the whole list once, cache it (react-query + localStorage), and do all
 // filtering + pagination client-side — so filter/page changes never re-hit the server.
-const JOBS_CACHE_KEY = "jd_jobs_cache_v1";
+const JOBS_CACHE_KEY = "jd_jobs_cache_v2";
 const PAGE_SIZE = 25;
 const MAX_FETCH = 500;
 
-function readCachedJobs(): Paginated<JobOut> | undefined {
+interface CachedJobs {
+  data: Paginated<JobOut>;
+  savedAt: number;
+}
+
+function readCachedJobs(): CachedJobs | undefined {
   if (typeof window === "undefined") return undefined;
   try {
     const c = localStorage.getItem(JOBS_CACHE_KEY);
-    return c ? (JSON.parse(c) as Paginated<JobOut>) : undefined;
+    if (!c) return undefined;
+    const parsed = JSON.parse(c) as CachedJobs;
+    return parsed?.data && typeof parsed.savedAt === "number" ? parsed : undefined;
   } catch {
     return undefined;
   }
@@ -113,14 +120,22 @@ export default function JobsPage() {
     setPage(1);
   }, [filter.status, filter.track, filter.origin]);
 
+  // Snapshot the persisted cache once on mount so initialData and its age come from
+  // the same read (and localStorage is only touched once).
+  const [cachedOnMount] = React.useState(readCachedJobs);
+
   // One broad fetch of all jobs, cached in memory (5 min) + persisted to localStorage
   // so reloads/navigation don't refetch. Filtering + pagination happen client-side.
+  // Seeding initialDataUpdatedAt with the real save time means a *stale* persisted
+  // cache (older than staleTime) still triggers a background refresh on mount, while
+  // a fresh one is served instantly with no refetch.
   const { data: all, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: queryKeys.jobs({}),
     queryFn: async () => {
       const res = await jobsService.list({}, 1, MAX_FETCH);
       try {
-        localStorage.setItem(JOBS_CACHE_KEY, JSON.stringify(res));
+        const entry: CachedJobs = { data: res, savedAt: Date.now() };
+        localStorage.setItem(JOBS_CACHE_KEY, JSON.stringify(entry));
       } catch {
         /* ignore quota */
       }
@@ -128,7 +143,8 @@ export default function JobsPage() {
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
-    initialData: readCachedJobs,
+    initialData: cachedOnMount?.data,
+    initialDataUpdatedAt: cachedOnMount?.savedAt,
   });
 
   // Client-side filtering (no server round-trip when filters change).
@@ -149,6 +165,19 @@ export default function JobsPage() {
 
   const total = filtered.length;
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const hasActiveFilter = Boolean(
+    filter.status || filter.origin || selectedTracks.length || selectedExpLevels.length,
+  );
+  const clearFilters = () => {
+    setFilter({ status: "", track: "", origin: "", tracks: [], experience_levels: [] });
+    setSelectedTracks([]);
+    setSelectedExpLevels([]);
+  };
+
+  // The broad fetch is capped at MAX_FETCH newest rows; if the server holds more,
+  // tell the user so an "older job I can't see" reads as a cap, not a missing record.
+  const capped = Boolean(all && all.total > all.items.length);
 
   const discover = useMutation({
     mutationFn: () => jobsService.discover({
@@ -419,16 +448,8 @@ export default function JobsPage() {
             { value: "manual", label: "Manual" },
           ]}
         />
-        {(filter.status || filter.origin || selectedTracks.length > 0 || selectedExpLevels.length > 0) && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setFilter({ status: "", track: "", origin: "", tracks: [], experience_levels: [] });
-              setSelectedTracks([]);
-              setSelectedExpLevels([]);
-            }}
-          >
+        {hasActiveFilter && (
+          <Button variant="ghost" size="sm" onClick={clearFilters}>
             Clear filters
           </Button>
         )}
@@ -443,34 +464,56 @@ export default function JobsPage() {
             />
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-auto">
-            <DataTable<JobOut>
-              columns={columns}
-              data={pageItems}
-              isLoading={isLoading}
-              rowKey={(j) => j.id}
-              onRowClick={(j) => router.push(`/jobs/${j.id}`)}
-              skeletonRows={12}
-              stickyHeader
-              columnBorders
-              tableClassName="table-fixed min-w-[70rem]"
-              emptyState={
-                <EmptyState
-                  icon={<Briefcase className="size-8" />}
-                  title="No jobs yet"
-                  description="As the scheduler discovers and scores jobs, they'll appear here. You can also add one manually."
-                  className="min-h-[50vh] border-0 bg-transparent"
-                  action={
-                    <Link href="/manual">
-                      <Button size="sm" variant="secondary">
-                        Add via Manual Apply
-                      </Button>
-                    </Link>
-                  }
-                />
-              }
-            />
-          </div>
+          <>
+            {capped && (
+              <div className="shrink-0 border-b border-coffee-200 bg-coffee-50 px-4 py-2 text-xs text-coffee-500">
+                Showing the {all!.items.length.toLocaleString()} most recent of{" "}
+                {all!.total.toLocaleString()} jobs — narrow with filters to reach older ones.
+              </div>
+            )}
+            <div className="min-h-0 flex-1 overflow-auto">
+              <DataTable<JobOut>
+                columns={columns}
+                data={pageItems}
+                isLoading={isLoading}
+                rowKey={(j) => j.id}
+                onRowClick={(j) => router.push(`/jobs/${j.id}`)}
+                skeletonRows={12}
+                stickyHeader
+                columnBorders
+                tableClassName="table-fixed min-w-[70rem]"
+                emptyState={
+                  hasActiveFilter ? (
+                    <EmptyState
+                      icon={<Search className="size-8" />}
+                      title="No jobs match your filters"
+                      description="Nothing here matches the current filters. Try clearing or widening them."
+                      className="min-h-[50vh] border-0 bg-transparent"
+                      action={
+                        <Button size="sm" variant="secondary" onClick={clearFilters}>
+                          Clear filters
+                        </Button>
+                      }
+                    />
+                  ) : (
+                    <EmptyState
+                      icon={<Briefcase className="size-8" />}
+                      title="No jobs yet"
+                      description="As the scheduler discovers and scores jobs, they'll appear here. You can also add one manually."
+                      className="min-h-[50vh] border-0 bg-transparent"
+                      action={
+                        <Link href="/manual">
+                          <Button size="sm" variant="secondary">
+                            Add via Manual Apply
+                          </Button>
+                        </Link>
+                      }
+                    />
+                  )
+                }
+              />
+            </div>
+          </>
         )}
         {!isError && (
           <Pagination
