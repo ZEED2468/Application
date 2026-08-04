@@ -13,6 +13,7 @@ from app.core.enums import ParseStatus, Track, UserRole
 from app.db import get_session
 from app.main import app
 from app.models import Base
+from app.models.ai_integration import AiIntegration
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
@@ -91,3 +92,29 @@ async def test_readiness_partial(ctx):
     assert body["api_key_validated"] is True
     backend = next(t for t in body["tracks"] if t["slug"] == "backend")
     assert backend["status"] == "ready" and backend["resume"] is True
+
+
+@pytest.mark.asyncio
+async def test_readiness_ai_provider_from_integration(ctx):
+    """Regression: the AI Integrations UI writes AiIntegration, not the legacy
+    user_llm_credential. Readiness must read AiIntegration too, else 'Configure an AI
+    provider' can never complete no matter how the user configures their key."""
+    client, maker = ctx
+    uid = await _login(client)
+    async with maker() as s:
+        s.add(AiIntegration(user_id=uid, name="Groq", provider="openai",
+                            base_url="https://api.groq.com/openai/v1",
+                            encrypted_api_key="enc", model="llama-3.1-70b",
+                            status="configured", is_default=True))
+        await s.commit()
+
+    body = (await client.get("/api/user/readiness")).json()
+    ai = next(s for s in body["steps"] if s["id"] == "ai_provider")
+    assert ai["completed"] is True, "keyed AiIntegration must complete the ai_provider step"
+    assert body["api_key_validated"] is True  # status 'configured'
+    assert body["progress"] == 20  # 1 of 5 steps done
+
+    # And the onboarding-status checklist (Help page) must agree.
+    status = (await client.get("/api/onboarding/status")).json()
+    api_step = next(s for s in status["steps"] if s["key"] == "api_key")
+    assert api_step["done"] is True

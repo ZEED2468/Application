@@ -53,6 +53,33 @@ async def load_preferred_override(session, user_id) -> dict | None:
     return None
 
 
+async def provider_status(session, user_id) -> tuple[bool, bool]:
+    """`(has_key, key_valid)` for the user's AI-provider setup.
+
+    Reads the new `AiIntegration` table FIRST (what the AI Integrations settings UI
+    actually writes) and falls back to the legacy `user_llm_credential` — mirroring
+    `load_preferred_override`'s table preference so the readiness/onboarding signal can
+    never drift from what runtime resolution sees. `key_valid` means a stored key was
+    validated (`configured`/`healthy`).
+    """
+    integrations = (await session.execute(
+        select(AiIntegration).where(AiIntegration.user_id == user_id)
+    )).scalars().all()
+    has_key = any(i.encrypted_api_key for i in integrations)
+    key_valid = any(
+        i.encrypted_api_key and i.status in ("configured", "healthy") for i in integrations
+    )
+    if not has_key:
+        creds = (await session.execute(
+            select(UserLlmCredential).where(UserLlmCredential.user_id == user_id)
+        )).scalars().all()
+        has_key = any(c.encrypted_api_key for c in creds)
+        key_valid = key_valid or any(
+            c.encrypted_api_key and c.status == "configured" for c in creds
+        )
+    return has_key, key_valid
+
+
 async def validate_key(*, provider: str, api_key: str, base_url: str | None, model: str | None) -> str:
     """Return a status: configured | invalid | unreachable. Skips the network in
     fake mode (can't reach a provider) and reports based on key presence."""
