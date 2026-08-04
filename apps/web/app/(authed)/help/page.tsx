@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, ArrowRight, Compass } from "lucide-react";
-import { onboardingService } from "@/lib/api/services";
+import { readinessService } from "@/lib/api/services";
 import { START_TOUR_EVENT } from "@/components/onboarding-launcher";
 import { queryKeys } from "@/lib/query-keys";
 import { PageHeading } from "@/components/states";
@@ -78,9 +78,11 @@ const GUIDES: AccordionItemData[] = [
 ];
 
 export default function HelpPage() {
+  // Reads the SAME readiness service as the dashboard SetupProgress banner, so the
+  // Help checklist and the banner always show identical steps + next action.
   const status = useQuery({
-    queryKey: queryKeys.onboardingStatus,
-    queryFn: () => onboardingService.status(),
+    queryKey: queryKeys.readiness,
+    queryFn: () => readinessService.get(),
   });
 
   return (
@@ -114,7 +116,7 @@ export default function HelpPage() {
             <>
               {status.data.next_action && (
                 <Link
-                  href={status.data.next_action.href}
+                  href={status.data.next_action.action.route}
                   className="flex items-center gap-2 rounded-md border border-coffee-300 bg-coffee-100/50 px-3 py-2 text-sm font-medium text-coffee-900 hover:bg-coffee-100"
                 >
                   <ArrowRight className="size-4 text-coffee-500" />
@@ -123,17 +125,17 @@ export default function HelpPage() {
               )}
               <ul className="space-y-2">
                 {status.data.steps.map((s) => (
-                  <li key={s.key}>
+                  <li key={s.id}>
                     <Link
-                      href={s.href}
+                      href={s.action.route}
                       className="flex items-center gap-2 text-sm text-coffee-700 hover:text-coffee-900"
                     >
-                      {s.done ? (
+                      {s.completed ? (
                         <CheckCircle2 className="size-4 text-status-offer" />
                       ) : (
                         <Circle className="size-4 text-coffee-300" />
                       )}
-                      <span className={s.done ? "line-through text-coffee-400" : ""}>
+                      <span className={s.completed ? "line-through text-coffee-400" : ""}>
                         {s.label}
                       </span>
                     </Link>
