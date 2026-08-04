@@ -52,8 +52,12 @@ from app.models.role_cv import RoleCv
 from app.models.user import User
 from app.models.user_llm_credential import UserLlmCredential
 
+import shutil
+
 from app.llm import cv_structure
+from app.pipelines.apply import format_gate, render
 from app.pipelines.apply.cv_parse import extract_text_from_bytes, naive_skills
+from app.pipelines.apply.latex_safety import assert_safe
 
 router = APIRouter(tags=["onboarding"])
 
@@ -116,6 +120,20 @@ class LatexTemplateOut(BaseModel):
     filename: str | None = None
     has_source: bool = False
     source: str | None = None
+    # ATS format gate from a trial compile at save (status: pass|fail|unevaluated).
+    gate: dict | None = None
+
+
+async def _template_gate(source: str | None) -> dict | None:
+    """Validate + gate a template at save time: reject forbidden LaTeX primitives (400),
+    then trial-compile and evaluate the ATS format gate (non-blocking — a template that
+    won't compile is stored with gate=fail so the user is told before regeneration)."""
+    if not source or not source.strip():
+        return None
+    assert_safe(source)  # DomainError(400) on shell/IO primitives — never store an unsafe template
+    has_compiler = shutil.which("tectonic") is not None
+    pdf, _stderr = await render.render_pdf_checked(source)
+    return format_gate.evaluate(tex=source, pdf=pdf, has_compiler=has_compiler)
 
 
 class LatexTemplateBody(BaseModel):
@@ -176,7 +194,7 @@ async def _get_or_create_latex(
 def _latex_out(lt: LatexTemplate) -> LatexTemplateOut:
     return LatexTemplateOut(
         track=lt.track, kind=lt.kind, filename=lt.original_filename,
-        has_source=bool(lt.source), source=lt.source,
+        has_source=bool(lt.source), source=lt.source, gate=lt.gate,
     )
 
 
@@ -585,6 +603,7 @@ async def upload_latex_template(
     lt.source_file_key = key
     # LaTeX is plain text — keep the exact source (don't run it through a doc parser).
     lt.source = data.decode("utf-8", "replace")
+    lt.gate = await _template_gate(lt.source)  # reject unsafe; cache the format gate
     await session.flush()
     return _latex_out(lt)
 
@@ -597,6 +616,7 @@ async def set_latex_template(
     """Editor save path — store the LaTeX source typed/edited in the builder."""
     lt = await _get_or_create_latex(session, user.id, body.track, body.kind)
     lt.source = body.source
+    lt.gate = await _template_gate(lt.source)  # reject unsafe; cache the format gate
     await session.flush()
     return _latex_out(lt)
 

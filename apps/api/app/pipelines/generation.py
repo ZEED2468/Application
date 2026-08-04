@@ -8,8 +8,11 @@ honestly (they are real, just newly confirmed).
 
 from __future__ import annotations
 
+import shutil
+
 import structlog
 
+from app.config import settings
 from app.core.enums import CoverLetterStatus, CvStatus, JobStatus, Track
 from app.events import names
 from app.events.bus import emit as _real_emit
@@ -22,7 +25,7 @@ from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.user import User
-from app.pipelines.apply import ats, render
+from app.pipelines.apply import ats, format_gate, render
 from app.repositories import profiles as profiles_repo
 from sqlalchemy import select
 
@@ -82,14 +85,32 @@ async def generate_cv_and_cover(
         profile_dict, job_title=job.title, job_description=job.description,
         priority_techs=priority_techs,
     )
-    breakdown = ats.score(
-        cv_json=cv_json, jd_text=job.description or "", role_title=job.role_title or job.title
-    )
     tex = render.build_tex(cv_json, name=owner.name)
     pdf, cv_stderr = await _render_checked(tex, label="cv", job_id=job.id)
-    diff["render"] = {"cv_ok": cv_stderr is None, "facts_ok": _facts_present(tex, name=owner.name, cv_json=cv_json)}
+
+    # I2 — the format gate over the *real* rendered artifact. When the compile failed the
+    # PDF is a stub, so gate the true output (None on failure); when no LaTeX engine is
+    # available the gate is `unevaluated`, never a fabricated pass.
+    has_compiler = shutil.which("tectonic") is not None
+    gate = format_gate.evaluate(
+        tex=tex, pdf=(pdf if cv_stderr is None else None), has_compiler=has_compiler
+    )
+    breakdown = ats.score(
+        cv_json=cv_json, jd_text=job.description or "",
+        role_title=job.role_title or job.title, gate=gate,
+    )
+    diff["render"] = {
+        "cv_ok": cv_stderr is None, "gate": gate,
+        "facts_ok": _facts_present(tex, name=owner.name, cv_json=cv_json),
+    }
     if cv_stderr:
         diff["render"]["cv_stderr"] = cv_stderr[:500]
+
+    # A CV may only be presented as ready when it actually rendered AND parses. In fake/dev
+    # mode (no real integrations) the stub render is a known dev convenience, so we keep the
+    # ready state; in real mode a failed/unevaluated gate is a fix-first state, not "ready".
+    cv_ready = settings.use_fake_integrations or gate["status"] == "pass"
+
     tex_key = f"{job.user_id}/{job.id}/cv.tex"
     pdf_key = f"{job.user_id}/{job.id}/cv.pdf"
     await r2.put_bytes(tex_key, tex.encode(), "application/x-tex")
@@ -99,7 +120,8 @@ async def generate_cv_and_cover(
         user_id=job.user_id, job_id=job.id, master_profile_id=profile.id,
         source_role_cv_id=role_cv_id, cv_json=cv_json, latex_source=tex,
         tex_key=tex_key, pdf_key=pdf_key, pdf_url=cv_pdf_url, tailoring_diff=diff,
-        ats_score=breakdown["score"], ats_breakdown=breakdown, status=CvStatus.ready,
+        ats_score=breakdown["score"], ats_breakdown=breakdown,
+        status=CvStatus.ready if cv_ready else CvStatus.failed,
     )
     session.add(cv)
 
@@ -132,8 +154,15 @@ async def generate_cv_and_cover(
     )
     session.add(cover)
 
-    job.status = JobStatus.ready
+    if cv_ready:
+        job.status = JobStatus.ready
+    else:
+        # Don't advance to ready — the CV didn't earn it. Leave it in-progress so it can't
+        # be submitted, and log why (surfaced to the user via cv.status + the gate reasons).
+        job.status = JobStatus.tailoring
+        log.warning("generation.cv_not_ready", job_id=str(job.id),
+                    gate=gate["status"], reasons=gate.get("reasons"))
     await session.flush()
     emit(names.CV_GENERATED, CvGenerated(user_id=job.user_id, job_id=job.id, generated_cv_id=cv.id))
-    log.info("generation.done", job_id=str(job.id), ats=breakdown["score"])
+    log.info("generation.done", job_id=str(job.id), ats=breakdown["score"], cv_ready=cv_ready)
     return cv, cover
