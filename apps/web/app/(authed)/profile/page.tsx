@@ -3,7 +3,15 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { UploadCloud, Check, FileText, Lock } from "lucide-react";
+import {
+  UploadCloud,
+  Check,
+  FileText,
+  Lock,
+  Loader2,
+  CheckCircle2,
+  Settings,
+} from "lucide-react";
 import type {
   LatexKind,
   LatexTemplate,
@@ -20,12 +28,12 @@ import { TRACK_LABELS } from "@/lib/status";
 import { previewCoverLetterTemplate } from "@/lib/cover-letter-template";
 import { PageHeading, EmptyState } from "@/components/states";
 import { TracksManager } from "@/components/tracks-manager";
+import { Accordion, type AccordionItemData } from "@/components/ui/accordion";
 import {
   Card,
   CardHeader,
   CardTitle,
   CardContent,
-  CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,13 +47,18 @@ export const dynamic = "force-dynamic";
 
 export default function ProfilePage() {
   const queryClient = useQueryClient();
-  const [selectedTracks, setSelectedTracks] = React.useState<Track[]>([]);
+  // One active track at a time drives the whole page. `trackOverride` lets the
+  // switcher feel instant before the /me mutation round-trips.
+  const [trackOverride, setTrackOverride] = React.useState<Track | null>(null);
+  const [showManage, setShowManage] = React.useState(false);
+  // Optimistic per-track target-role counts so the guided flow advances to
+  // "ready" the moment a first role is added — no profiles refetch needed.
+  const [roleCounts, setRoleCounts] = React.useState<Partial<Record<Track, number>>>({});
   const [coverLetter, setCoverLetter] = React.useState("");
   const [templateFilename, setTemplateFilename] = React.useState<string | null>(
     null,
   );
   const [templateLoaded, setTemplateLoaded] = React.useState(false);
-  const [uploadingTrack, setUploadingTrack] = React.useState<Track | null>(null);
 
   const { data: me } = useQuery<MeResponse>({
     queryKey: queryKeys.me,
@@ -100,16 +113,40 @@ export default function ProfilePage() {
     return map;
   }, [profilesQuery.data]);
 
-  function toggleTrack(track: Track) {
-    setSelectedTracks((cur) =>
-      cur.includes(track) ? cur.filter((t) => t !== track) : [...cur, track],
-    );
-  }
+  const trackKeys = React.useMemo(
+    () => Array.from(profileByTrack.keys()),
+    [profileByTrack],
+  );
+  const activeTrack: Track =
+    trackOverride ?? me?.active_track ?? trackKeys[0] ?? TRACKS[0];
+  const profile = profileByTrack.get(activeTrack);
+  const label = TRACK_LABELS[activeTrack];
+
+  // The guided flow's current step, derived from the confirm-gating chain.
+  const rcv = profile?.role_cv;
+  const rolesCount =
+    roleCounts[activeTrack] ?? (profile?.target_roles?.length ?? 0);
+  const step: "upload" | "reading" | "confirm" | "roles" | "ready" = !rcv
+    ? "upload"
+    : !rcv.parsed
+      ? "reading"
+      : !profile?.confirmed
+        ? "confirm"
+        : rolesCount === 0
+          ? "roles"
+          : "ready";
+  const stepIndex =
+    step === "upload"
+      ? 0
+      : step === "reading" || step === "confirm"
+        ? 1
+        : step === "roles"
+          ? 2
+          : 3;
 
   const uploadMutation = useMutation({
     mutationFn: ({ track, file }: { track: Track; file: File }) =>
       onboardingService.uploadRoleCv(track, file),
-    onMutate: ({ track }) => setUploadingTrack(track),
     onSuccess: (_data, vars) => {
       const structured = _data as {
         structured_by?: string;
@@ -119,19 +156,18 @@ export default function ProfilePage() {
         structured.structured_by === "llm"
           ? `Structured with AI (${structured.experience_entries ?? 0} experience blocks). Review and confirm.`
           : profileByTrack.get(vars.track)?.role_cv
-            ? `${TRACK_LABELS[vars.track]} CV replaced, review and confirm again`
-            : `${TRACK_LABELS[vars.track]} source CV saved`;
+            ? `${TRACK_LABELS[vars.track]} CV replaced — review and confirm again`
+            : `${TRACK_LABELS[vars.track]} CV saved`;
       toast.success(detail);
       queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
     },
     onError: (err) => toastApiError(err),
-    onSettled: () => setUploadingTrack(null),
   });
 
   const templateUploadMutation = useMutation({
     mutationFn: (file: File) => onboardingService.uploadCoverLetterTemplate(file),
     onSuccess: (data) => {
-      toast.success("Cover-letter file uploaded, text loaded into template");
+      toast.success("Cover-letter file uploaded — text loaded into the template");
       setCoverLetter(data.body ?? "");
       setTemplateFilename(data.filename ?? null);
       setTemplateLoaded(true);
@@ -162,12 +198,18 @@ export default function ProfilePage() {
 
   const activeTrackMutation = useMutation({
     mutationFn: (track: Track) => onboardingService.setActiveTrack(track),
-    onSuccess: (_d, track) => {
-      toast.success(`Active track: ${TRACK_LABELS[track]}`);
-      queryClient.invalidateQueries({ queryKey: queryKeys.me });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.me }),
     onError: (err) => toastApiError(err),
   });
+
+  function selectTrack(t: Track) {
+    setTrackOverride(t);
+    if (t !== me?.active_track) activeTrackMutation.mutate(t);
+  }
+
+  const coverDirty =
+    templateLoaded &&
+    coverLetter.trim() !== (templateQuery.data?.body ?? "").trim();
 
   if (me?.type === "va") {
     return (
@@ -179,327 +221,402 @@ export default function ProfilePage() {
     );
   }
 
+  const uploadBtn = (hasFile: boolean) => (
+    <CvUploadButton
+      track={activeTrack}
+      hasFile={hasFile}
+      isUploading={uploadMutation.isPending}
+      onFile={(file) => uploadMutation.mutate({ track: activeTrack, file })}
+    />
+  );
+
+  const coverLetterPanel = (
+    <div className="space-y-5">
+      <p className="text-sm text-coffee-500">
+        Write a base cover letter, or upload one — use placeholders like{" "}
+        {" {company} "}, {" {role} "} and {" {name} "}. Every application still
+        gets its own tailored version; this is the starting point.
+      </p>
+      <div className="flex flex-col gap-3 rounded-md border border-coffee-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          {templateFilename ? (
+            <span className="flex min-w-0 items-center gap-1.5 text-sm text-coffee-700">
+              <FileText className="size-4 shrink-0 text-coffee-500" />
+              <span className="truncate" title={templateFilename}>
+                {templateFilename}
+              </span>
+              <a
+                href={absoluteApiUrl("/api/onboarding/cover-letter-template/file") ?? "#"}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="shrink-0 text-xs text-coffee-500 underline underline-offset-2 hover:text-coffee-900"
+              >
+                Download
+              </a>
+            </span>
+          ) : (
+            <span className="text-sm text-coffee-300">No file uploaded yet</span>
+          )}
+        </div>
+        <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-coffee-300 px-3 py-1.5 text-sm text-coffee-700 transition-colors hover:bg-coffee-100">
+          <UploadCloud className="size-4" />
+          {templateFilename ? "Replace file" : "Upload file"}
+          <input
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+            className="hidden"
+            disabled={templateUploadMutation.isPending}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) templateUploadMutation.mutate(file);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="cover">Template body</Label>
+          {templateQuery.isLoading ? (
+            <Skeleton className="min-h-52 w-full" />
+          ) : (
+            <Textarea
+              id="cover"
+              value={coverLetter}
+              onChange={(e) => setCoverLetter(e.target.value)}
+              placeholder="Dear {company} team, I'm excited about the {role} role…"
+              className="min-h-52 font-mono text-sm leading-relaxed"
+            />
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label>Preview</Label>
+          <div className="min-h-52 rounded-md border border-coffee-200 bg-coffee-50/40 px-4 py-3">
+            {previewText ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-coffee-800">
+                {previewText}
+              </p>
+            ) : (
+              <p className="text-sm text-coffee-300">
+                Your preview appears here as you type or upload a file.
+              </p>
+            )}
+          </div>
+          <p className="text-xs text-coffee-400">
+            Sample values: Acme Corp · Senior Engineer · your first name.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-3">
+        {coverDirty && (
+          <span className="text-xs text-status-interviewed">Unsaved changes</span>
+        )}
+        <Button
+          variant="secondary"
+          disabled={templateMutation.isPending || coverLetter.trim().length === 0}
+          onClick={() => templateMutation.mutate(coverLetter)}
+        >
+          Save template
+        </Button>
+      </div>
+    </div>
+  );
+
+  const refineItems: AccordionItemData[] = profile
+    ? [
+        {
+          id: "skills",
+          title: "Skills & things you've done",
+          content: (
+            <div className="space-y-5">
+              <PreferredSkillsEditor
+                track={activeTrack}
+                initial={profile.preferred_skills ?? []}
+              />
+              <VerifiedExtrasEditor
+                track={activeTrack}
+                initial={profile.verified_extras ?? {}}
+              />
+            </div>
+          ),
+        },
+        {
+          id: "design",
+          title: "Your résumé design (optional)",
+          content: (
+            <div className="space-y-3">
+              <p className="text-sm text-coffee-500">
+                Upload your own CV / cover-letter design and your tailored,
+                truthful content is rendered into it. Leave empty to use the
+                clean built-in layout.
+              </p>
+              <div className="grid gap-6 lg:grid-cols-2">
+                <LatexTemplateField
+                  track={activeTrack}
+                  kind="cv"
+                  initial={latexByKey.get(`${activeTrack}:cv`)}
+                />
+                <LatexTemplateField
+                  track={activeTrack}
+                  kind="cover"
+                  initial={latexByKey.get(`${activeTrack}:cover`)}
+                />
+              </div>
+            </div>
+          ),
+        },
+        {
+          id: "cover",
+          title: "Cover-letter template",
+          content: coverLetterPanel,
+        },
+        {
+          id: "prefs",
+          title: "Preferences — links, locations, salary",
+          content: <CareerDetailsEditor key={activeTrack} track={activeTrack} initial={profile} />,
+        },
+      ]
+    : [];
+
   return (
     <div className="space-y-6">
       <PageHeading
         title="Profile"
-        description="Upload your source CV once per track. Replace it anytime, per-job applications still get newly tailored PDFs."
+        description="One track at a time: upload your CV, confirm it, add your target roles. Refine the rest whenever you like."
       />
 
-      <TracksManager />
+      {/* Track switcher — the single control for which track you're setting up */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-lg border border-coffee-300 bg-white px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <Label htmlFor="active-track" className="text-coffee-500">
+            Setting up
+          </Label>
+          <select
+            id="active-track"
+            value={activeTrack}
+            onChange={(e) => selectTrack(e.target.value as Track)}
+            disabled={activeTrackMutation.isPending}
+            className="h-9 rounded-md border border-coffee-300 bg-white px-2.5 text-sm font-medium text-coffee-900"
+          >
+            {TRACKS.map((t) => (
+              <option key={t} value={t}>
+                {TRACK_LABELS[t]}
+                {profileByTrack.get(t)?.confirmed ? " ✓" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        <span className="text-xs text-coffee-400">
+          drives which jobs &amp; templates your dashboard prioritizes
+        </span>
+        <button
+          type="button"
+          onClick={() => setShowManage((v) => !v)}
+          className="ml-auto inline-flex items-center gap-1.5 text-sm text-coffee-600 hover:text-coffee-900"
+        >
+          <Settings className="size-4" />
+          Manage tracks
+        </button>
+      </div>
 
+      {showManage && <TracksManager />}
+
+      {/* Guided primary flow */}
       <Card>
         <CardHeader>
-          <CardTitle>1 · Select your tracks</CardTitle>
-          <CardDescription>
-            Pick every track you hunt across. Each track gets its own source CV
-            file.
-          </CardDescription>
+          <CardTitle>Set up your {label} profile</CardTitle>
+          <div className="pt-2">
+            <StepIndicator stepIndex={stepIndex} />
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {TRACKS.map((track) => {
-              const active = selectedTracks.includes(track);
-              const confirmed = profileByTrack.get(track)?.confirmed;
-              return (
-                <button
-                  key={track}
-                  type="button"
-                  onClick={() => toggleTrack(track)}
-                  className={cn(
-                    "inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm transition-colors",
-                    active
-                      ? "border-coffee-700 bg-coffee-700 text-white"
-                      : "border-coffee-300 bg-white text-coffee-700 hover:bg-coffee-100",
-                  )}
-                >
-                  {(active || confirmed) && <Check className="size-3.5" />}
-                  {TRACK_LABELS[track]}
-                  {confirmed && (
-                    <span className="text-xs opacity-80">· confirmed</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-coffee-100 pt-4">
-            <Label htmlFor="active-track">Active track</Label>
-            <select
-              id="active-track"
-              value={me?.active_track ?? ""}
-              onChange={(e) => activeTrackMutation.mutate(e.target.value as Track)}
-              disabled={activeTrackMutation.isPending}
-              className="h-9 rounded-md border border-coffee-300 bg-white px-2 text-sm text-coffee-900"
-            >
-              <option value="" disabled>
-                Select…
-              </option>
-              {TRACKS.map((t) => (
-                <option key={t} value={t}>
-                  {TRACK_LABELS[t]}
-                </option>
-              ))}
-            </select>
-            <span className="text-xs text-coffee-400">
-              drives which jobs + templates the dashboard prioritizes
-            </span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>2 · Source CV file (one per track)</CardTitle>
-          <CardDescription>
-            Upload a PDF or Word file — we extract text and structure skills and
-            experience (AI when configured on the API). Replace anytime; confirm
-            again after re-upload.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {profilesQuery.isLoading && <Skeleton className="h-20 w-full" />}
-          {(selectedTracks.length === 0
-            ? Array.from(profileByTrack.keys())
-            : selectedTracks
-          ).length === 0 && !profilesQuery.isLoading ? (
-            <p className="text-sm text-coffee-300">
-              Select at least one track above to upload a source CV file.
-            </p>
-          ) : (
-            (selectedTracks.length === 0
-              ? Array.from(profileByTrack.keys())
-              : selectedTracks
-            ).map((track) => {
-              const profile = profileByTrack.get(track);
-              return (
-                <div
-                  key={track}
-                  className="space-y-3 rounded-md border border-coffee-100 p-4"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <Badge variant="outline">{TRACK_LABELS[track]}</Badge>
-                    {profile?.role_cv?.filename ? (
-                      <span className="flex min-w-0 items-center gap-1.5 text-sm text-coffee-700">
-                        <FileText className="size-4 shrink-0 text-coffee-500" />
-                        <span className="truncate" title={profile.role_cv.filename}>
-                          {profile.role_cv.filename}
-                        </span>
-                        {profile.role_cv.parsed && (
-                          <span className="shrink-0 text-xs text-status-offer">
-                            parsed
-                          </span>
-                        )}
-                        <a
-                          href={absoluteApiUrl(`/api/onboarding/role-cv/${track}/file`) ?? "#"}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                          className="shrink-0 text-xs text-coffee-500 underline underline-offset-2 hover:text-coffee-900"
-                        >
-                          Download
-                        </a>
-                      </span>
-                    ) : (
-                      <span className="text-sm text-coffee-300">
-                        No source file uploaded
+          {profilesQuery.isLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : step === "upload" ? (
+            <div className="flex flex-col items-center gap-4 py-8 text-center">
+              <div className="flex size-14 items-center justify-center rounded-full bg-coffee-100 text-coffee-600">
+                <UploadCloud className="size-7" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold text-coffee-900">
+                  Upload your CV for {label}
+                </h3>
+                <p className="mx-auto max-w-md text-sm text-coffee-500">
+                  We&apos;ll read it and build your {label} profile — one file to
+                  get started. PDF or Word.
+                </p>
+              </div>
+              {uploadBtn(false)}
+            </div>
+          ) : step === "reading" ? (
+            <div className="flex flex-col items-center gap-4 py-8 text-center">
+              <Loader2 className="size-8 animate-spin text-coffee-500" />
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold text-coffee-900">
+                  Reading your CV…
+                </h3>
+                <p className="mx-auto max-w-md text-sm text-coffee-500">
+                  Extracting your skills and experience
+                  {rcv?.filename ? ` from ${rcv.filename}` : ""}. This only takes
+                  a moment — refresh if it doesn&apos;t update.
+                </p>
+              </div>
+              {uploadBtn(true)}
+            </div>
+          ) : step === "confirm" ? (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-semibold text-coffee-900">
+                    Review what we read
+                  </h3>
+                  <p className="text-sm text-coffee-500">
+                    {rcv?.filename ? `From ${rcv.filename}. ` : ""}Confirm it
+                    looks right — you can refine the details below anytime.
+                  </p>
+                </div>
+                {uploadBtn(true)}
+              </div>
+              <div className="space-y-3 rounded-md border border-coffee-100 bg-coffee-50/40 p-4">
+                {profile?.headline && (
+                  <p className="font-medium text-coffee-900">{profile.headline}</p>
+                )}
+                {profile?.summary && (
+                  <p className="text-sm leading-relaxed text-coffee-700">
+                    {profile.summary}
+                  </p>
+                )}
+                {(profile?.skills?.length ?? 0) > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(profile?.skills ?? []).slice(0, 14).map((s) => (
+                      <Badge key={s} variant="outline">
+                        {s}
+                      </Badge>
+                    ))}
+                    {(profile?.skills?.length ?? 0) > 14 && (
+                      <span className="self-center text-xs text-coffee-400">
+                        +{(profile?.skills?.length ?? 0) - 14} more
                       </span>
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <CvUploadButton
-                      track={track}
-                      hasFile={Boolean(profile?.role_cv)}
-                      isUploading={
-                        uploadMutation.isPending && uploadingTrack === track
-                      }
-                      onFile={(file) => uploadMutation.mutate({ track, file })}
-                    />
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={
-                        confirmMutation.isPending ||
-                        profile?.confirmed ||
-                        !profile?.role_cv?.parsed
-                      }
-                      onClick={() => confirmMutation.mutate(track)}
-                    >
-                      {profile?.confirmed ? "Confirmed" : "Confirm profile"}
-                    </Button>
-                  </div>
-                  </div>
-                  <TargetRolesEditor
-                    track={track}
-                    initial={profile?.target_roles ?? []}
-                  />
-                  <PreferredSkillsEditor
-                    track={track}
-                    initial={profile?.preferred_skills ?? []}
-                  />
-                  <VerifiedExtrasEditor
-                    track={track}
-                    initial={profile?.verified_extras ?? {}}
-                  />
-                  {profile && (
-                    <CareerDetailsEditor track={track} initial={profile} />
-                  )}
-                </div>
-              );
-            })
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>3 · Cover-letter template</CardTitle>
-          <CardDescription>
-            Upload a Word or PDF file, or write a template directly. Use
-            placeholders like {" {company} "}, {" {role} "}, and {" {name} "}.
-            The preview shows how it will read for a sample job, each
-            application still gets its own tailored PDF.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex flex-col gap-3 rounded-md border border-coffee-100 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              {templateFilename ? (
-                <span className="flex min-w-0 items-center gap-1.5 text-sm text-coffee-700">
-                  <FileText className="size-4 shrink-0 text-coffee-500" />
-                  <span className="truncate" title={templateFilename}>
-                    {templateFilename}
-                  </span>
-                  <a
-                    href={absoluteApiUrl("/api/onboarding/cover-letter-template/file") ?? "#"}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="shrink-0 text-xs text-coffee-500 underline underline-offset-2 hover:text-coffee-900"
-                  >
-                    Download
-                  </a>
-                </span>
-              ) : (
-                <span className="text-sm text-coffee-300">
-                  No template file uploaded
-                </span>
-              )}
-            </div>
-            <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-coffee-300 px-3 py-1.5 text-sm text-coffee-700 transition-colors hover:bg-coffee-100">
-              <UploadCloud className="size-4" />
-              {templateFilename ? "Replace file" : "Upload file"}
-              <input
-                type="file"
-                accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                className="hidden"
-                disabled={templateUploadMutation.isPending}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) templateUploadMutation.mutate(file);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="cover">Template body</Label>
-              {templateQuery.isLoading ? (
-                <Skeleton className="min-h-52 w-full" />
-              ) : (
-                <Textarea
-                  id="cover"
-                  value={coverLetter}
-                  onChange={(e) => setCoverLetter(e.target.value)}
-                  placeholder="Dear {company} team, I'm excited about the {role} role…"
-                  className="min-h-52 font-mono text-sm leading-relaxed"
-                />
-              )}
-              <p className="text-xs text-coffee-400">
-                Edit freely after upload, this text is what the engine uses when
-                tailoring cover letters.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Preview</Label>
-              <div className="min-h-52 rounded-md border border-coffee-200 bg-coffee-50/40 px-4 py-3">
-                {previewText ? (
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-coffee-800">
-                    {previewText}
-                  </p>
                 ) : (
-                  <p className="text-sm text-coffee-300">
-                    Your template preview will appear here as you type or upload
-                    a file.
-                  </p>
+                  !profile?.headline &&
+                  !profile?.summary && (
+                    <p className="text-sm text-coffee-500">
+                      Your file is saved. Confirm to continue, then add your
+                      skills below.
+                    </p>
+                  )
                 )}
               </div>
-              <p className="text-xs text-coffee-400">
-                Sample values: Acme Corp · Senior Engineer · your first name.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button
-              variant="secondary"
-              disabled={
-                templateMutation.isPending || coverLetter.trim().length === 0
-              }
-              onClick={() => templateMutation.mutate(coverLetter)}
-            >
-              Save template
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>4 · LaTeX templates (optional)</CardTitle>
-          <CardDescription>
-            Upload your own CV and cover-letter LaTeX per track. When you regenerate from
-            the ATS Checker, your tailored, truth-bounded content is rendered into these exact
-            designs. Leave empty to use the built-in single-column layout.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {(selectedTracks.length === 0
-            ? Array.from(profileByTrack.keys())
-            : selectedTracks
-          ).length === 0 ? (
-            <p className="text-sm text-coffee-300">
-              Select a track above to add LaTeX templates.
-            </p>
-          ) : (
-            (selectedTracks.length === 0
-              ? Array.from(profileByTrack.keys())
-              : selectedTracks
-            ).map((track) => (
-              <div
-                key={track}
-                className="space-y-4 rounded-md border border-coffee-100 p-4"
-              >
-                <Badge variant="outline">{TRACK_LABELS[track]}</Badge>
-                <div className="grid gap-6 lg:grid-cols-2">
-                  <LatexTemplateField
-                    track={track}
-                    kind="cv"
-                    initial={latexByKey.get(`${track}:cv`)}
-                  />
-                  <LatexTemplateField
-                    track={track}
-                    kind="cover"
-                    initial={latexByKey.get(`${track}:cover`)}
-                  />
-                </div>
+              <div className="flex justify-end">
+                <Button
+                  disabled={confirmMutation.isPending}
+                  onClick={() => confirmMutation.mutate(activeTrack)}
+                >
+                  <Check className="size-4" />
+                  Looks right — confirm
+                </Button>
               </div>
-            ))
+            </div>
+          ) : (
+            /* roles + ready share the mounted TargetRolesEditor */
+            <div className="space-y-4">
+              {step === "roles" ? (
+                <div className="space-y-1">
+                  <h3 className="text-lg font-semibold text-coffee-900">
+                    What roles are you targeting?
+                  </h3>
+                  <p className="text-sm text-coffee-500">
+                    Add the roles you want. Job discovery only surfaces scraped
+                    jobs whose title matches one of these.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3 rounded-md border border-coffee-200 bg-coffee-50 p-4">
+                  <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-status-offer" />
+                  <div className="space-y-0.5">
+                    <p className="font-medium text-coffee-900">
+                      You&apos;re set for {label}
+                    </p>
+                    <p className="text-sm text-coffee-600">
+                      CV confirmed · {rolesCount} target role
+                      {rolesCount === 1 ? "" : "s"} ·{" "}
+                      {profile?.latex_cv
+                        ? "custom résumé design"
+                        : "built-in résumé layout"}
+                      . Refine anything below.
+                    </p>
+                  </div>
+                </div>
+              )}
+              <TargetRolesEditor
+                track={activeTrack}
+                initial={profile?.target_roles ?? []}
+                onCountChange={(n) =>
+                  setRoleCounts((c) => ({ ...c, [activeTrack]: n }))
+                }
+              />
+            </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Progressive disclosure — everything optional, closed by default */}
+      {profile && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-coffee-400">
+            Refine your {label} profile
+          </h2>
+          <Accordion items={refineItems} />
+        </div>
+      )}
     </div>
+  );
+}
+
+/** Compact Upload → Confirm → Target roles progress for the guided flow. */
+function StepIndicator({ stepIndex }: { stepIndex: number }) {
+  const steps = ["Upload CV", "Confirm", "Target roles"];
+  return (
+    <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      {steps.map((s, i) => {
+        const done = stepIndex > i;
+        const current = stepIndex === i;
+        return (
+          <li key={s} className="flex items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex size-5 items-center justify-center rounded-full border text-[0.7rem] font-semibold",
+                done
+                  ? "border-status-offer bg-status-offer text-white"
+                  : current
+                    ? "border-coffee-700 text-coffee-800"
+                    : "border-coffee-200 text-coffee-300",
+              )}
+            >
+              {done ? <Check className="size-3" /> : i + 1}
+            </span>
+            <span
+              className={cn(
+                done
+                  ? "text-coffee-500"
+                  : current
+                    ? "font-medium text-coffee-800"
+                    : "text-coffee-300",
+              )}
+            >
+              {s}
+            </span>
+            {i < steps.length - 1 && (
+              <span className="mx-1 hidden h-px w-6 bg-coffee-200 sm:block" />
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -577,6 +694,8 @@ function LatexTemplateField({
     onError: (err) => toastApiError(err),
   });
 
+  const dirty = source !== (initial?.source ?? "");
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -628,7 +747,10 @@ function LatexTemplateField({
         placeholder={"\\documentclass{article}\n…your LaTeX skeleton"}
         className="min-h-40 font-mono text-xs leading-relaxed"
       />
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-3">
+        {dirty && (
+          <span className="text-xs text-status-interviewed">Unsaved changes</span>
+        )}
         <Button
           type="button"
           size="sm"
@@ -677,16 +799,12 @@ function CvUploadButton({
       <Button
         type="button"
         size="sm"
-        variant="secondary"
+        variant={hasFile ? "secondary" : "primary"}
         disabled={isUploading}
         onClick={() => inputRef.current?.click()}
       >
         <UploadCloud className="size-4" />
-        {isUploading
-          ? "Uploading…"
-          : hasFile
-            ? "Replace file"
-            : "Upload file"}
+        {isUploading ? "Uploading…" : hasFile ? "Replace file" : "Upload file"}
       </Button>
     </>
   );
@@ -695,9 +813,11 @@ function CvUploadButton({
 function TargetRolesEditor({
   track,
   initial,
+  onCountChange,
 }: {
   track: Track;
   initial: string[];
+  onCountChange?: (count: number) => void;
 }) {
   const [roles, setRoles] = React.useState<string[]>(initial);
   const [input, setInput] = React.useState("");
@@ -709,7 +829,10 @@ function TargetRolesEditor({
 
   const save = useMutation({
     mutationFn: (next: string[]) => onboardingService.setTargetRoles(track, next),
-    onSuccess: (res) => setRoles(res.target_roles),
+    onSuccess: (res) => {
+      setRoles(res.target_roles);
+      onCountChange?.(res.target_roles.length);
+    },
     onError: (err) => toastApiError(err),
   });
 
@@ -719,16 +842,18 @@ function TargetRolesEditor({
     if (!v || roles.includes(v)) return;
     const next = [...roles, v];
     setRoles(next);
+    onCountChange?.(next.length);
     save.mutate(next);
   }
   function remove(r: string) {
     const next = roles.filter((x) => x !== r);
     setRoles(next);
+    onCountChange?.(next.length);
     save.mutate(next);
   }
 
   return (
-    <div className="space-y-2 border-t border-coffee-100 pt-3">
+    <div className="space-y-2">
       <Label>Target roles</Label>
       <p className="text-xs text-coffee-500">
         We only surface scraped jobs whose title matches one of these. Leave empty
@@ -861,14 +986,12 @@ function PreferredSkillsEditor({ track, initial }: { track: Track; initial: stri
     save.mutate(next);
   }
   return (
-    <div className="border-t border-coffee-100 pt-3">
-      <ChipField
-        label="Preferred skills (emphasize when tailoring)"
-        values={values}
-        onChange={update}
-        placeholder="e.g. Kafka"
-      />
-    </div>
+    <ChipField
+      label="Skills to emphasize when tailoring"
+      values={values}
+      onChange={update}
+      placeholder="e.g. Kafka"
+    />
   );
 }
 
@@ -907,12 +1030,12 @@ function VerifiedExtrasEditor({
     save.mutate(merged);
   }
   return (
-    <div className="space-y-3 border-t border-coffee-100 pt-3">
+    <div className="space-y-3 border-t border-coffee-100 pt-4">
       <div>
-        <Label>Verified extras (truthful, not on your CV)</Label>
+        <Label>Things you&apos;ve genuinely done (not on your CV)</Label>
         <p className="text-xs text-coffee-500">
-          Only add what is genuinely true — these join your truth corpus and may be used
-          when tailoring.
+          Add real skills, tools and projects the CV left out — the AI can surface
+          these when tailoring. Only add what&apos;s true.
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -955,13 +1078,23 @@ function CareerDetailsEditor({ track, initial }: { track: Track; initial: Master
         preferred_job_types: jobTypes,
         salary_expectation: salary.trim() ? { note: salary.trim() } : {},
       }),
-    onSuccess: () => toast.success("Career details saved"),
+    onSuccess: () => toast.success("Preferences saved"),
     onError: (err) => toastApiError(err),
   });
 
+  const dirty =
+    linkedin !== (links.linkedin ?? "") ||
+    github !== (links.github ?? "") ||
+    portfolio !== (links.portfolio ?? "") ||
+    JSON.stringify(locations) !== JSON.stringify(initial.preferred_locations ?? []) ||
+    JSON.stringify(jobTypes) !== JSON.stringify(initial.preferred_job_types ?? []) ||
+    salary !==
+      (typeof initial.salary_expectation?.note === "string"
+        ? initial.salary_expectation.note
+        : "");
+
   return (
-    <div className="space-y-3 border-t border-coffee-100 pt-3">
-      <Label>Career details</Label>
+    <div className="space-y-3">
       <div className="grid gap-3 sm:grid-cols-3">
         <Input placeholder="LinkedIn URL" value={linkedin} onChange={(e) => setLinkedin(e.target.value)} />
         <Input placeholder="GitHub URL" value={github} onChange={(e) => setGithub(e.target.value)} />
@@ -976,7 +1109,10 @@ function CareerDetailsEditor({ track, initial }: { track: Track; initial: Master
         value={salary}
         onChange={(e) => setSalary(e.target.value)}
       />
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-3">
+        {dirty && (
+          <span className="text-xs text-status-interviewed">Unsaved changes</span>
+        )}
         <Button
           type="button"
           size="sm"
@@ -984,7 +1120,7 @@ function CareerDetailsEditor({ track, initial }: { track: Track; initial: Master
           disabled={save.isPending}
           onClick={() => save.mutate()}
         >
-          Save career details
+          Save preferences
         </Button>
       </div>
     </div>
