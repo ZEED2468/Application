@@ -318,7 +318,8 @@ async def get_job(
                 "latex_source": cv.latex_source} if cv else None),
         "cover_letter": ({"pdf_url": cover.pdf_url,
                           "download_url": f"/api/jobs/{job.id}/cover" if cover.pdf_key else None,
-                          "body": cover.body} if cover else None),
+                          "body": cover.body,
+                          "latex_source": cover.latex_source} if cover else None),
         "application": ({"id": str(app.id), "status": app.status.value,
                          "tracker_status": app.tracker_status.value,
                          "application_status": app.tracker_status.value,
@@ -599,6 +600,7 @@ async def set_cover_from_latex(
     if cover is None:
         cover = CoverLetter(user_id=job.user_id, job_id=job.id, status=CoverLetterStatus.ready)
         session.add(cover)
+    cover.latex_source = body.latex
     cover.tex_key = tex_key
     cover.pdf_key = pdf_key
     cover.pdf_url = pdf_url

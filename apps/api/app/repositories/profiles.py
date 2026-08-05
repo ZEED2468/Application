@@ -20,11 +20,23 @@ async def get_by_user_track(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+# Verified-extra categories promoted to their OWN CV sections by
+# generation.enrich_from_verified_extras — so they must NOT also be folded into the
+# flat skills list here (that would duplicate them). Keep the two in sync.
+PROMOTED_EXTRA_CATEGORIES = frozenset(
+    {"certifications", "languages", "open_source", "side_projects"}
+)
+
+
 def _extra_terms(profile: MasterProfile) -> list[str]:
-    """Flatten the structured verified extras + preferred skills into terms that
-    become part of the allowed truth corpus (user-asserted-true facts)."""
+    """Flatten the *skill-like* verified extras + preferred skills into terms that
+    become part of the allowed truth corpus (user-asserted-true facts). Promoted
+    categories (certifications/languages/projects) are rendered as their own sections
+    instead, so they're skipped here."""
     terms: list[str] = []
-    for v in (getattr(profile, "verified_extras", None) or {}).values():
+    for cat, v in (getattr(profile, "verified_extras", None) or {}).items():
+        if cat in PROMOTED_EXTRA_CATEGORIES:
+            continue
         if isinstance(v, list):
             terms.extend(str(x) for x in v if str(x).strip())
         elif isinstance(v, str) and v.strip():

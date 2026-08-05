@@ -352,6 +352,10 @@ export interface GeneratedCv {
 export interface CoverLetter {
   pdf_url: string | null;
   download_url?: string | null;
+  /** the tailored 3-paragraph body text */
+  body?: string | null;
+  /** the committed cover LaTeX — lets the editor open YOUR current cover letter to tweak */
+  latex_source?: string | null;
 }
 
 /* ----------------------------------------------------------------------------

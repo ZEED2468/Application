@@ -72,14 +72,15 @@ export function ResumeEditor({
     onError: (err) => toastApiError(err),
   });
 
-  // Open with YOUR committed résumé so editing tweaks the current CV (no auto-LLM, no
-  // lost edits). Regenerate is an explicit choice. The cover's LaTeX isn't stored, so
-  // it stays blank until you regenerate.
+  // Open with YOUR committed documents so editing tweaks the current CV / cover letter
+  // (no auto-LLM, no lost edits). Regenerate is an explicit choice.
   React.useEffect(() => {
     if (loaded.current || !data) return;
     loaded.current = true;
-    const src = data.generated_cv?.latex_source;
-    if (src) setCvLatex(src);
+    const cvSrc = data.generated_cv?.latex_source;
+    if (cvSrc) setCvLatex(cvSrc);
+    const coverSrc = data.cover_letter?.latex_source;
+    if (coverSrc) setCoverLatex(coverSrc);
   }, [data]);
 
   const useCv = useMutation({

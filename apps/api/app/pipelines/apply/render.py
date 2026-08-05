@@ -104,6 +104,17 @@ def build_tex(cv_json: dict, *, name: str) -> str:
                 row += rf"\hfill {_esc(dates)}"
             lines.append(row + r"\\[2pt]")
 
+    certifications = cv_json.get("certifications") or []
+    if certifications:
+        lines.append(_section("Certifications"))
+        lines.append(r"\begin{itemize}")
+        lines += [rf"\item {_esc(c)}" for c in certifications]
+        lines.append(r"\end{itemize}")
+
+    languages = cv_json.get("languages") or []
+    if languages:
+        lines += [_section("Languages"), _esc(", ".join(str(l) for l in languages))]
+
     lines.append(r"\end{document}")
     return "\n".join(lines)
 

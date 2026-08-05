@@ -53,6 +53,39 @@ def _facts_present(tex: str, *, name: str, cv_json: dict) -> bool:
     return all(str(a).lower() in low for a in anchors if a)
 
 
+def enrich_from_verified_extras(cv_json: dict, profile_dict: dict) -> dict:
+    """Surface the user's structured verified extras as real CV sections.
+
+    Deterministic and strictly truth-bounded: every item comes straight from the
+    profile's `verified_extras` (user-asserted-true facts), so a diligently-filled
+    profile yields a richer CV instead of everything collapsing into a flat skills
+    blob. Certifications and languages become their own sections; open-source and
+    side-project names join Projects. The category set here MUST match the promoted
+    set excluded from the flat skills list in `profiles.PROMOTED_EXTRA_CATEGORIES`.
+    """
+    extras = profile_dict.get("verified_extras") or {}
+
+    def _terms(cat: str) -> list[str]:
+        v = extras.get(cat)
+        return [str(x).strip() for x in v if str(x).strip()] if isinstance(v, list) else []
+
+    for cat in ("certifications", "languages"):
+        terms = _terms(cat)
+        if terms:
+            cv_json[cat] = list(dict.fromkeys([*(cv_json.get(cat) or []), *terms]))
+
+    extra_projects = _terms("open_source") + _terms("side_projects")
+    if extra_projects:
+        projects = list(cv_json.get("projects") or [])
+        seen = {str((p or {}).get("name", "")).lower() for p in projects if isinstance(p, dict)}
+        for name in extra_projects:
+            if name.lower() not in seen:
+                projects.append({"name": name})
+                seen.add(name.lower())
+        cv_json["projects"] = projects
+    return cv_json
+
+
 def merge_confirmed_facts(profile_dict: dict, confirmed: list[str] | None) -> dict:
     """Add VA-confirmed-true skills into the tailoring input (truth-bounded)."""
     if not confirmed:
@@ -85,6 +118,9 @@ async def generate_cv_and_cover(
         profile_dict, job_title=job.title, job_description=job.description,
         priority_techs=priority_techs,
     )
+    # Surface the user's structured verified extras (certifications, languages, extra
+    # projects) as real CV sections — truth-bounded, straight from the profile.
+    cv_json = enrich_from_verified_extras(cv_json, profile_dict)
     tex = render.build_tex(cv_json, name=owner.name)
     pdf, cv_stderr = await _render_checked(tex, label="cv", job_id=job.id)
 
@@ -149,8 +185,8 @@ async def generate_cv_and_cover(
 
     cover = CoverLetter(
         user_id=job.user_id, job_id=job.id, template_id=template.id if template else None,
-        body=cl_body, tex_key=cl_tex_key, pdf_key=cl_pdf_key, pdf_url=cl_pdf_url,
-        status=CoverLetterStatus.ready,
+        body=cl_body, latex_source=cl_tex, tex_key=cl_tex_key, pdf_key=cl_pdf_key,
+        pdf_url=cl_pdf_url, status=CoverLetterStatus.ready,
     )
     session.add(cover)
 
