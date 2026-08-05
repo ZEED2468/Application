@@ -150,3 +150,30 @@ async def test_add_fact_and_edited_company_reach_generation(session):
         session, user_id=user.id, chat_session_id=chat.id, emit=EventSink()
     )
     assert job.company == "Acme (edited)"
+
+
+@pytest.mark.asyncio
+async def test_generate_application_reuses_job_on_dedupe(session):
+    """Applying to the SAME JD twice must reuse the job (Tailor's 'Create application'
+    on an already-known posting), not crash on uq_job_user_dedupe / uq_cover_letter_job."""
+    user, _ = await seed_hunter(session)
+
+    chat1, _ = await service.start_session(session, user_id=user.id, jd_text=JD, emit=EventSink())
+    job1 = await service.generate_application(
+        session, user_id=user.id, chat_session_id=chat1.id, emit=EventSink()
+    )
+
+    # Same JD again — must reuse job1 rather than inserting a duplicate.
+    chat2, _ = await service.start_session(session, user_id=user.id, jd_text=JD, emit=EventSink())
+    job2 = await service.generate_application(
+        session, user_id=user.id, chat_session_id=chat2.id, emit=EventSink()
+    )
+
+    assert job2.id == job1.id  # reused, not a second job
+    cvs = (await session.execute(
+        select(GeneratedCv).where(GeneratedCv.job_id == job1.id)
+    )).scalars().all()
+    covers = (await session.execute(
+        select(CoverLetter).where(CoverLetter.job_id == job1.id)
+    )).scalars().all()
+    assert len(cvs) == 1 and len(covers) == 1  # CV + cover not duplicated
