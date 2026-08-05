@@ -62,9 +62,11 @@ def _prompt_dto(p: ChatPrompt) -> dict:
     # options are stored as plain strings; the UI wants {id, label} (and these are
     # single-select yes/no confirmations, so multi=False).
     options = [{"id": o, "label": o} for o in (p.options or [])]
+    # `detail` rides along so a reloaded session restores the free text the user
+    # typed, not just which options they ticked.
     return {"id": str(p.id), "question": p.question, "options": options,
             "kind": _KIND_UI.get(p.kind.value, "skill"), "multi": False,
-            "selected": p.selected, "resolved": p.resolved}
+            "selected": p.selected, "resolved": p.resolved, "detail": p.detail}
 
 
 async def _session_dto(session, chat: ChatSession, prompts: list[ChatPrompt]) -> dict:
@@ -75,6 +77,9 @@ async def _session_dto(session, chat: ChatSession, prompts: list[ChatPrompt]) ->
             matched_cv = {"track": rc.track.value, "filename": rc.original_filename}
     return {
         "session_id": str(chat.id), "state": chat.state.value,
+        # The JD comes back so a resumed session refills its own input instead of
+        # presenting an empty box over a session that already has one.
+        "jd_text": chat.jd_text,
         "track": chat.track.value if chat.track else None,
         "track_match": (chat.ats_breakdown or {}).get("track_match"),
         "company": chat.company, "role_title": chat.role_title,

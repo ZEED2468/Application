@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Sparkles,
@@ -22,6 +22,7 @@ import type {
 import { TRACKS } from "@jd/shared-types";
 import { chatService } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
+import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { PageHeading } from "@/components/states";
 import { AtsBreakdown } from "@/components/ats-breakdown";
@@ -42,6 +43,23 @@ import { Badge } from "@/components/ui/badge";
 
 export const dynamic = "force-dynamic";
 
+/** Rebuild the local answer/confirmation maps from a session the server sent back,
+ *  so a reload restores exactly what the user had already confirmed. */
+function hydrateAnswers(s: ChatSession): {
+  answers: Record<string, PromptAnswer>;
+  confirmed: Record<string, boolean>;
+} {
+  const answers: Record<string, PromptAnswer> = {};
+  const confirmed: Record<string, boolean> = {};
+  s.prompts.forEach((p) => {
+    if (p.selected?.length || p.detail) {
+      answers[p.id] = { selected: p.selected ?? [], detail: p.detail ?? "" };
+    }
+    if (p.resolved) confirmed[p.id] = true;
+  });
+  return { answers, confirmed };
+}
+
 export default function ManualPage() {
   const router = useRouter();
   const [jdText, setJdText] = React.useState("");
@@ -50,12 +68,19 @@ export default function ManualPage() {
     {},
   );
   const [confirmed, setConfirmed] = React.useState<Record<string, boolean>>({});
+  // Read synchronously so the restore has no first-render race with the handoff.
+  const [resumeId] = React.useState<string | null>(() =>
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("session")
+      : null,
+  );
   const [details, setDetails] = React.useState({
     company: "",
     role_title: "",
     track: "" as Track | "",
   });
   const [newSkill, setNewSkill] = React.useState("");
+  const [jdOpen, setJdOpen] = React.useState(false);
 
   const [aiVetted, setAiVetted] = React.useState(false);
 
@@ -79,16 +104,47 @@ export default function ManualPage() {
       setAnswers({});
       setConfirmed({});
       setAiVetted(false);
+      // The session id lives in the URL from here on: the server already persists the
+      // JD, the matched CV, the ATS breakdown and every confirmation, so a reload,
+      // a back-navigation or a shared link resumes the work instead of discarding it.
+      router.replace(`/manual?session=${s.session_id}`, { scroll: false });
       toast.success("Session started, review the matched CV and prompts.");
     },
     onError: async (err) => toast.error((await toApiError(err)).message),
   });
 
+  // Resuming ?session=… — pull the whole session back and rehydrate the answers.
+  const resumeQuery = useQuery({
+    queryKey: queryKeys.chatSession(resumeId ?? ""),
+    queryFn: () => chatService.getSession(resumeId!),
+    enabled: Boolean(resumeId),
+    retry: false,
+  });
+
+  const resumed = React.useRef(false);
+  React.useEffect(() => {
+    if (resumed.current || !resumeQuery.data) return;
+    resumed.current = true;
+    const s = resumeQuery.data;
+    setSession(s);
+    setJdText(s.jd_text ?? "");
+    const { answers: a, confirmed: c } = hydrateAnswers(s);
+    setAnswers(a);
+    setConfirmed(c);
+    setAiVetted(Boolean(s.ats?.breakdown?.ai_vetted));
+  }, [resumeQuery.data]);
+
+  React.useEffect(() => {
+    if (resumeQuery.isError) {
+      toast.error("That session is no longer available — start a new one below.");
+    }
+  }, [resumeQuery.isError]);
+
   // Arriving from Tailor's "Create application": start the session from the handed-off
   // JD so it isn't re-pasted or re-analyzed.
   const autoStarted = React.useRef(false);
   React.useEffect(() => {
-    if (autoStarted.current) return;
+    if (autoStarted.current || resumeId) return;
     let jd = "";
     try {
       const raw = window.sessionStorage.getItem("tailor-apply-handoff");
@@ -195,6 +251,17 @@ export default function ManualPage() {
       ? session.prompts.every((p) => confirmed[p.id])
       : false;
 
+  /** Drop the current session and return to a blank JD box. */
+  function startOver() {
+    setSession(null);
+    setAnswers({});
+    setConfirmed({});
+    setAiVetted(false);
+    setJdText("");
+    setJdOpen(false);
+    router.replace("/manual", { scroll: false });
+  }
+
   return (
     <div className="space-y-6">
       <Link
@@ -202,41 +269,81 @@ export default function ManualPage() {
         className="inline-flex items-center gap-1.5 text-sm text-coffee-500 hover:text-coffee-700"
       >
         <ArrowLeft className="size-4" />
-        Back to analysis
+        Back to Tailor
       </Link>
       <PageHeading
         title="Create application"
         description="Confirm a few true details, then generate a tailored CV, cover letter, and a tracked application. Paste a JD to start, or continue from a Tailor analysis."
       />
 
-      {/* JD input */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Paste the job description</CardTitle>
-          <CardDescription>
-            We never fabricate experience, these prompts only confirm what is
-            already true for you.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Textarea
-            value={jdText}
-            onChange={(e) => setJdText(e.target.value)}
-            placeholder="Paste the full job description here…"
-            className="min-h-44"
-          />
-          <div className="flex justify-end">
-            <Button
-              variant="accent"
-              onClick={() => createSession.mutate(jdText)}
-              disabled={createSession.isPending || jdText.trim().length < 20}
-            >
-              <Sparkles className="size-4" />
-              {createSession.isPending ? "Analyzing…" : "Analyze & start"}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {resumeQuery.isLoading && (
+        <p className="rounded-md border border-coffee-200 bg-coffee-50 px-4 py-3 text-sm text-coffee-600">
+          Picking up where you left off…
+        </p>
+      )}
+
+      {/* JD input — once a session exists the JD is settled context, not an invitation
+          to start a second one. Collapsed by default with an explicit way back out. */}
+      {session ? (
+        <Card>
+          <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+            <div className="min-w-0">
+              <CardTitle>Job description</CardTitle>
+              <CardDescription>
+                Analyzed for this application. Starting over discards the
+                confirmations below.
+              </CardDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setJdOpen((o) => !o)}
+              >
+                {jdOpen ? "Hide" : "Show"}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={startOver}>
+                Start over
+              </Button>
+            </div>
+          </CardHeader>
+          {jdOpen && (
+            <CardContent>
+              <p className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-coffee-200 bg-coffee-50 px-3 py-2 text-sm leading-relaxed text-coffee-700">
+                {jdText || "No job description on file."}
+              </p>
+            </CardContent>
+          )}
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Paste the job description</CardTitle>
+            <CardDescription>
+              We never fabricate experience, these prompts only confirm what is
+              already true for you.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Textarea
+              value={jdText}
+              onChange={(e) => setJdText(e.target.value)}
+              placeholder="Paste the full job description here…"
+              className="min-h-44"
+            />
+            <div className="flex justify-end">
+              <Button
+                variant="accent"
+                onClick={() => createSession.mutate(jdText)}
+                disabled={createSession.isPending || jdText.trim().length < 20}
+              >
+                <Sparkles className="size-4" />
+                {createSession.isPending ? "Analyzing…" : "Analyze & start"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {session && (
         <>

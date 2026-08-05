@@ -714,11 +714,19 @@ export interface ChatPrompt {
   kind: PromptKind;
   /** allow multiple selections */
   multi?: boolean;
+  /** Options the user already confirmed — lets a reloaded session restore its answers. */
+  selected?: string[];
+  /** Free text the user added alongside the selection. */
+  detail?: string | null;
+  /** Whether this prompt has been confirmed. */
+  resolved?: boolean;
 }
 
 export interface ChatSession {
   session_id: string;
   state?: string;
+  /** The JD this session was started from — lets a resumed session refill its input. */
+  jd_text?: string | null;
   company?: string | null;
   role_title?: string | null;
   track?: Track | null;
