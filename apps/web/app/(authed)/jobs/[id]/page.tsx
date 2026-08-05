@@ -36,6 +36,7 @@ import { absoluteApiUrl } from "@/lib/api/client";
 import { PageHeading, ErrorState } from "@/components/states";
 import { PdfPreviewModal } from "@/components/pdf-preview-modal";
 import { AtsBreakdown } from "@/components/ats-breakdown";
+import { ResumeEditor } from "@/components/resume-editor";
 import { StatusCell } from "../status-cell";
 import {
   Card,
@@ -430,8 +431,9 @@ export default function JobDetailPage({
   );
 }
 
-/** The tailored résumé, centre stage: the rendered document when generated, or the
- *  Generate call-to-action when not. Editing is a click away in the LaTeX builder. */
+/** The tailored résumé, centre stage. View mode renders the committed PDF; Edit swaps
+ *  the same hero into the inline LaTeX editor (regenerate → tweak → commit) without ever
+ *  leaving the workspace. Committing returns to a freshly-rendered view. */
 function ResumeHero({
   id,
   company,
@@ -449,6 +451,15 @@ function ResumeHero({
   generating: boolean;
   onGenerate: () => void;
 }) {
+  // Deep links from "Regenerate CV" / the old builder route arrive as ?edit=…
+  const [editing, setEditing] = React.useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("edit") != null,
+  );
+  // Bump on commit so the iframe remounts and re-fetches the updated PDF.
+  const [docVersion, setDocVersion] = React.useState(0);
+
   const docUrl = generatedCv?.download_url
     ? absoluteApiUrl(generatedCv.download_url)
     : null;
@@ -463,28 +474,49 @@ function ResumeHero({
   return (
     <Card className="flex min-h-[78vh] flex-col">
       <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-        <CardTitle>Tailored résumé</CardTitle>
-        {generatedCv && (
-          <div className="flex shrink-0 items-center gap-2">
-            <Link href={`/jobs/${id}/builder`}>
-              <Button variant="secondary" size="sm">
+        <CardTitle>{editing ? "Edit résumé" : "Tailored résumé"}</CardTitle>
+        {editing ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setEditing(false)}
+          >
+            <Eye className="size-4" />
+            Preview
+          </Button>
+        ) : (
+          generatedCv && (
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setEditing(true)}
+              >
                 <Pencil className="size-4" />
                 Edit
               </Button>
-            </Link>
-            {docUrl && (
-              <a href={docUrl} target="_blank" rel="noreferrer noopener">
-                <Button variant="ghost" size="sm">
-                  <ExternalLink className="size-4" />
-                  Open
-                </Button>
-              </a>
-            )}
-          </div>
+              {docUrl && (
+                <a href={docUrl} target="_blank" rel="noreferrer noopener">
+                  <Button variant="ghost" size="sm">
+                    <ExternalLink className="size-4" />
+                    Open
+                  </Button>
+                </a>
+              )}
+            </div>
+          )
         )}
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
-        {!generatedCv ? (
+        {editing ? (
+          <ResumeEditor
+            id={id}
+            onCommitted={() => {
+              setEditing(false);
+              setDocVersion((v) => v + 1);
+            }}
+          />
+        ) : !generatedCv ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-md border border-dashed border-coffee-200 p-8 text-center">
             <div className="flex size-12 items-center justify-center rounded-full bg-coffee-100 text-coffee-500">
               <FileText className="size-6" />
@@ -507,12 +539,13 @@ function ResumeHero({
           <div className="flex flex-1 flex-col gap-3">
             {notFullyRendered && (
               <p className="rounded-md border border-status-interviewed/40 bg-status-interviewed/5 px-3 py-2 text-sm text-coffee-800">
-                This résumé couldn&apos;t be fully rendered yet — open the builder to
-                fix and recompile it.
+                This résumé couldn&apos;t be fully rendered yet — click Edit to fix and
+                recompile it.
               </p>
             )}
             {docUrl ? (
               <iframe
+                key={docVersion}
                 src={docUrl}
                 title={`Tailored résumé — ${company}`}
                 className="h-full min-h-[68vh] w-full rounded-md border border-coffee-200 bg-white"
