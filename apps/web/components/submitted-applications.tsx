@@ -157,6 +157,9 @@ export function SubmittedApplications() {
             isLoading={isLoading}
             rowKey={(a) => a.id}
             onRowClick={(a) => a.job_id && router.push(`/jobs/${a.job_id}`)}
+            rowLabel={(a) =>
+              `Open ${a.role ?? "application"}${a.company ? ` at ${a.company}` : ""}`
+            }
             skeletonRows={12}
             stickyHeader
             columnBorders

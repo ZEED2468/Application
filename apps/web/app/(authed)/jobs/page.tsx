@@ -543,6 +543,7 @@ export default function JobsPage() {
                 isLoading={isLoading}
                 rowKey={(j) => j.id}
                 onRowClick={(j) => router.push(`/jobs/${j.id}`)}
+                rowLabel={(j) => `Open ${j.role} at ${j.company}`}
                 skeletonRows={12}
                 stickyHeader
                 columnBorders

@@ -27,6 +27,8 @@ export interface DataTableProps<T> {
   isLoading?: boolean;
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
+  /** Accessible name announced for a clickable row (e.g. "Acme — Backend Engineer"). */
+  rowLabel?: (row: T) => string;
   emptyState?: React.ReactNode;
   skeletonRows?: number;
   /** Keep column headers visible while scrolling long tables. */
@@ -42,6 +44,7 @@ export function DataTable<T>({
   isLoading,
   rowKey,
   onRowClick,
+  rowLabel,
   emptyState,
   skeletonRows = 6,
   stickyHeader = false,
@@ -87,7 +90,27 @@ export function DataTable<T>({
               <TableRow
                 key={rowKey(row)}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={cn(onRowClick && "cursor-pointer")}
+                // A clickable row must be reachable without a mouse. The row stays a
+                // plain <tr> (overriding its role would orphan the controls nested in
+                // its cells); it just becomes focusable and answers Enter/Space. The
+                // target check keeps those nested controls' own keys to themselves.
+                tabIndex={onRowClick ? 0 : undefined}
+                aria-label={onRowClick ? rowLabel?.(row) : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+                className={cn(
+                  onRowClick &&
+                    "cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-coffee-500",
+                )}
               >
                 {columns.map((col, index) => (
                   <TableCell
