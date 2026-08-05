@@ -30,7 +30,7 @@ export function ResumeEditor({
   const [cvLatex, setCvLatex] = React.useState("");
   const [coverLatex, setCoverLatex] = React.useState("");
   const [note, setNote] = React.useState<string | null>(null);
-  const autoRan = React.useRef(false);
+  const loaded = React.useRef(false);
 
   // Shares the job query with the workspace (react-query dedupes it — no extra fetch).
   const { data } = useQuery({
@@ -72,13 +72,15 @@ export function ResumeEditor({
     onError: (err) => toastApiError(err),
   });
 
-  // Regenerate once when the editor opens (the effortless path).
+  // Open with YOUR committed résumé so editing tweaks the current CV (no auto-LLM, no
+  // lost edits). Regenerate is an explicit choice. The cover's LaTeX isn't stored, so
+  // it stays blank until you regenerate.
   React.useEffect(() => {
-    if (data && !autoRan.current) {
-      autoRan.current = true;
-      regenerate.mutate();
-    }
-  }, [data, regenerate]);
+    if (loaded.current || !data) return;
+    loaded.current = true;
+    const src = data.generated_cv?.latex_source;
+    if (src) setCvLatex(src);
+  }, [data]);
 
   const useCv = useMutation({
     mutationFn: (latex: string) => jobsService.setCvFromLatex(id, latex),

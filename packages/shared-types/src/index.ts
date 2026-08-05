@@ -345,6 +345,8 @@ export interface GeneratedCv {
   download_url?: string | null;
   ats_score: number | null;
   ats_breakdown: AtsBreakdown | null;
+  /** the committed CV LaTeX — lets the editor open YOUR current résumé to tweak */
+  latex_source?: string | null;
 }
 
 export interface CoverLetter {
