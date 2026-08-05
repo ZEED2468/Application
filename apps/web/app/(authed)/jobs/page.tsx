@@ -6,9 +6,21 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Download, Briefcase, Search } from "lucide-react";
-import type { JobOut, Origin, Paginated, TrackerStatus } from "@jd/shared-types";
+import type {
+  JobOut,
+  MeResponse,
+  Origin,
+  Paginated,
+  TrackerStatus,
+} from "@jd/shared-types";
 import { TRACKER_STATUSES } from "@jd/shared-types";
-import { jobsService, applicationsService, type JobsFilter } from "@/lib/api/services";
+import {
+  jobsService,
+  applicationsService,
+  authService,
+  onboardingService,
+  type JobsFilter,
+} from "@/lib/api/services";
 import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -61,9 +73,23 @@ function readCachedJobs(): CachedJobs | undefined {
   }
 }
 
+/** The screen's whole position — segment, filters, page — lives in the URL, so
+ *  reload, Back and a pasted link all land on the same view the user was looking
+ *  at. Read once on mount; written on every change. */
+function readParams() {
+  if (typeof window === "undefined") return new URLSearchParams();
+  return new URLSearchParams(window.location.search);
+}
+
+function readList(sp: URLSearchParams, key: string): string[] {
+  const raw = sp.get(key);
+  return raw ? raw.split(",").filter(Boolean) : [];
+}
+
 export default function JobsPage() {
   const router = useRouter();
-  
+  const [initialParams] = React.useState(readParams);
+
   // Custom tracks from localStorage
   const [customTracks, setCustomTracks] = React.useState<string[]>(() => {
     if (typeof window !== "undefined") {
@@ -81,20 +107,22 @@ export default function JobsPage() {
   
   // Pipeline (discover/tailor) vs Submitted (the former Tracker) — one screen, two
   // segments. Deep links from /applications arrive as ?view=submitted.
-  const [view, setView] = React.useState<JobsView>(() => {
-    if (typeof window !== "undefined") {
-      const v = new URLSearchParams(window.location.search).get("view");
-      if (v === "submitted") return "submitted";
-    }
-    return "pipeline";
-  });
+  const [view, setView] = React.useState<JobsView>(() =>
+    initialParams.get("view") === "submitted" ? "submitted" : "pipeline",
+  );
 
   const [newTrackInput, setNewTrackInput] = React.useState("");
-  const [selectedTracks, setSelectedTracks] = React.useState<string[]>([]);
-  const [selectedExpLevels, setSelectedExpLevels] = React.useState<string[]>([]);
+  const [selectedTracks, setSelectedTracks] = React.useState<string[]>(() =>
+    readList(initialParams, "tracks"),
+  );
+  const [selectedExpLevels, setSelectedExpLevels] = React.useState<string[]>(() =>
+    readList(initialParams, "levels"),
+  );
   // The role(s) the user is searching for — comma-separated. Required to run a search
   // (an empty search is blocked so no provider API tokens are wasted).
-  const [searchRoles, setSearchRoles] = React.useState("");
+  const [searchRoles, setSearchRoles] = React.useState(
+    () => initialParams.get("roles") ?? "",
+  );
 
   const addCustomTrack = () => {
     const trimmed = newTrackInput.trim();
@@ -111,17 +139,90 @@ export default function JobsPage() {
     setSelectedTracks((prev) => [...prev, trimmed]);
   };
 
-  const [filter, setFilter] = React.useState<JobsFilter>({
-    status: "",
+  const [filter, setFilter] = React.useState<JobsFilter>(() => ({
+    status: (initialParams.get("status") ?? "") as TrackerStatus | "",
     track: "",
-    tracks: [],
-    experience_levels: [],
-    origin: "",
-  });
+    tracks: readList(initialParams, "tracks"),
+    experience_levels: readList(initialParams, "levels"),
+    origin: (initialParams.get("origin") ?? "") as Origin | "",
+  }));
   const [preview, setPreview] = React.useState<{ url: string; title: string } | null>(
     null,
   );
-  const [page, setPage] = React.useState(1);
+  const [page, setPage] = React.useState(() =>
+    Math.max(1, Number(initialParams.get("page")) || 1),
+  );
+
+  // The roles the user already told us they're targeting, during profile setup. Both
+  // queries are already cached by the shell / profile page, so this costs nothing.
+  const { data: me } = useQuery<MeResponse>({
+    queryKey: queryKeys.me,
+    queryFn: () => authService.me(),
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: profiles } = useQuery({
+    queryKey: queryKeys.profiles,
+    queryFn: () => onboardingService.profiles(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Prefer the active track's targets; fall back to every track's, deduped.
+  const profileRoles = React.useMemo(() => {
+    const all = profiles ?? [];
+    const active = me?.active_track
+      ? all.find((p) => p.track === me.active_track)
+      : undefined;
+    const source = active?.target_roles?.length
+      ? active.target_roles
+      : all.flatMap((p) => p.target_roles ?? []);
+    return Array.from(new Set(source.map((r) => r.trim()).filter(Boolean)));
+  }, [profiles, me?.active_track]);
+
+  // Seed the search box once, and only when the user hasn't already put something
+  // there (typed, or restored from the URL) — never overwrite their own words.
+  const seeded = React.useRef(false);
+  React.useEffect(() => {
+    if (seeded.current || searchRoles.trim() || profileRoles.length === 0) return;
+    seeded.current = true;
+    setSearchRoles(profileRoles.join(", "));
+  }, [profileRoles, searchRoles]);
+
+  // Mirror the view state into the URL. `replace` (not `push`) keeps a filter tweak
+  // out of the history stack — Back should leave the screen, not undo a checkbox —
+  // while still making reload and link-sharing restore the exact view.
+  React.useEffect(() => {
+    const sp = new URLSearchParams();
+    if (view !== "pipeline") sp.set("view", view);
+    if (filter.status) sp.set("status", filter.status);
+    if (filter.origin) sp.set("origin", filter.origin);
+    if (selectedTracks.length) sp.set("tracks", selectedTracks.join(","));
+    if (selectedExpLevels.length) sp.set("levels", selectedExpLevels.join(","));
+    // Only the user's own wording is worth a URL — the profile seed is re-derived
+    // on every load, so echoing it back would just make landing on /jobs noisy.
+    const roles = searchRoles.trim();
+    if (roles && roles !== profileRoles.join(", ")) sp.set("roles", roles);
+    if (page > 1) sp.set("page", String(page));
+    const next = sp.toString();
+    if (next === window.location.search.replace(/^\?/, "")) return;
+    router.replace(next ? `/jobs?${next}` : "/jobs", { scroll: false });
+  }, [
+    router,
+    view,
+    filter.status,
+    filter.origin,
+    selectedTracks,
+    selectedExpLevels,
+    searchRoles,
+    profileRoles,
+    page,
+  ]);
+
+  // Changing a filter should send the user back to page 1 — but the *first* run of
+  // these effects is mount, where the page number came from the URL and must survive.
+  // The marker effect is declared last on purpose: effects fire in declaration order,
+  // so on mount both guards below still see `false`.
+  const mounted = React.useRef(false);
 
   React.useEffect(() => {
     setFilter((f) => ({
@@ -129,12 +230,16 @@ export default function JobsPage() {
       tracks: selectedTracks,
       experience_levels: selectedExpLevels,
     }));
-    setPage(1);
+    if (mounted.current) setPage(1);
   }, [selectedTracks, selectedExpLevels]);
 
   React.useEffect(() => {
-    setPage(1);
+    if (mounted.current) setPage(1);
   }, [filter.status, filter.track, filter.origin]);
+
+  React.useEffect(() => {
+    mounted.current = true;
+  }, []);
 
   // Snapshot the persisted cache once on mount so initialData and its age come from
   // the same read (and localStorage is only touched once).
@@ -441,18 +546,37 @@ export default function JobsPage() {
             onChange={setSelectedExpLevels}
           />
 
-          {/* Search roles — required to run a search (no empty/broad searches) */}
-          <Input
-            placeholder="Search roles, e.g. Frontend Engineer, React Developer"
-            value={searchRoles}
-            onChange={(e) => setSearchRoles(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && roleList.length > 0 && !discover.isPending) {
-                discover.mutate();
-              }
-            }}
-            className="h-8 w-64 text-sm"
-          />
+          {/* Search roles — prefilled from the target roles on the profile, so the
+              common case is press-and-go rather than retype-what-we-already-know. */}
+          <div className="flex flex-col gap-0.5">
+            <Input
+              aria-label="Roles to search for"
+              placeholder="Search roles, e.g. Frontend Engineer, React Developer"
+              value={searchRoles}
+              onChange={(e) => setSearchRoles(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && roleList.length > 0 && !discover.isPending) {
+                  discover.mutate();
+                }
+              }}
+              className="h-8 w-64 text-sm"
+            />
+            {profileRoles.length > 0 ? (
+              <span className="text-xs text-coffee-400">
+                From your target roles ·{" "}
+                <Link href="/profile" className="underline underline-offset-2">
+                  edit
+                </Link>
+              </span>
+            ) : (
+              <span className="text-xs text-coffee-400">
+                <Link href="/profile" className="underline underline-offset-2">
+                  Add target roles
+                </Link>{" "}
+                to prefill this
+              </span>
+            )}
+          </div>
 
           <Button
             variant="primary"
@@ -570,7 +694,7 @@ export default function JobsPage() {
                       action={
                         <Link href="/manual">
                           <Button size="sm" variant="secondary">
-                            Add via Manual Apply
+                            Add a job manually
                           </Button>
                         </Link>
                       }
