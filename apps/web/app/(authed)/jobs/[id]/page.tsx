@@ -18,8 +18,10 @@ import {
   Send,
   Mail,
   History,
+  Pencil,
+  ExternalLink,
 } from "lucide-react";
-import type { JobDetail, Track } from "@jd/shared-types";
+import type { GeneratedCv, JobDetail, Track } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
 import {
   jobsService,
@@ -59,6 +61,7 @@ export default function JobDetailPage({
   const [preview, setPreview] = React.useState<{ url: string; title: string } | null>(
     null,
   );
+  const [jdOpen, setJdOpen] = React.useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.job(id),
@@ -135,7 +138,7 @@ export default function JobDetailPage({
         <BackLink />
         <Skeleton className="h-10 w-72" />
         <div className="grid gap-6 lg:grid-cols-3">
-          <Skeleton className="h-64 lg:col-span-2" />
+          <Skeleton className="h-[78vh] lg:col-span-2" />
           <Skeleton className="h-64" />
         </div>
       </div>
@@ -144,6 +147,7 @@ export default function JobDetailPage({
 
   const { job, generated_cv, cover_letter, application, outreach, thread } =
     data;
+  const jdText = job.jd_text ?? job.description ?? "";
 
   return (
     <div className="space-y-6">
@@ -160,37 +164,21 @@ export default function JobDetailPage({
         title={job.role}
         description={`${job.company}${job.location ? ` · ${job.location}` : ""}`}
         actions={
-          <div className="flex items-center gap-2">
-            <Link href={`/jobs/${id}/builder`}>
-              <Button variant="secondary">
-                <FileText className="size-4" />
-                LaTeX builder
-              </Button>
-            </Link>
-            {!generated_cv ? (
-              <Button
-                variant="accent"
-                onClick={() => generateMutation.mutate(false)}
-                disabled={generateMutation.isPending}
-              >
-                <Sparkles className="size-4" />
-                {generateMutation.isPending ? "Generating…" : "Generate CV"}
-              </Button>
-            ) : !application ? (
-              <Button
-                variant="primary"
-                onClick={() => applyMutation.mutate()}
-                disabled={applyMutation.isPending}
-              >
-                <Send className="size-4" />
-                {applyMutation.isPending ? "Applying…" : "Apply"}
-              </Button>
-            ) : (
-              <Badge variant="default" className="px-3 py-1.5 text-sm">
-                Applied
-              </Badge>
-            )}
-          </div>
+          // The résumé (centre) owns Generate + Edit; the header owns Apply once it exists.
+          generated_cv && !application ? (
+            <Button
+              variant="primary"
+              onClick={() => applyMutation.mutate()}
+              disabled={applyMutation.isPending}
+            >
+              <Send className="size-4" />
+              {applyMutation.isPending ? "Applying…" : "Apply"}
+            </Button>
+          ) : application ? (
+            <Badge variant="default" className="px-3 py-1.5 text-sm">
+              Applied
+            </Badge>
+          ) : undefined
         }
       />
 
@@ -215,40 +203,36 @@ export default function JobDetailPage({
             href={job.url}
             target="_blank"
             rel="noreferrer"
-            className="text-sm text-coffee-500 underline underline-offset-4 hover:text-coffee-700"
+            className="inline-flex items-center gap-1 text-sm text-coffee-500 underline underline-offset-4 hover:text-coffee-700"
           >
             View original posting
+            <ExternalLink className="size-3.5" />
           </a>
         )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          {/* JD */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Job description</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {job.jd_text || job.description ? (
-                <p className="whitespace-pre-wrap text-[0.95rem] leading-relaxed text-coffee-700">
-                  {job.jd_text ?? job.description}
-                </p>
-              ) : (
-                <p className="text-coffee-300">
-                  No job description on file for this role.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+        {/* The résumé is the workspace — centre stage. */}
+        <div className="lg:col-span-2">
+          <ResumeHero
+            id={id}
+            company={job.company}
+            status={job.status}
+            hasApplication={Boolean(application)}
+            generatedCv={generated_cv}
+            generating={generateMutation.isPending}
+            onGenerate={() => generateMutation.mutate(false)}
+          />
+        </div>
 
-          {/* ATS */}
+        {/* Everything else supports the document, in a context rail. */}
+        <div className="space-y-6">
+          {/* Ready to apply? */}
           <Card>
             <CardHeader>
               <CardTitle>Ready to apply?</CardTitle>
               <CardDescription>
-                Whether this tailored CV is ready for the role — and what would make
-                it readier.
+                Whether this résumé is ready — and what would make it readier.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -258,6 +242,86 @@ export default function JobDetailPage({
                 score={generated_cv?.ats_score ?? null}
                 breakdown={generated_cv?.ats_breakdown ?? null}
               />
+            </CardContent>
+          </Card>
+
+          {/* Job description (collapsible — the document, not the JD, leads) */}
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <CardTitle>Job description</CardTitle>
+              {jdText && (
+                <button
+                  type="button"
+                  onClick={() => setJdOpen((o) => !o)}
+                  className="text-xs text-coffee-500 hover:text-coffee-700"
+                >
+                  {jdOpen ? "Collapse" : "Expand"}
+                </button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {jdText ? (
+                <p
+                  className={cn(
+                    "whitespace-pre-wrap text-sm leading-relaxed text-coffee-700",
+                    !jdOpen && "line-clamp-6",
+                  )}
+                >
+                  {jdText}
+                </p>
+              ) : (
+                <p className="text-coffee-300">No job description on file.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Cover letter (the CV is the hero; the cover lives here) */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Cover letter</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DocRow
+                label="Cover letter"
+                href={cover_letter?.download_url ?? null}
+                onPreview={(u) =>
+                  setPreview({ url: u, title: `Cover letter — ${job.company}` })
+                }
+              />
+            </CardContent>
+          </Card>
+
+          {/* Status */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Status</CardTitle>
+              <CardDescription>
+                Update after applying, interviewing, or hearing back.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <StatusCell job={job} jobDetailId={id} />
+            </CardContent>
+          </Card>
+
+          {/* Track override */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Track</CardTitle>
+              <CardDescription>Override the classified track.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select
+                value={job.track}
+                disabled={trackMutation.isPending}
+                onChange={(e) => trackMutation.mutate(e.target.value as Track)}
+              >
+                {TRACKS.map((t) => (
+                  <option key={t} value={t}>
+                    {TRACK_LABELS[t]}
+                  </option>
+                ))}
+              </Select>
             </CardContent>
           </Card>
 
@@ -284,8 +348,8 @@ export default function JobDetailPage({
                 </p>
               )}
               {thread.length === 0 ? (
-                <p className="text-coffee-300">
-                  No messages yet. Submit to start first-contact outreach.
+                <p className="text-sm text-coffee-300">
+                  No messages yet. Apply to start first-contact outreach.
                 </p>
               ) : (
                 <ol className="space-y-4">
@@ -297,9 +361,7 @@ export default function JobDetailPage({
                       <div className="mb-1 flex items-center justify-between gap-2 text-xs text-coffee-500">
                         <span>
                           <Badge
-                            variant={
-                              m.direction === "inbound" ? "default" : "muted"
-                            }
+                            variant={m.direction === "inbound" ? "default" : "muted"}
                           >
                             {m.direction === "inbound" ? "Reply" : "Sent"}
                           </Badge>{" "}
@@ -323,68 +385,6 @@ export default function JobDetailPage({
               )}
             </CardContent>
           </Card>
-        </div>
-
-        {/* Side column */}
-        <div className="space-y-6">
-          {/* Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>
-                Update manually after applying, interviewing, or hearing back.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <StatusCell job={job} jobDetailId={id} />
-            </CardContent>
-          </Card>
-
-          {/* Track override */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Track</CardTitle>
-              <CardDescription>Override the classified track.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Select
-                value={job.track}
-                disabled={trackMutation.isPending}
-                onChange={(e) =>
-                  trackMutation.mutate(e.target.value as Track)
-                }
-              >
-                {TRACKS.map((t) => (
-                  <option key={t} value={t}>
-                    {TRACK_LABELS[t]}
-                  </option>
-                ))}
-              </Select>
-            </CardContent>
-          </Card>
-
-          {/* Documents */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Documents</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <DocRow
-                label="Tailored CV"
-                href={generated_cv?.download_url ?? null}
-                onPreview={(u) =>
-                  setPreview({ url: u, title: `Tailored CV — ${job.company}` })
-                }
-              />
-              <DocRow
-                label="Cover letter"
-                href={cover_letter?.download_url ?? null}
-                onPreview={(u) =>
-                  setPreview({ url: u, title: `Cover letter — ${job.company}` })
-                }
-              />
-            </CardContent>
-          </Card>
 
           {/* Audit */}
           <Card>
@@ -397,7 +397,7 @@ export default function JobDetailPage({
             <CardContent>
               {!application ? (
                 <p className="text-sm text-coffee-300">
-                  No application yet, generate to create one.
+                  No application yet — apply to create one.
                 </p>
               ) : audit.isLoading ? (
                 <div className="space-y-2">
@@ -427,6 +427,103 @@ export default function JobDetailPage({
         </div>
       </div>
     </div>
+  );
+}
+
+/** The tailored résumé, centre stage: the rendered document when generated, or the
+ *  Generate call-to-action when not. Editing is a click away in the LaTeX builder. */
+function ResumeHero({
+  id,
+  company,
+  status,
+  hasApplication,
+  generatedCv,
+  generating,
+  onGenerate,
+}: {
+  id: string;
+  company: string;
+  status: string;
+  hasApplication: boolean;
+  generatedCv: GeneratedCv | null;
+  generating: boolean;
+  onGenerate: () => void;
+}) {
+  const docUrl = generatedCv?.download_url
+    ? absoluteApiUrl(generatedCv.download_url)
+    : null;
+  // A CV exists but the job never reached "ready" (e.g. render fell back / no compiler):
+  // don't present a possibly-blank document as final.
+  const notFullyRendered =
+    Boolean(generatedCv) &&
+    !hasApplication &&
+    status !== "ready" &&
+    status !== "submitted";
+
+  return (
+    <Card className="flex min-h-[78vh] flex-col">
+      <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+        <CardTitle>Tailored résumé</CardTitle>
+        {generatedCv && (
+          <div className="flex shrink-0 items-center gap-2">
+            <Link href={`/jobs/${id}/builder`}>
+              <Button variant="secondary" size="sm">
+                <Pencil className="size-4" />
+                Edit
+              </Button>
+            </Link>
+            {docUrl && (
+              <a href={docUrl} target="_blank" rel="noreferrer noopener">
+                <Button variant="ghost" size="sm">
+                  <ExternalLink className="size-4" />
+                  Open
+                </Button>
+              </a>
+            )}
+          </div>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col">
+        {!generatedCv ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-md border border-dashed border-coffee-200 p-8 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-coffee-100 text-coffee-500">
+              <FileText className="size-6" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-base font-medium text-coffee-900">
+                Your tailored résumé will appear here
+              </p>
+              <p className="mx-auto max-w-sm text-sm text-coffee-500">
+                Generate a truth-bounded CV for this role — rendered into your LaTeX
+                template — then review it and apply.
+              </p>
+            </div>
+            <Button variant="accent" onClick={onGenerate} disabled={generating}>
+              <Sparkles className="size-4" />
+              {generating ? "Generating…" : "Generate résumé"}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col gap-3">
+            {notFullyRendered && (
+              <p className="rounded-md border border-status-interviewed/40 bg-status-interviewed/5 px-3 py-2 text-sm text-coffee-800">
+                This résumé couldn&apos;t be fully rendered yet — open the builder to
+                fix and recompile it.
+              </p>
+            )}
+            {docUrl ? (
+              <iframe
+                src={docUrl}
+                title={`Tailored résumé — ${company}`}
+                className="h-full min-h-[68vh] w-full rounded-md border border-coffee-200 bg-white"
+              />
+            ) : (
+              <p className="text-sm text-coffee-300">Rendering…</p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
