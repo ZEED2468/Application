@@ -22,6 +22,7 @@ import type { MeResponse } from "@jd/shared-types";
 import { authService } from "@/lib/api/services";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OnboardingLauncher } from "@/components/onboarding-launcher";
 
@@ -52,7 +53,7 @@ function navFor(me?: MeResponse): NavGroup[] {
     },
   ];
 
-  // The VA queue is a VA's worklist — hunters monitor progress on the Tracker instead.
+  // The VA queue is a VA's worklist — hunters watch progress in Jobs → Submitted.
   if (isVa) {
     groups.push({
       label: "Assist",
@@ -163,6 +164,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const groups = React.useMemo(() => navFor(me), [me]);
   const isJobsTracker = pathname === "/jobs";
+  const closeMobile = React.useCallback(() => setMobileOpen(false), []);
+  const drawerRef = useFocusTrap<HTMLElement>(mobileOpen, closeMobile);
 
   // Close the mobile drawer whenever the route changes.
   React.useEffect(() => {
@@ -192,14 +195,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true">
           <div
             className="absolute inset-0 bg-coffee-900/40"
-            onClick={() => setMobileOpen(false)}
+            onClick={closeMobile}
           />
-          <aside className="absolute left-0 top-0 flex h-full w-64 flex-col border-r border-coffee-300 bg-white px-4 py-6 shadow-xl">
+          <aside
+            ref={drawerRef}
+            tabIndex={-1}
+            className="absolute left-0 top-0 flex h-full w-64 flex-col border-r border-coffee-300 bg-white px-4 py-6 shadow-xl outline-none"
+          >
             <div className="flex items-start justify-between">
               <BrandLink />
               <button
                 type="button"
-                onClick={() => setMobileOpen(false)}
+                onClick={closeMobile}
                 aria-label="Close menu"
                 className="rounded-md p-1 text-coffee-500 hover:bg-coffee-100"
               >
@@ -210,7 +217,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SidebarNav
                 groups={groups}
                 pathname={pathname}
-                onNavigate={() => setMobileOpen(false)}
+                onNavigate={closeMobile}
               />
             </div>
           </aside>
