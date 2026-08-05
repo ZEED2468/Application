@@ -91,7 +91,7 @@ export default function StandaloneBuilderPage() {
         className="inline-flex items-center gap-1.5 text-sm text-coffee-500 hover:text-coffee-700"
       >
         <ArrowLeft className="size-4" />
-        Back to ATS Checker
+        Back to Tailor
       </Link>
 
       <PageHeading
@@ -114,7 +114,7 @@ export default function StandaloneBuilderPage() {
       {ready && !payload?.track ? (
         <p className="rounded-md border border-coffee-200 bg-coffee-100/50 px-4 py-3 text-sm text-coffee-700">
           Run an ATS check first, then click “Regenerate CV” to land here with your
-          recommendations. <Link href="/ats-checker" className="underline">Open ATS Checker</Link>.
+          recommendations. <Link href="/ats-checker" className="underline">Open Tailor</Link>.
         </p>
       ) : (
         <>

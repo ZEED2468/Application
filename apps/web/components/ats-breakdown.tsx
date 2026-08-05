@@ -244,7 +244,7 @@ export function AtsBreakdown({
             href={detailsHref}
             className="inline-flex items-center gap-1 text-sm text-coffee-600 underline underline-offset-2 hover:text-coffee-900"
           >
-            See the full keyword analysis on the ATS Checker
+            See the full keyword analysis in Tailor
             <ArrowRight className="size-3.5" />
           </Link>
         )}
