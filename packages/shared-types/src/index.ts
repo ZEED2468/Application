@@ -758,6 +758,15 @@ export interface ChatGenerateResult {
   job_id: string;
 }
 
+/** Response from POST /api/jobs/{id}/generate. status "rejected" (with no
+ *  generated_cv_id) means the job scored below the relevance bar — retry with force. */
+export interface GenerateResponse {
+  job_id: string;
+  status: string;
+  generated_cv_id?: string | null;
+  pdf_url?: string | null;
+}
+
 /** Result of the VA's Apply action on a job. */
 export interface ApplyResult {
   application_id: string;

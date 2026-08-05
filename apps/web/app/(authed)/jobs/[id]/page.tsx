@@ -81,10 +81,23 @@ export default function JobDetailPage({
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => jobsService.generate(id),
-    onSuccess: () => {
-      toast.success("Generation started, refreshing");
+    mutationFn: (force: boolean) => jobsService.generate(id, force),
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
+      // The relevance prefilter skipped it as a low match — say so, and let the user
+      // override instead of silently doing nothing.
+      if (res.status === "rejected" && !res.generated_cv_id) {
+        toast.error("Skipped — low match for your profile", {
+          description:
+            "This job scored below the relevance bar, so nothing was generated. Generate it anyway?",
+          action: {
+            label: "Generate anyway",
+            onClick: () => generateMutation.mutate(true),
+          },
+        });
+      } else {
+        toast.success("Tailored CV generated.");
+      }
     },
     onError: (err) => toastApiError(err),
   });
@@ -157,7 +170,7 @@ export default function JobDetailPage({
             {!generated_cv ? (
               <Button
                 variant="accent"
-                onClick={() => generateMutation.mutate()}
+                onClick={() => generateMutation.mutate(false)}
                 disabled={generateMutation.isPending}
               >
                 <Sparkles className="size-4" />

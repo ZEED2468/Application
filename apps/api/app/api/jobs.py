@@ -402,6 +402,7 @@ async def override_track(
 @router.post("/{job_id}/generate", response_model=GenerateResponse)
 async def generate(
     job_id: UUID,
+    force: bool = False,
     principal: Principal = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> GenerateResponse:
@@ -417,7 +418,8 @@ async def generate(
     if profile is None:
         raise ConflictError(f"No master profile for track '{track.value}'")
     job = await service.score_relevance(session, job=job, profile=profile)
-    if job.status is JobStatus.rejected:
+    if job.status is JobStatus.rejected and not force:
+        # Below the relevance bar. The user's explicit generate can override (force=true).
         return GenerateResponse(job_id=job.id, status=job.status)
     # Idempotent: if a CV was already generated for this job, return it rather than
     # regenerating — a second cover-letter insert would violate uq_cover_letter_job.

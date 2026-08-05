@@ -1,6 +1,7 @@
 import type {
   ApplyResult,
   DiscoverReport,
+  GenerateResponse,
   JobDetail,
   JobOut,
   Origin,
@@ -106,8 +107,9 @@ export const jobsService = {
     await api.patch(path(`/api/jobs/${id}/track`), { json: { track } });
   },
 
-  async generate(id: string): Promise<void> {
-    await api.post(path(`/api/jobs/${id}/generate`));
+  async generate(id: string, force = false): Promise<GenerateResponse> {
+    const qs = force ? "?force=true" : "";
+    return api.post(path(`/api/jobs/${id}/generate${qs}`)).json<GenerateResponse>();
   },
 
   async submit(id: string): Promise<void> {
