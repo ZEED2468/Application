@@ -69,7 +69,7 @@ function KeywordChips({
   tone: "matched" | "missing";
 }) {
   if (items.length === 0) {
-    return <p className="text-sm text-coffee-300">None</p>;
+    return <p className="text-sm text-coffee-400">None</p>;
   }
   return (
     <div className="flex flex-wrap gap-1.5">
@@ -221,7 +221,7 @@ export function AtsBreakdown({
 }) {
   if (!breakdown) {
     return (
-      <p className="text-sm text-coffee-300">
+      <p className="text-sm text-coffee-400">
         No breakdown available yet — generate the tailored CV to compute the ATS
         match.
       </p>

@@ -103,7 +103,7 @@ export function DataTable<T>({
           <TableRow className="hover:bg-transparent">
             <TableCell colSpan={columns.length} className="py-12 text-center">
               {emptyState ?? (
-                <span className="text-coffee-300">Nothing here yet.</span>
+                <span className="text-coffee-400">Nothing here yet.</span>
               )}
             </TableCell>
           </TableRow>

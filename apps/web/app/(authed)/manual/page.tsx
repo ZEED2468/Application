@@ -268,7 +268,7 @@ export default function ManualPage() {
                     )}
                   </div>
                 ) : (
-                  <p className="text-coffee-300">
+                  <p className="text-coffee-400">
                     No CV matched yet, add source CV files on your Profile page.
                   </p>
                 )}

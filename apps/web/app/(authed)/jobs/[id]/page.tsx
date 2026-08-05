@@ -271,7 +271,7 @@ export default function JobDetailPage({
                   {jdText}
                 </p>
               ) : (
-                <p className="text-coffee-300">No job description on file.</p>
+                <p className="text-coffee-400">No job description on file.</p>
               )}
             </CardContent>
           </Card>
@@ -349,7 +349,7 @@ export default function JobDetailPage({
                 </p>
               )}
               {thread.length === 0 ? (
-                <p className="text-sm text-coffee-300">
+                <p className="text-sm text-coffee-400">
                   No messages yet. Apply to start first-contact outreach.
                 </p>
               ) : (
@@ -397,7 +397,7 @@ export default function JobDetailPage({
             </CardHeader>
             <CardContent>
               {!application ? (
-                <p className="text-sm text-coffee-300">
+                <p className="text-sm text-coffee-400">
                   No application yet — apply to create one.
                 </p>
               ) : audit.isLoading ? (
@@ -406,7 +406,7 @@ export default function JobDetailPage({
                   <Skeleton className="h-4 w-3/4" />
                 </div>
               ) : (audit.data?.length ?? 0) === 0 ? (
-                <p className="text-sm text-coffee-300">No events recorded.</p>
+                <p className="text-sm text-coffee-400">No events recorded.</p>
               ) : (
                 <ol className="space-y-3">
                   {audit.data!.map((ev) => (
@@ -414,7 +414,7 @@ export default function JobDetailPage({
                       <span className="mt-1.5 size-2 shrink-0 rounded-full bg-coffee-300" />
                       <div>
                         <p className="text-sm text-coffee-900">{ev.message}</p>
-                        <p className="text-xs text-coffee-300">
+                        <p className="text-xs text-coffee-400">
                           {ev.type} · {formatDateTime(ev.created_at)}
                           {ev.actor ? ` · ${ev.actor}` : ""}
                         </p>
@@ -551,7 +551,7 @@ function ResumeHero({
                 className="h-full min-h-[68vh] w-full rounded-md border border-coffee-200 bg-white"
               />
             ) : (
-              <p className="text-sm text-coffee-300">Rendering…</p>
+              <p className="text-sm text-coffee-400">Rendering…</p>
             )}
           </div>
         )}
@@ -583,7 +583,7 @@ function JobStepper({ current }: { current: number }) {
               "inline-flex items-center gap-1 rounded-full px-2.5 py-1",
               i < current && "bg-coffee-100 text-coffee-500",
               i === current && "bg-coffee-700 font-medium text-cream",
-              i > current && "border border-coffee-100 text-coffee-300",
+              i > current && "border border-coffee-100 text-coffee-400",
             )}
           >
             {i < current && <Check className="size-3" />}
@@ -608,11 +608,11 @@ function DocRow({
   if (!href) {
     return (
       <div className="flex items-center justify-between rounded-md border border-coffee-100 px-3 py-2.5">
-        <span className="flex items-center gap-2 text-sm text-coffee-300">
+        <span className="flex items-center gap-2 text-sm text-coffee-400">
           <FileText className="size-4" />
           {label}
         </span>
-        <span className="text-xs text-coffee-300">Not generated</span>
+        <span className="text-xs text-coffee-400">Not generated</span>
       </div>
     );
   }

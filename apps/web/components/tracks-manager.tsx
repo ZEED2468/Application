@@ -104,7 +104,7 @@ export function TracksManager() {
         {tracksQuery.isLoading ? (
           <p className="text-sm text-coffee-400">Loading tracks…</p>
         ) : active.length === 0 ? (
-          <p className="text-sm text-coffee-300">
+          <p className="text-sm text-coffee-400">
             No tracks yet — create one below to get started.
           </p>
         ) : (

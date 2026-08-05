@@ -91,7 +91,7 @@ function BrandLink() {
       <p className="text-xl font-semibold tracking-tight text-coffee-900">
         The Outreach Desk
       </p>
-      <p className="text-xs uppercase tracking-[0.18em] text-coffee-300">
+      <p className="text-xs uppercase tracking-[0.18em] text-coffee-400">
         Application engine
       </p>
     </Link>
@@ -116,7 +116,7 @@ function SidebarNav({
           className={cn("flex flex-col gap-1", !group.label && "mt-auto")}
         >
           {group.label && (
-            <p className="px-3 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-coffee-300">
+            <p className="px-3 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-coffee-400">
               {group.label}
             </p>
           )}

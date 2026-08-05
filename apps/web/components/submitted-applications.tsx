@@ -55,7 +55,7 @@ export function SubmittedApplications() {
       className: "text-right tabular-nums",
       cell: (a) =>
         a.ats_score == null ? (
-          <span className="text-coffee-300">—</span>
+          <span className="text-coffee-400">—</span>
         ) : (
           <span className="font-medium text-coffee-900">
             {Math.round(a.ats_score)}
@@ -69,7 +69,7 @@ export function SubmittedApplications() {
       className: "text-right tabular-nums",
       cell: (a) =>
         a.relevance_score == null ? (
-          <span className="text-coffee-300">—</span>
+          <span className="text-coffee-400">—</span>
         ) : (
           <span>{Math.round(a.relevance_score * 100)}%</span>
         ),
@@ -87,7 +87,7 @@ export function SubmittedApplications() {
       cell: (a) => (
         <div className="text-sm text-coffee-700">
           {a.va_name ?? "—"}
-          <div className="text-xs text-coffee-300">
+          <div className="text-xs text-coffee-400">
             {a.submitted_at ? formatDateTime(a.submitted_at) : ""}
           </div>
         </div>
@@ -102,7 +102,7 @@ export function SubmittedApplications() {
             <ShieldCheck className="size-3.5" /> Verified
           </span>
         ) : (
-          <span className="text-xs text-coffee-300">Unconfirmed</span>
+          <span className="text-xs text-coffee-400">Unconfirmed</span>
         ),
     },
     {

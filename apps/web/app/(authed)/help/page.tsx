@@ -133,7 +133,7 @@ export default function HelpPage() {
                       {s.completed ? (
                         <CheckCircle2 className="size-4 text-status-offer" />
                       ) : (
-                        <Circle className="size-4 text-coffee-300" />
+                        <Circle className="size-4 text-coffee-400" />
                       )}
                       <span className={s.completed ? "line-through text-coffee-400" : ""}>
                         {s.label}

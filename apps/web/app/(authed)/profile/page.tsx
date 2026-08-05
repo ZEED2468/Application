@@ -255,7 +255,7 @@ export default function ProfilePage() {
               </a>
             </span>
           ) : (
-            <span className="text-sm text-coffee-300">No file uploaded yet</span>
+            <span className="text-sm text-coffee-400">No file uploaded yet</span>
           )}
         </div>
         <label className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-md border border-coffee-300 px-3 py-1.5 text-sm text-coffee-700 transition-colors hover:bg-coffee-100">
@@ -298,7 +298,7 @@ export default function ProfilePage() {
                 {previewText}
               </p>
             ) : (
-              <p className="text-sm text-coffee-300">
+              <p className="text-sm text-coffee-400">
                 Your preview appears here as you type or upload a file.
               </p>
             )}
@@ -594,7 +594,7 @@ function StepIndicator({ stepIndex }: { stepIndex: number }) {
                   ? "border-status-offer bg-status-offer text-white"
                   : current
                     ? "border-coffee-700 text-coffee-800"
-                    : "border-coffee-200 text-coffee-300",
+                    : "border-coffee-200 text-coffee-400",
               )}
             >
               {done ? <Check className="size-3" /> : i + 1}
@@ -605,7 +605,7 @@ function StepIndicator({ stepIndex }: { stepIndex: number }) {
                   ? "text-coffee-500"
                   : current
                     ? "font-medium text-coffee-800"
-                    : "text-coffee-300",
+                    : "text-coffee-400",
               )}
             >
               {s}

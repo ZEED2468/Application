@@ -699,7 +699,7 @@ function ChipRow({
           ))}
         </div>
       ) : (
-        <p className="text-sm text-coffee-300">{empty ?? "None"}</p>
+        <p className="text-sm text-coffee-400">{empty ?? "None"}</p>
       )}
     </div>
   );

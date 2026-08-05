@@ -21,7 +21,7 @@ export function EmptyState({
         className,
       )}
     >
-      {icon && <div className="text-coffee-300">{icon}</div>}
+      {icon && <div className="text-coffee-400">{icon}</div>}
       <div className="space-y-1">
         <p className="text-base font-medium text-coffee-900">{title}</p>
         {description && (

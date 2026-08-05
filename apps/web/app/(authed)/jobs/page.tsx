@@ -259,7 +259,7 @@ export default function JobsPage() {
             {job.company}
           </div>
           {job.location && (
-            <div className="truncate text-xs text-coffee-300" title={job.location}>
+            <div className="truncate text-xs text-coffee-400" title={job.location}>
               {job.location}
             </div>
           )}
@@ -313,7 +313,7 @@ export default function JobsPage() {
       className: "align-top text-right tabular-nums",
       cell: (job) =>
         job.ats_score === null ? (
-          <span className="text-coffee-300">—</span>
+          <span className="text-coffee-400">—</span>
         ) : (
           <span className="font-medium text-coffee-900">{job.ats_score}</span>
         ),
