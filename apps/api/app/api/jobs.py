@@ -364,6 +364,9 @@ async def update_job_application_status(
             submitted_at=datetime.now(timezone.utc),
         )
         session.add(app)
+        # Flush so the new application gets its id BEFORE we log the creation event —
+        # record_event snapshots application.id, which is null until the insert.
+        await session.flush()
         if job.status in (JobStatus.ready, JobStatus.scored):
             job.status = JobStatus.submitted
         app_repo.record_event(

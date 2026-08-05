@@ -19,6 +19,7 @@ from app.core.enums import JobSourceName, JobStatus, Origin, ParseStatus, Track,
 from app.db import get_session
 from app.main import app
 from app.models import Base
+from app.models.application_event import ApplicationEvent
 from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
 from app.models.latex_template import LatexTemplate
@@ -86,6 +87,29 @@ async def _seed_job(maker, uid, *, dedupe="dk-latex") -> UUID:
         job_id = job.id
         await s.commit()
         return job_id
+
+
+@pytest.mark.asyncio
+async def test_application_status_creates_application_without_null_event(ctx):
+    """Marking a never-tracked job 'applied' creates the Application and logs its
+    creation event — the event must carry a real application_id (regression: it was
+    recorded before the flush, so application_id was NULL and the insert 500'd)."""
+    client, maker = ctx
+    uid = await _login(client)
+    job_id = await _seed_job(maker, uid)
+
+    r = await client.patch(
+        f"/api/jobs/{job_id}/application-status", json={"status": "applied"}
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["application_status"] == "applied"
+    assert body["application_id"] is not None
+
+    async with maker() as s:
+        events = (await s.execute(select(ApplicationEvent))).scalars().all()
+    assert events, "creation event should be recorded"
+    assert all(e.application_id is not None for e in events)
 
 
 @pytest.mark.asyncio
