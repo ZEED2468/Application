@@ -19,7 +19,8 @@ import type {
   Track,
 } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
-import { atsService, jobsService } from "@/lib/api/services";
+import Link from "next/link";
+import { atsService, jobsService, readinessService } from "@/lib/api/services";
 import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
@@ -63,7 +64,6 @@ export default function AtsCheckerPage() {
   const [cvText, setCvText] = React.useState("");
   const [roleTitle, setRoleTitle] = React.useState("");
   const [cvFile, setCvFile] = React.useState<File | null>(null);
-  const [useAi, setUseAi] = React.useState(true);
   const [result, setResult] = React.useState<AtsCheckResult | null>(null);
   // Tracks whether the shown result was restored (from a job or the local cache) vs
   // freshly run — so we can label it honestly and offer a "start fresh" escape.
@@ -146,6 +146,14 @@ export default function AtsCheckerPage() {
     queryKey: queryKeys.atsSources,
     queryFn: () => atsService.sources(),
   });
+
+  // Whether the AI layer can actually run — the same signal the setup checklist uses.
+  const readinessQuery = useQuery({
+    queryKey: queryKeys.readiness,
+    queryFn: () => readinessService.get(),
+    staleTime: 60_000,
+  });
+  const aiAvailable = readinessQuery.data?.api_key_validated !== false;
 
   // When arriving from a job, pull the JD + the analysis already computed for its CV
   // so the checker opens with full context — no blank form, no re-run, no re-spend.
@@ -270,7 +278,6 @@ export default function AtsCheckerPage() {
         cvText: useProfileCv ? undefined : cvText,
         cvFile: useProfileCv ? undefined : cvFile,
         roleTitle: roleTitle || undefined,
-        useAi,
         jobId: jobId ?? undefined,
       }),
     onSuccess: (data) => {
@@ -308,7 +315,7 @@ export default function AtsCheckerPage() {
     <div className="space-y-6">
       <PageHeading
         title="Tailor"
-        description="Check any CV against any job description, then turn it into a tailored application. Uses your profile CV when uploaded, otherwise paste or upload — rule-based keyword match first, then optional AI review."
+        description="Check any CV against any job description, then turn it into a tailored application. Uses your profile CV when uploaded, otherwise paste or upload."
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -465,15 +472,25 @@ export default function AtsCheckerPage() {
 
       <Card>
         <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-coffee-700">
-            <input
-              type="checkbox"
-              checked={useAi}
-              onChange={(e) => setUseAi(e.target.checked)}
-              className="size-4 rounded border-coffee-300"
-            />
-            Include AI analysis (requires LLM on API)
-          </label>
+          {/* The AI review used to be an opt-in checkbox — a question about our
+              infrastructure that the user has no way to answer. It's simply on;
+              when no provider is configured we say so and still run the keyword scan. */}
+          <p className="text-sm text-coffee-500">
+            {aiAvailable ? (
+              <>Includes the AI review — gaps, false positives, and what to fix.</>
+            ) : (
+              <>
+                Keyword scan only —{" "}
+                <Link
+                  href="/settings"
+                  className="underline underline-offset-2 hover:text-coffee-700"
+                >
+                  add an AI provider key
+                </Link>{" "}
+                for the full review.
+              </>
+            )}
+          </p>
           <Button
             variant="accent"
             disabled={!canRun || check.isPending}
@@ -563,7 +580,7 @@ export default function AtsCheckerPage() {
               <CardHeader>
                 <CardTitle>Keyword match</CardTitle>
                 <CardDescription>
-                  Fast rule-based scan (same engine as Manual Apply).
+                  Fast rule-based scan — the same engine used when you generate.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -819,8 +836,11 @@ function ResumeIntelligencePanel({ intel }: { intel: ResumeIntelligence }) {
         {tab === "coaching" && (
           !a ? (
             <p className="text-sm text-coffee-500">
-              Enable “Include AI analysis” (and configure a provider) for tailored PAR/XYZ
-              bullet coaching and a summary rewrite.
+              Add an AI provider key on{" "}
+              <Link href="/settings" className="underline underline-offset-2">
+                Settings
+              </Link>{" "}
+              for tailored PAR/XYZ bullet coaching and a summary rewrite.
             </p>
           ) : (
             <div className="space-y-5">

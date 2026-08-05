@@ -26,6 +26,8 @@ import { TRACKS } from "@jd/shared-types";
 import {
   jobsService,
   applicationsService,
+  atsService,
+  latexService,
 } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
 import { toastApiError } from "@/lib/toast-error";
@@ -104,6 +106,36 @@ export default function JobDetailPage({
       }
     },
     onError: (err) => toastApiError(err),
+  });
+
+  // The cover letter used to be an information row that said "Not generated" and
+  // offered nothing — the only route to one was Edit → Regenerate → Cover tab →
+  // commit. This is that same pipeline behind one button, using the persisted ATS
+  // recommendations for the job (the editor already works exactly this way).
+  const coverMutation = useMutation({
+    mutationFn: async () => {
+      const job = data?.job;
+      if (!job) throw new Error("Job not loaded");
+      const recs = (await atsService.latestRecs(id)) ?? undefined;
+      const res = await latexService.regenerate({
+        job_id: id,
+        track: job.track as Track,
+        jd_text: job.jd_text ?? job.description ?? null,
+        role_title: job.role,
+        ats: recs,
+      });
+      if (!res.cover_latex?.trim()) {
+        throw new Error(
+          "No cover letter was produced — add a cover-letter template on your Profile.",
+        );
+      }
+      return jobsService.setCoverFromLatex(id, res.cover_latex);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
+      toast.success("Cover letter ready — preview it below.");
+    },
+    onError: (err) => toastApiError(err, "Couldn't generate the cover letter"),
   });
 
   const applyMutation = useMutation({
@@ -278,17 +310,40 @@ export default function JobDetailPage({
 
           {/* Cover letter (the CV is the hero; the cover lives here) */}
           <Card>
-            <CardHeader>
+            <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
               <CardTitle>Cover letter</CardTitle>
+              {generated_cv && (
+                <Button
+                  variant={cover_letter ? "ghost" : "secondary"}
+                  size="sm"
+                  onClick={() => coverMutation.mutate()}
+                  disabled={coverMutation.isPending}
+                >
+                  <Sparkles className="size-4" />
+                  {coverMutation.isPending
+                    ? "Writing…"
+                    : cover_letter
+                      ? "Regenerate"
+                      : "Generate"}
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
-              <DocRow
-                label="Cover letter"
-                href={cover_letter?.download_url ?? null}
-                onPreview={(u) =>
-                  setPreview({ url: u, title: `Cover letter — ${job.company}` })
-                }
-              />
+              {cover_letter ? (
+                <DocRow
+                  label="Cover letter"
+                  href={cover_letter.download_url ?? null}
+                  onPreview={(u) =>
+                    setPreview({ url: u, title: `Cover letter — ${job.company}` })
+                  }
+                />
+              ) : (
+                <p className="text-sm text-coffee-500">
+                  {generated_cv
+                    ? "Tailored to this job from your template and the same analysis behind the résumé."
+                    : "Generate the résumé first — the cover letter is written from the same analysis."}
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -567,7 +622,7 @@ function BackLink() {
       className="inline-flex items-center gap-1.5 text-sm text-coffee-500 hover:text-coffee-700"
     >
       <ArrowLeft className="size-4" />
-      Back to tracker
+      Back to jobs
     </Link>
   );
 }
