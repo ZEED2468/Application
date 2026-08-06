@@ -56,6 +56,13 @@ const JOBS_CACHE_KEY = "jd_jobs_cache_v2";
 const PAGE_SIZE = 25;
 const MAX_FETCH = 500;
 
+// "Added within" presets for the date filter, in milliseconds (matched against created_at).
+const PRESET_MS: Record<string, number> = {
+  "24h": 864e5,
+  "7d": 7 * 864e5,
+  "30d": 30 * 864e5,
+};
+
 interface CachedJobs {
   data: Paginated<JobOut>;
   savedAt: number;
@@ -139,13 +146,27 @@ export default function JobsPage() {
     setSelectedTracks((prev) => [...prev, trimmed]);
   };
 
+  // Status + origin filters for the existing-jobs list.
   const [filter, setFilter] = React.useState<JobsFilter>(() => ({
     status: (initialParams.get("status") ?? "") as TrackerStatus | "",
     track: "",
-    tracks: readList(initialParams, "tracks"),
-    experience_levels: readList(initialParams, "levels"),
+    tracks: [],
+    experience_levels: [],
     origin: (initialParams.get("origin") ?? "") as Origin | "",
   }));
+  // Dedicated filters for the EXISTING jobs list — independent of the discovery pickers
+  // above (which drive the search request). Search + track + level + date all combine
+  // (AND) with status/origin in the `filtered` memo below. URL keys are namespaced
+  // (q / ftracks / flevels / date) so they don't collide with discovery's tracks/levels.
+  const [q, setQ] = React.useState(() => initialParams.get("q") ?? "");
+  const qDebounced = useDebounced(q, 250);
+  const [filterTracks, setFilterTracks] = React.useState<string[]>(() =>
+    readList(initialParams, "ftracks"),
+  );
+  const [filterLevels, setFilterLevels] = React.useState<string[]>(() =>
+    readList(initialParams, "flevels"),
+  );
+  const [datePreset, setDatePreset] = React.useState(() => initialParams.get("date") ?? "");
   const [preview, setPreview] = React.useState<{ url: string; title: string } | null>(
     null,
   );
@@ -198,6 +219,12 @@ export default function JobsPage() {
     if (filter.origin) sp.set("origin", filter.origin);
     if (selectedTracks.length) sp.set("tracks", selectedTracks.join(","));
     if (selectedExpLevels.length) sp.set("levels", selectedExpLevels.join(","));
+    // Existing-jobs filters (namespaced so they don't collide with the discovery
+    // pickers' tracks/levels above).
+    if (qDebounced.trim()) sp.set("q", qDebounced.trim());
+    if (filterTracks.length) sp.set("ftracks", filterTracks.join(","));
+    if (filterLevels.length) sp.set("flevels", filterLevels.join(","));
+    if (datePreset) sp.set("date", datePreset);
     // Only the user's own wording is worth a URL — the profile seed is re-derived
     // on every load, so echoing it back would just make landing on /jobs noisy.
     const roles = searchRoles.trim();
@@ -213,6 +240,10 @@ export default function JobsPage() {
     filter.origin,
     selectedTracks,
     selectedExpLevels,
+    qDebounced,
+    filterTracks,
+    filterLevels,
+    datePreset,
     searchRoles,
     profileRoles,
     page,
@@ -225,17 +256,15 @@ export default function JobsPage() {
   const mounted = React.useRef(false);
 
   React.useEffect(() => {
-    setFilter((f) => ({
-      ...f,
-      tracks: selectedTracks,
-      experience_levels: selectedExpLevels,
-    }));
     if (mounted.current) setPage(1);
-  }, [selectedTracks, selectedExpLevels]);
-
-  React.useEffect(() => {
-    if (mounted.current) setPage(1);
-  }, [filter.status, filter.track, filter.origin]);
+  }, [
+    filter.status,
+    filter.origin,
+    filterTracks,
+    filterLevels,
+    qDebounced,
+    datePreset,
+  ]);
 
   React.useEffect(() => {
     mounted.current = true;
@@ -268,32 +297,53 @@ export default function JobsPage() {
     initialDataUpdatedAt: cachedOnMount?.savedAt,
   });
 
-  // Client-side filtering (no server round-trip when filters change).
+  // Client-side filtering (no server round-trip when filters change). Every active
+  // filter narrows with AND: status, origin, track, level, free-text search over
+  // company/role, and "added within" (created_at).
   const filtered = React.useMemo(() => {
     const items = all?.items ?? [];
+    const needle = qDebounced.trim().toLowerCase();
+    const tracksLc = filterTracks.map((t) => t.toLowerCase());
+    const cutoff =
+      datePreset && PRESET_MS[datePreset] ? Date.now() - PRESET_MS[datePreset] : null;
     return items.filter((j) => {
       if (filter.status && j.application_status !== filter.status) return false;
       if (filter.origin && j.origin !== filter.origin) return false;
-      if (selectedTracks.length && !selectedTracks.includes(j.track as string)) return false;
+      if (tracksLc.length && !tracksLc.includes(String(j.track ?? "").toLowerCase()))
+        return false;
       if (
-        selectedExpLevels.length &&
-        !(j.experience_level && selectedExpLevels.includes(j.experience_level))
+        filterLevels.length &&
+        !(j.experience_level && filterLevels.includes(j.experience_level))
       )
         return false;
+      if (needle && !`${j.company} ${j.role}`.toLowerCase().includes(needle)) return false;
+      if (cutoff !== null) {
+        const t = j.created_at ? new Date(j.created_at).getTime() : NaN;
+        if (Number.isNaN(t) || t < cutoff) return false;
+      }
       return true;
     });
-  }, [all, filter.status, filter.origin, selectedTracks, selectedExpLevels]);
+  }, [all, filter.status, filter.origin, filterTracks, filterLevels, qDebounced, datePreset]);
 
   const total = filtered.length;
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const hasActiveFilter = Boolean(
-    filter.status || filter.origin || selectedTracks.length || selectedExpLevels.length,
+    filter.status ||
+      filter.origin ||
+      filterTracks.length ||
+      filterLevels.length ||
+      q.trim() ||
+      datePreset,
   );
+  // Clears the existing-jobs filter bar only — the discovery pickers (which drive the
+  // next search) are independent. Also called after a search so fresh results show.
   const clearFilters = () => {
-    setFilter({ status: "", track: "", origin: "", tracks: [], experience_levels: [] });
-    setSelectedTracks([]);
-    setSelectedExpLevels([]);
+    setFilter((f) => ({ ...f, status: "", origin: "" }));
+    setFilterTracks([]);
+    setFilterLevels([]);
+    setQ("");
+    setDatePreset("");
   };
 
   // The broad fetch is capped at MAX_FETCH newest rows; if the server holds more,
@@ -615,6 +665,47 @@ export default function JobsPage() {
       ) : (
       <>
       <div className="flex shrink-0 flex-wrap items-end gap-4 rounded-lg border border-coffee-300 bg-white px-4 py-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="jobs-search">Search</Label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-coffee-400" />
+            <Input
+              id="jobs-search"
+              placeholder="Company or role"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="h-9 w-56 pl-8 text-sm"
+            />
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Track</Label>
+          <MultiSelect
+            placeholder="All tracks"
+            selected={filterTracks}
+            options={[
+              { value: "frontend", label: "Frontend" },
+              { value: "backend", label: "Backend" },
+              { value: "general", label: "General" },
+              ...customTracks.map((ct) => ({ value: ct, label: ct })),
+            ]}
+            onChange={setFilterTracks}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Level</Label>
+          <MultiSelect
+            placeholder="All levels"
+            selected={filterLevels}
+            options={[
+              { value: "junior", label: "Junior" },
+              { value: "mid", label: "Mid" },
+              { value: "senior", label: "Senior" },
+              { value: "lead", label: "Lead" },
+            ]}
+            onChange={setFilterLevels}
+          />
+        </div>
         <FilterSelect
           label="Status"
           value={filter.status ?? ""}
@@ -635,6 +726,16 @@ export default function JobsPage() {
           options={[
             { value: "auto", label: "Auto" },
             { value: "manual", label: "Manual" },
+          ]}
+        />
+        <FilterSelect
+          label="Added"
+          value={datePreset}
+          onChange={setDatePreset}
+          options={[
+            { value: "24h", label: "Last 24 hours" },
+            { value: "7d", label: "Last 7 days" },
+            { value: "30d", label: "Last 30 days" },
           ]}
         />
         {hasActiveFilter && (
@@ -726,6 +827,17 @@ export default function JobsPage() {
       )}
     </div>
   );
+}
+
+/** Debounce a rapidly-changing value (e.g. the search box) so the client-side filter
+ *  doesn't re-run on every keystroke. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(value), ms);
+    return () => window.clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
 }
 
 function FilterSelect({
