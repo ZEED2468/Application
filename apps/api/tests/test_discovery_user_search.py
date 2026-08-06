@@ -9,13 +9,15 @@
 import pytest
 
 from app.config import settings
-from app.core.enums import Track, UserRole
+from app.core.enums import JobSourceName, Track, UserRole
+from app.llm.location_classify import is_appliable_from_nigeria
 from app.llm.track_classify import classify_rules
 from app.models.master_profile import MasterProfile
 from app.models.user import User
 from app.pipelines.apply import service
 from app.pipelines.apply.service import _decide_track
 from app.security import hash_password
+from app.sources.base import RawJob
 
 
 async def _seed(session, *, target_roles=None):
@@ -101,6 +103,79 @@ async def test_frontend_discovery_stores_frontend_track(session):
     )
     assert new_jobs, "fake frontend source should yield at least one job"
     assert all(j.track is Track.frontend for j in new_jobs)
+
+
+# --- Nigeria eligibility gate ---
+
+
+def test_nigeria_eligibility_keep_drop_matrix():
+    keep = [
+        ("Frontend Engineer", "Remote", ""),
+        ("Engineer", "Remote (worldwide)", ""),
+        ("Backend Engineer", "Lagos, Nigeria", ""),
+        ("Engineer", "Remote - Africa", ""),
+        ("Engineer", "", "Great team, generic description"),  # ambiguous → keep
+    ]
+    drop = [
+        ("Engineer", "New York, NY", "onsite role"),
+        ("Engineer", "London, UK", ""),
+        ("Engineer", "Berlin (hybrid)", ""),
+        ("Engineer", "Remote", "Remote (US only)"),
+        ("Engineer", "Remote", "You must be authorized to work in the UK"),
+        ("Engineer", "Remote", "US citizens only"),
+    ]
+    for t, l, d in keep:
+        assert is_appliable_from_nigeria(title=t, location=l, description=d), (l, d)
+    for t, l, d in drop:
+        assert not is_appliable_from_nigeria(title=t, location=l, description=d), (l, d)
+
+
+def _stub_two_jobs(monkeypatch):
+    """Monkeypatch discovery to yield one Nigeria-appliable job + one onsite-US job."""
+    remote = RawJob(
+        source=JobSourceName.greenhouse, source_job_id="ok", company="RemoteCo",
+        title="Backend Engineer", location="Remote - Africa", url="https://x/1",
+        description="Go microservices, remote across Africa.",
+    )
+    onsite_us = RawJob(
+        source=JobSourceName.greenhouse, source_job_id="no", company="USCo",
+        title="Backend Engineer", location="New York, NY", url="https://x/2",
+        description="Onsite in NYC. US citizens only.",
+    )
+
+    class _Stub:
+        name = JobSourceName.greenhouse
+
+        def supports(self, track):
+            return True
+
+        async def fetch(self, query):
+            yield remote
+            yield onsite_us
+
+    monkeypatch.setattr(service, "active_sources", lambda: [_Stub()])
+
+
+@pytest.mark.asyncio
+async def test_discovery_drops_ineligible_jobs(session, monkeypatch):
+    _stub_two_jobs(monkeypatch)
+    user, profile = await _seed(session, target_roles=["Backend Engineer"])
+    kept, _report = await service._run_sources(
+        session, user_id=user.id, profile=profile,
+        role_titles=["Backend Engineer"], cooldown=False,  # nigeria_only defaults True
+    )
+    assert {j.company for j in kept} == {"RemoteCo"}  # onsite-US dropped
+
+
+@pytest.mark.asyncio
+async def test_discovery_keeps_ineligible_when_gate_off(session, monkeypatch):
+    _stub_two_jobs(monkeypatch)
+    user, profile = await _seed(session, target_roles=["Backend Engineer"])
+    kept, _report = await service._run_sources(
+        session, user_id=user.id, profile=profile,
+        role_titles=["Backend Engineer"], cooldown=False, nigeria_only=False,
+    )
+    assert {j.company for j in kept} == {"RemoteCo", "USCo"}  # gate off → both kept
 
 
 @pytest.mark.asyncio

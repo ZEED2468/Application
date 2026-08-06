@@ -141,6 +141,8 @@ class DiscoverRequest(BaseModel):
     experience_levels: list[str] | None = None
     # Bypass the per-query cooldown for an explicit user-requested refresh.
     force: bool = False
+    # Keep only jobs a Nigeria-based candidate can actually apply to (default on).
+    nigeria_only: bool = True
 
 
 @router.post("/discover")
@@ -196,6 +198,7 @@ async def discover(
             selected_tracks=requested_tracks,
             selected_experience_levels=requested_levels,
             cooldown=not (body.force if body else False),
+            nigeria_only=(body.nigeria_only if body else True),
         )
         total += len(new_jobs)
         for r in report:

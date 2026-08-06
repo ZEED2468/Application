@@ -23,7 +23,7 @@ from app.events.contracts import (
     JobDiscovered,
     JobScored,
 )
-from app.llm import relevance, tailoring, track_classify, experience_classify
+from app.llm import relevance, tailoring, track_classify, experience_classify, location_classify
 from app.models.application import Application
 from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
@@ -161,6 +161,7 @@ async def _run_sources(
     selected_tracks: list[str] | None = None,
     selected_experience_levels: list[str] | None = None,
     cooldown: bool = True,
+    nigeria_only: bool = True,
     emit=_real_emit,
 ) -> tuple[list[Job], list[dict]]:
     """Run active sources for the hunter's track; dedupe-insert; emit job.discovered.
@@ -265,6 +266,15 @@ async def _run_sources(
                 job_exp = experience_classify.classify(title=raw.title, description=raw.description)
                 if selected_experience_levels and job_exp not in selected_experience_levels:
                     # Skip: job experience level does not match selected
+                    off_target += 1
+                    continue
+
+                # Eligibility: keep only jobs a Nigeria-based candidate can actually apply
+                # to (remote / worldwide / Africa / Nigeria + ambiguous); drop clear
+                # blockers (onsite abroad, "US only", foreign work authorization).
+                if nigeria_only and not location_classify.is_appliable_from_nigeria(
+                    title=raw.title, location=raw.location, description=raw.description
+                ):
                     off_target += 1
                     continue
 
