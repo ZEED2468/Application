@@ -1,4 +1,6 @@
-import Link from "next/link";
+"use client";
+
+import * as React from "react";
 import type { AtsBreakdown as AtsBreakdownType } from "@jd/shared-types";
 import {
   Check,
@@ -7,7 +9,7 @@ import {
   ShieldCheck,
   AlertCircle,
   TrendingUp,
-  ArrowRight,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -206,18 +208,62 @@ function MustHaves({ breakdown }: { breakdown: AtsBreakdownType }) {
   );
 }
 
+function KeywordDetails({
+  score,
+  breakdown,
+}: {
+  score: number | null;
+  breakdown: AtsBreakdownType;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const matched = breakdown.matched_keywords ?? [];
+  const missing = breakdown.missing_keywords ?? [];
+  if (matched.length === 0 && missing.length === 0) return null;
+  return (
+    <div className="border-t border-coffee-100 pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between text-sm text-coffee-600 hover:text-coffee-900"
+      >
+        <span>
+          Keyword breakdown
+          {score !== null ? ` · ${Math.round(score)}/100 match` : ""}
+        </span>
+        <ChevronDown
+          className={cn("size-4 transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
+              Matched
+            </p>
+            <KeywordChips items={matched} tone="matched" />
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
+              Missing
+            </p>
+            <KeywordChips items={missing} tone="missing" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AtsBreakdown({
   score,
   breakdown,
   variant = "full",
-  detailsHref,
 }: {
   score: number | null;
   breakdown: AtsBreakdownType | null;
-  /** "summary" = main flow (readiness state, not the machinery); "full" = the ATS
-   *  Checker, the one surface where the decomposition legitimately lives. */
+  /** "summary" = the workspace rail (readiness up top, keyword decomposition expandable
+   *  in place); "full" = always-expanded decomposition. */
   variant?: "full" | "summary";
-  detailsHref?: string;
 }) {
   if (!breakdown) {
     return (
@@ -233,21 +279,14 @@ export function AtsBreakdown({
   const hasCriticals =
     typeof breakdown.criticals_total === "number" && breakdown.criticals_total > 0;
 
-  // Main flow: answer "should I apply?" — the state, plus a link to the full analysis.
+  // Workspace rail: answer "should I apply?" up top, with the full keyword breakdown
+  // expandable in place — no bounce-out to another page.
   if (variant === "summary") {
     return (
       <div className="flex flex-col gap-4">
         <ReadinessBanner readiness={readiness} isReach={isReach} />
         {hasCriticals && <MustHaves breakdown={breakdown} />}
-        {detailsHref && (
-          <Link
-            href={detailsHref}
-            className="inline-flex items-center gap-1 text-sm text-coffee-600 underline underline-offset-2 hover:text-coffee-900"
-          >
-            See the full keyword analysis in Tailor
-            <ArrowRight className="size-3.5" />
-          </Link>
-        )}
+        <KeywordDetails score={score} breakdown={breakdown} />
       </div>
     );
   }

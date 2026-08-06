@@ -271,7 +271,6 @@ export default function JobDetailPage({
             <CardContent>
               <AtsBreakdown
                 variant="summary"
-                detailsHref={`/ats-checker?job_id=${id}`}
                 score={generated_cv?.ats_score ?? null}
                 breakdown={generated_cv?.ats_breakdown ?? null}
               />
