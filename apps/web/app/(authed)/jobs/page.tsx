@@ -546,6 +546,7 @@ export default function JobsPage() {
           </div>
         </div>
         {view === "pipeline" ? (
+        <div className="flex flex-col items-end gap-2">
         <div className="flex flex-wrap items-center gap-3">
           {/* Custom Track Input */}
           <div className="flex items-center gap-1.5">
@@ -596,37 +597,20 @@ export default function JobsPage() {
             onChange={setSelectedExpLevels}
           />
 
-          {/* Search roles — prefilled from the target roles on the profile, so the
-              common case is press-and-go rather than retype-what-we-already-know. */}
-          <div className="flex flex-col gap-0.5">
-            <Input
-              aria-label="Roles to search for"
-              placeholder="Search roles, e.g. Frontend Engineer, React Developer"
-              value={searchRoles}
-              onChange={(e) => setSearchRoles(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && roleList.length > 0 && !discover.isPending) {
-                  discover.mutate();
-                }
-              }}
-              className="h-8 w-64 text-sm"
-            />
-            {profileRoles.length > 0 ? (
-              <span className="text-xs text-coffee-400">
-                From your target roles ·{" "}
-                <Link href="/profile" className="underline underline-offset-2">
-                  edit
-                </Link>
-              </span>
-            ) : (
-              <span className="text-xs text-coffee-400">
-                <Link href="/profile" className="underline underline-offset-2">
-                  Add target roles
-                </Link>{" "}
-                to prefill this
-              </span>
-            )}
-          </div>
+          {/* Search roles — prefilled from the profile's target roles. The hint sits
+              below the toolbar (see caption) so it doesn't break this row's alignment. */}
+          <Input
+            aria-label="Roles to search for"
+            placeholder="Search roles, e.g. Frontend Engineer, React Developer"
+            value={searchRoles}
+            onChange={(e) => setSearchRoles(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && roleList.length > 0 && !discover.isPending) {
+                discover.mutate();
+              }
+            }}
+            className="h-8 w-64 text-sm"
+          />
 
           <Button
             variant="primary"
@@ -647,6 +631,22 @@ export default function JobsPage() {
             <Download className="size-4" />
             Export .xlsx
           </a>
+        </div>
+        {profileRoles.length > 0 ? (
+          <p className="text-xs text-coffee-400">
+            Search roles prefilled from your target roles ·{" "}
+            <Link href="/profile" className="underline underline-offset-2">
+              edit
+            </Link>
+          </p>
+        ) : (
+          <p className="text-xs text-coffee-400">
+            <Link href="/profile" className="underline underline-offset-2">
+              Add target roles
+            </Link>{" "}
+            to prefill the search
+          </p>
+        )}
         </div>
         ) : (
           <a
