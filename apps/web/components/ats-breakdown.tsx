@@ -1,6 +1,3 @@
-"use client";
-
-import * as React from "react";
 import type { AtsBreakdown as AtsBreakdownType } from "@jd/shared-types";
 import {
   Check,
@@ -9,7 +6,6 @@ import {
   ShieldCheck,
   AlertCircle,
   TrendingUp,
-  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -208,52 +204,6 @@ function MustHaves({ breakdown }: { breakdown: AtsBreakdownType }) {
   );
 }
 
-function KeywordDetails({
-  score,
-  breakdown,
-}: {
-  score: number | null;
-  breakdown: AtsBreakdownType;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const matched = breakdown.matched_keywords ?? [];
-  const missing = breakdown.missing_keywords ?? [];
-  if (matched.length === 0 && missing.length === 0) return null;
-  return (
-    <div className="border-t border-coffee-100 pt-3">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between text-sm text-coffee-600 hover:text-coffee-900"
-      >
-        <span>
-          Keyword breakdown
-          {score !== null ? ` · ${Math.round(score)}/100 match` : ""}
-        </span>
-        <ChevronDown
-          className={cn("size-4 transition-transform", open && "rotate-180")}
-        />
-      </button>
-      {open && (
-        <div className="mt-3 grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-              Matched
-            </p>
-            <KeywordChips items={matched} tone="matched" />
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-              Missing
-            </p>
-            <KeywordChips items={missing} tone="missing" />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function AtsBreakdown({
   score,
   breakdown,
@@ -279,14 +229,13 @@ export function AtsBreakdown({
   const hasCriticals =
     typeof breakdown.criticals_total === "number" && breakdown.criticals_total > 0;
 
-  // Workspace rail: answer "should I apply?" up top, with the full keyword breakdown
-  // expandable in place — no bounce-out to another page.
+  // Workspace rail: answer "should I apply?" — the readiness state + must-haves. The
+  // full keyword decomposition opens in the side-panel (variant="full").
   if (variant === "summary") {
     return (
       <div className="flex flex-col gap-4">
         <ReadinessBanner readiness={readiness} isReach={isReach} />
         {hasCriticals && <MustHaves breakdown={breakdown} />}
-        <KeywordDetails score={score} breakdown={breakdown} />
       </div>
     );
   }

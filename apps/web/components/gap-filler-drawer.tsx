@@ -8,46 +8,34 @@ import { jobsService } from "@/lib/api/services";
 import type { Gap } from "@/lib/api/services/jobs";
 import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
-import { Drawer } from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 
 /**
- * Claude-style gap-filler. Walks the JD's missing skills one question at a time; a
- * "Yes" adds the skill to the profile (truth-bounded, per-track) and, at the end,
- * regenerates the résumé so the confirmed skills actually land in the document.
+ * Claude-style gap-filler, rendered inside the workspace side-panel. Walks the JD's
+ * missing skills one question at a time; a "Yes" adds the skill to the profile
+ * (truth-bounded, per-track) and, at the end, regenerates the résumé so the confirmed
+ * skills actually land in the document. Its actions live inline at the bottom.
  */
-export function GapFillerDrawer({
+export function GapFiller({
   jobId,
-  open,
-  onClose,
   onRegenerated,
+  onClose,
 }: {
   jobId: string;
-  open: boolean;
-  onClose: () => void;
   onRegenerated?: () => void;
+  onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const [index, setIndex] = React.useState(0);
   const [detail, setDetail] = React.useState("");
   const [confirmed, setConfirmed] = React.useState<string[]>([]);
 
-  // Fresh start each time the drawer opens.
-  React.useEffect(() => {
-    if (open) {
-      setIndex(0);
-      setDetail("");
-      setConfirmed([]);
-    }
-  }, [open]);
-
   const { data: gaps, isLoading } = useQuery({
     queryKey: ["job-gaps", jobId],
     queryFn: () => jobsService.gaps(jobId),
-    enabled: open,
     staleTime: 0,
   });
 
@@ -82,116 +70,102 @@ export function GapFillerDrawer({
     onError: (err) => toastApiError(err, "Couldn't regenerate"),
   });
 
-  const footer = (() => {
-    if (isLoading) return null;
-    if (!done && current) {
-      return (
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            className="flex-1"
-            onClick={advance}
-            disabled={confirm.isPending}
-          >
-            Not really — skip
-          </Button>
-          <Button
-            variant="primary"
-            className="flex-1"
-            onClick={() => confirm.mutate(current)}
-            disabled={confirm.isPending}
-          >
-            {confirm.isPending ? "Adding…" : "Yes, I have it"}
-          </Button>
-        </div>
-      );
-    }
-    // Done.
-    if (confirmed.length > 0) {
-      return (
-        <Button
-          variant="primary"
-          onClick={() => regen.mutate()}
-          disabled={regen.isPending}
-        >
-          <Sparkles className="size-4" />
-          {regen.isPending ? "Regenerating…" : "Regenerate résumé with these"}
-        </Button>
-      );
-    }
-    return (
-      <Button variant="secondary" onClick={onClose}>
-        Close
-      </Button>
-    );
-  })();
-
   return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      title="Close the gaps for this role"
-      description="Confirm the skills you genuinely have so they can appear in your résumé."
-      footer={footer}
-    >
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-coffee-500">
-          <Loader2 className="size-4 animate-spin" /> Finding the gaps…
-        </div>
-      ) : !done && current ? (
-        <div className="space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-            Skill {index + 1} of {total}
-          </p>
-          <div className="rounded-lg border border-coffee-200 bg-coffee-50 p-4">
-            <p className="text-base font-medium text-coffee-900">
-              {current.question}
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-coffee-500">
+            <Loader2 className="size-4 animate-spin" /> Finding the gaps…
+          </div>
+        ) : !done && current ? (
+          <div className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
+              Skill {index + 1} of {total}
             </p>
-            {current.reason && (
-              <p className="mt-1.5 text-sm text-coffee-500">{current.reason}</p>
+            <div className="rounded-lg border border-coffee-200 bg-coffee-50 p-4">
+              <p className="text-base font-medium text-coffee-900">
+                {current.question}
+              </p>
+              {current.reason && (
+                <p className="mt-1.5 text-sm text-coffee-500">{current.reason}</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="gap-detail">Add a detail (optional)</Label>
+              <Textarea
+                id="gap-detail"
+                value={detail}
+                onChange={(e) => setDetail(e.target.value)}
+                placeholder={`e.g. how you've used ${current.skill}`}
+                className="min-h-[72px] text-sm"
+              />
+            </div>
+            <p className="text-xs text-coffee-400">
+              Only confirm skills you genuinely have — this adds them to your profile
+              as true, available for every job on this track.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <CheckCircle2 className="size-10 text-status-offer" />
+            <p className="text-sm text-coffee-700">
+              {confirmed.length > 0
+                ? `Added ${confirmed.length} skill${confirmed.length > 1 ? "s" : ""} to your profile.`
+                : total === 0
+                  ? "No gaps to fill — your CV already covers the job's must-haves."
+                  : "No new skills added."}
+            </p>
+            {confirmed.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {confirmed.map((s) => (
+                  <Badge key={s} variant="outline">
+                    {s}
+                  </Badge>
+                ))}
+              </div>
             )}
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="gap-detail">Add a detail (optional)</Label>
-            <Textarea
-              id="gap-detail"
-              value={detail}
-              onChange={(e) => setDetail(e.target.value)}
-              placeholder={`e.g. how you've used ${current.skill}`}
-              className="min-h-[72px] text-sm"
-            />
-          </div>
-          <p className="text-xs text-coffee-400">
-            Only confirm skills you genuinely have — this adds them to your profile as
-            true, and they&apos;ll be available for every job on this track.
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col items-center gap-3 py-6 text-center">
-          <CheckCircle2 className="size-10 text-status-offer" />
-          <p className="text-sm text-coffee-700">
-            {confirmed.length > 0
-              ? `Added ${confirmed.length} skill${confirmed.length > 1 ? "s" : ""} to your profile.`
-              : total === 0
-                ? "No gaps to fill — your CV already covers the job's must-haves."
-                : "No new skills added."}
-          </p>
-          {confirmed.length > 0 && (
-            <div className="flex flex-wrap justify-center gap-1.5">
-              {confirmed.map((s) => (
-                <Badge key={s} variant="outline">
-                  {s}
-                </Badge>
-              ))}
+        )}
+      </div>
+
+      {!isLoading && (
+        <div className="mt-4 border-t border-coffee-100 pt-4">
+          {!done && current ? (
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                className="flex-1"
+                onClick={advance}
+                disabled={confirm.isPending}
+              >
+                Not really — skip
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1"
+                onClick={() => confirm.mutate(current)}
+                disabled={confirm.isPending}
+              >
+                {confirm.isPending ? "Adding…" : "Yes, I have it"}
+              </Button>
             </div>
-          )}
-          {confirmed.length > 0 && (
-            <p className="text-xs text-coffee-400">
-              Regenerate to weave them into this résumé.
-            </p>
+          ) : confirmed.length > 0 ? (
+            <Button
+              variant="primary"
+              className="w-full"
+              onClick={() => regen.mutate()}
+              disabled={regen.isPending}
+            >
+              <Sparkles className="size-4" />
+              {regen.isPending ? "Regenerating…" : "Regenerate résumé with these"}
+            </Button>
+          ) : (
+            <Button variant="secondary" className="w-full" onClick={onClose}>
+              Close
+            </Button>
           )}
         </div>
       )}
-    </Drawer>
+    </div>
   );
 }

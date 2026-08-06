@@ -164,6 +164,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const groups = React.useMemo(() => navFor(me), [me]);
   const isJobsTracker = pathname === "/jobs";
+  // The job workspace uses a right-side push-panel, so it needs the full width.
+  const isWorkspace = pathname.startsWith("/jobs/");
   const closeMobile = React.useCallback(() => setMobileOpen(false), []);
   const drawerRef = useFocusTrap<HTMLElement>(mobileOpen, closeMobile);
 
@@ -274,7 +276,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main
           className={cn(
             "mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden",
-            isJobsTracker ? "max-w-none px-4 py-4" : "max-w-6xl overflow-auto px-6 py-8",
+            isJobsTracker
+              ? "max-w-none px-4 py-4"
+              : isWorkspace
+                ? "max-w-none overflow-auto px-6 py-8"
+                : "max-w-6xl overflow-auto px-6 py-8",
           )}
         >
           {children}

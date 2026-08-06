@@ -6,6 +6,106 @@ import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/lib/use-focus-trap";
 
 /**
+ * A right-side PUSH panel — part of the flex layout, not a fixed overlay. When it
+ * opens its width animates `0 → width`, so the sibling content shifts left to make
+ * room (split view, no backdrop). Stays mounted through the close animation. Esc
+ * closes it, but focus is NOT trapped — both sides stay usable.
+ */
+export function SidePanel({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  width = "w-[34rem]",
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children?: React.ReactNode;
+  footer?: React.ReactNode;
+  width?: string;
+}) {
+  const [render, setRender] = React.useState(open);
+  const [shown, setShown] = React.useState(false);
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
+
+  React.useEffect(() => {
+    if (open) {
+      setRender(true);
+      return;
+    }
+    setShown(false);
+    const t = window.setTimeout(() => setRender(false), 280);
+    return () => window.clearTimeout(t);
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!render || !open) return;
+    const id = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(id);
+  }, [render, open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  if (!render) return null;
+
+  return (
+    <div
+      className={cn(
+        "sticky top-4 shrink-0 self-start overflow-hidden transition-[width] duration-300 ease-out",
+        shown ? cn(width, "max-w-[44vw]") : "w-0",
+      )}
+      role="dialog"
+      aria-label={title}
+    >
+      <div
+        className={cn(
+          "flex h-[calc(100vh-6rem)] flex-col overflow-hidden rounded-lg border border-coffee-300 bg-white shadow-lg",
+          width,
+          "max-w-[44vw]",
+        )}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-coffee-100 px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-coffee-900">{title}</h2>
+            {description && (
+              <p className="mt-0.5 truncate text-sm text-coffee-500">{description}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="shrink-0 text-coffee-500 hover:text-coffee-900"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+        {children && (
+          <div className="min-h-0 flex-1 overflow-auto px-5 py-4">{children}</div>
+        )}
+        {footer && (
+          <div className="flex flex-col gap-2 border-t border-coffee-100 px-5 py-4">
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * A right-anchored slide-in panel — the app's overlay recipe (fixed inset, coffee
  * backdrop, focus trap, Esc/backdrop to close) with an enter/exit transition. Stays
  * mounted through the close animation, then unmounts. No animation library needed.
