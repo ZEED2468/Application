@@ -99,6 +99,62 @@ def _config_note(name: JobSourceName, boards: list[str]) -> str | None:
     return None
 
 
+def _as_track(value) -> Track | None:
+    """Coerce a profile/track value — a real profile's `Track` enum or a discovery
+    placeholder's raw string — to a built-in `Track`, or `None` for a custom/unknown
+    track (which can't be stored in the Enum(Track) column)."""
+    if isinstance(value, Track):
+        return value
+    try:
+        return Track(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _decide_track(
+    *, title: str, description: str | None, profile_track, selected_tracks: list[str] | None
+) -> tuple[Track, bool]:
+    """Decide a discovered job's track, and whether it's off-target (should be dropped).
+
+    The keyword classifier is advisory. Priority: the JD literally names a selected
+    track > a confident keyword classification > the track the search ran under
+    (context) > general. So when the classifier can't tell, we keep the searched track
+    instead of silently mislabeling the job "general".
+
+    With an explicit track filter (`selected_tracks`), a job is dropped ONLY when it
+    classifies CONFIDENTLY to a built-in track the user did not ask for; a job that
+    merely defaulted to the searched track is kept (it already passed the role filter).
+    """
+    context_track = _as_track(profile_track)
+    classified = track_classify.classify(title=title, description=description)
+    sel = {s.lower() for s in (selected_tracks or [])}
+
+    literal_track = None
+    if selected_tracks:
+        tl, dl = title.lower(), (description or "").lower()
+        for st in selected_tracks:
+            if st.lower() in tl or st.lower() in dl:
+                # Only a *built-in* track can be stored in the Enum(Track) column.
+                literal_track = _as_track(st)
+                if literal_track is not None:
+                    break
+
+    if literal_track is not None:
+        job_track = literal_track
+    elif classified is not Track.general:
+        job_track = classified
+    else:
+        job_track = context_track or Track.general
+
+    if sel and literal_track is None and job_track.value not in sel:
+        if classified is not Track.general:
+            return job_track, True  # confidently a track the user didn't search for
+        # Uncertain classification: keep it, retagged to the searched track.
+        if context_track is not None and context_track.value in sel:
+            job_track = context_track
+    return job_track, False
+
+
 async def _run_sources(
     session, *, user_id: UUID, profile: MasterProfile, boards: list[str] | None = None,
     role_titles: list[str] | None = None,
@@ -195,29 +251,15 @@ async def _run_sources(
                     off_target += 1
                     continue
 
-                # Dynamic track classification
-                job_track = track_classify.classify(title=raw.title, description=raw.description)
-                if selected_tracks:
-                    title_lower = raw.title.lower()
-                    desc_lower = (raw.description or "").lower()
-                    matched_track = None
-                    for st in selected_tracks:
-                        st_lower = st.lower()
-                        if st_lower in title_lower or st_lower in desc_lower:
-                            matched_track = st
-                            break
-                    if matched_track:
-                        # Only relabel to a *built-in* track — a custom string cannot be
-                        # stored in the Enum(Track) column (it reads back as a LookupError
-                        # and 500s the whole jobs list). Custom tracks stay a filter concept.
-                        try:
-                            job_track = Track(matched_track.lower())
-                        except ValueError:
-                            pass  # keep the classified (valid) track
-                    elif job_track not in selected_tracks:
-                        # Skip: job classified track does not match the selected tracks
-                        off_target += 1
-                        continue
+                # Track assignment — searched track is the fallback, never a silent
+                # "general" (see _decide_track). Off-target jobs are dropped.
+                job_track, off_target_drop = _decide_track(
+                    title=raw.title, description=raw.description,
+                    profile_track=profile.track, selected_tracks=selected_tracks,
+                )
+                if off_target_drop:
+                    off_target += 1
+                    continue
 
                 # Experience level classification
                 job_exp = experience_classify.classify(title=raw.title, description=raw.description)

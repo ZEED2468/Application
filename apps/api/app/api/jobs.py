@@ -246,24 +246,27 @@ async def list_jobs(
         {uid: (await session.get(User, uid)).name for uid in user_ids} if is_va else {}
     )
     
+    # Track / experience filters are matched case-insensitively and trimmed, so
+    # "Frontend" or " frontend " match the stored "frontend". Empty/whitespace tokens
+    # collapse to "no filter" rather than silently excluding everything.
     track_list = []
     if tracks:
-        track_list = [t.strip() for t in tracks.split(",") if t.strip()]
-    elif track:
-        track_list = [track]
+        track_list = [t.strip().lower() for t in tracks.split(",") if t.strip()]
+    elif track and track.strip():
+        track_list = [track.strip().lower()]
 
     exp_list = []
     if experience_levels:
-        exp_list = [el.strip() for el in experience_levels.split(",") if el.strip()]
+        exp_list = [el.strip().lower() for el in experience_levels.split(",") if el.strip()]
 
     rows: list[dict] = []
     for uid in user_ids:
         for j in await jobs_repo.list_for_user(session, user_id=uid):
             if track_list:
                 job_track_val = (j.track.value if hasattr(j.track, "value") else j.track) if j.track else None
-                if job_track_val not in track_list:
+                if job_track_val is None or job_track_val.lower() not in track_list:
                     continue
-            if exp_list and j.experience_level not in exp_list:
+            if exp_list and (j.experience_level or "").lower() not in exp_list:
                 continue
             if origin is not None and j.origin != origin:
                 continue

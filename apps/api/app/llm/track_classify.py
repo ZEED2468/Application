@@ -14,10 +14,16 @@ _SIGNALS: dict[Track, set[str]] = {
     Track.frontend: {
         "frontend", "front-end", "react", "react-native", "vue", "angular", "ui",
         "css", "tailwind", "mobile", "ios", "android", "animation", "design",
+        # Common real-world frontend tokens the classifier used to miss (→ general).
+        "web", "javascript", "js", "typescript", "ts", "html", "jsx", "redux",
+        "svelte", "next", "nextjs", "next.js", "sass", "webpack", "vite", "storybook",
     },
     Track.backend: {
         "backend", "back-end", "go", "golang", "nestjs", "node", "microservices",
         "infrastructure", "kubernetes", "distributed", "platform", "api", "database",
+        # Common real-world backend tokens.
+        "python", "java", "rust", "django", "flask", "fastapi", "spring", "sql",
+        "postgres", "postgresql", "redis", "aws", "docker", "grpc", "rest", "graphql",
     },
     Track.general: {
         "full-stack", "fullstack", "full", "stack", "product", "founding", "generalist",
