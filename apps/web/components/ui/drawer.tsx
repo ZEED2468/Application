@@ -1,0 +1,106 @@
+"use client";
+
+import * as React from "react";
+import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useFocusTrap } from "@/lib/use-focus-trap";
+
+/**
+ * A right-anchored slide-in panel — the app's overlay recipe (fixed inset, coffee
+ * backdrop, focus trap, Esc/backdrop to close) with an enter/exit transition. Stays
+ * mounted through the close animation, then unmounts. No animation library needed.
+ */
+export function Drawer({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  width,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children?: React.ReactNode;
+  footer?: React.ReactNode;
+  /** Tailwind width class for the panel (default w-[30rem]). */
+  width?: string;
+}) {
+  const panelRef = useFocusTrap<HTMLDivElement>(open, onClose);
+  const [render, setRender] = React.useState(open);
+  const [shown, setShown] = React.useState(false);
+
+  // Mount immediately on open; keep mounted for the slide-out on close.
+  React.useEffect(() => {
+    if (open) {
+      setRender(true);
+      return;
+    }
+    setShown(false);
+    const t = window.setTimeout(() => setRender(false), 220);
+    return () => window.clearTimeout(t);
+  }, [open]);
+
+  // Once mounted (off-screen), flip to the shown state on the next frame so the
+  // transform transition actually runs.
+  React.useEffect(() => {
+    if (!render || !open) return;
+    const id = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(id);
+  }, [render, open]);
+
+  if (!render) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div
+        className={cn(
+          "absolute inset-0 bg-coffee-900/40 transition-opacity duration-200",
+          shown ? "opacity-100" : "opacity-0",
+        )}
+        onClick={onClose}
+      />
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className={cn(
+          "absolute right-0 top-0 flex h-full w-[30rem] max-w-[92vw] flex-col overflow-hidden border-l border-coffee-300 bg-white shadow-xl outline-none transition-transform duration-200 ease-out",
+          shown ? "translate-x-0" : "translate-x-full",
+          width,
+        )}
+      >
+        <div className="flex items-start justify-between border-b border-coffee-100 px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-coffee-900">{title}</h2>
+            {description && (
+              <p className="mt-1 text-sm text-coffee-500">{description}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="shrink-0 text-coffee-500 hover:text-coffee-900"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+        {children && (
+          <div className="min-h-0 flex-1 overflow-auto px-5 py-4">{children}</div>
+        )}
+        {footer && (
+          <div className="flex flex-col gap-2 border-t border-coffee-100 px-5 py-4">
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
