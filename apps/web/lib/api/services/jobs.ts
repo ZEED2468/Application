@@ -91,6 +91,7 @@ export const jobsService = {
     tracks?: string[];
     experience_levels?: string[];
     force?: boolean;
+    nigeria_only?: boolean;
   }): Promise<DiscoverReport> {
     // 60s: discovery makes live HTTP calls to each source.
     return api

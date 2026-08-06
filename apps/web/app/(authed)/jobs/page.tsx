@@ -118,6 +118,18 @@ export default function JobsPage() {
     initialParams.get("view") === "submitted" ? "submitted" : "pipeline",
   );
 
+  // Only bring in jobs a Nigeria-based candidate can actually apply to (default on).
+  // Persisted client-side; sent with each on-demand discovery request.
+  const [nigeriaOnly, setNigeriaOnly] = React.useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("jd_nigeria_only") !== "false";
+    }
+    return true;
+  });
+  React.useEffect(() => {
+    localStorage.setItem("jd_nigeria_only", nigeriaOnly ? "true" : "false");
+  }, [nigeriaOnly]);
+
   const [newTrackInput, setNewTrackInput] = React.useState("");
   const [selectedTracks, setSelectedTracks] = React.useState<string[]>(() =>
     readList(initialParams, "tracks"),
@@ -358,6 +370,7 @@ export default function JobsPage() {
       tracks: selectedTracks,
       experience_levels: selectedExpLevels,
       force: true, // explicit user refresh bypasses the server cooldown
+      nigeria_only: nigeriaOnly,
     }),
     onSuccess: (rep) => {
       const summary = rep.sources
@@ -611,6 +624,19 @@ export default function JobsPage() {
             }}
             className="h-8 w-64 text-sm"
           />
+
+          <label
+            className="flex items-center gap-1.5 whitespace-nowrap text-sm text-coffee-700"
+            title="Keep only jobs you can apply to from Nigeria (remote / Nigeria / Africa / worldwide); drop onsite-abroad or country-locked roles."
+          >
+            <input
+              type="checkbox"
+              checked={nigeriaOnly}
+              onChange={(e) => setNigeriaOnly(e.target.checked)}
+              className="size-4 rounded border-coffee-300 text-coffee-700 focus:ring-coffee-500"
+            />
+            Nigeria-appliable only
+          </label>
 
           <Button
             variant="primary"
