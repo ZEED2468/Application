@@ -816,12 +816,12 @@ export default function JobsPage() {
                     <EmptyState
                       icon={<Briefcase className="size-8" />}
                       title="No jobs yet"
-                      description="As the scheduler discovers and scores jobs, they'll appear here. You can also add one manually."
+                      description="As the scheduler discovers and scores jobs, they'll appear here. You can also tailor for one by pasting its description."
                       className="min-h-[50vh] border-0 bg-transparent"
                       action={
-                        <Link href="/manual">
+                        <Link href="/ats-checker">
                           <Button size="sm" variant="secondary">
-                            Add a job manually
+                            Tailor for a job
                           </Button>
                         </Link>
                       }

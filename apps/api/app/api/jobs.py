@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import shutil
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -45,7 +47,7 @@ from app.models.thread import Thread
 from app.models.user import User
 from app.api._files import serve_key
 from app.api._pagination import PageParam, PageSizeParam, paginate
-from app.pipelines.apply import render, service
+from app.pipelines.apply import ats, cv_parse, format_gate, render, service
 from app.pipelines.apply.latex_safety import assert_safe
 from app.pipelines.manual import service as manual_service
 from app.repositories import applications as app_repo
@@ -569,11 +571,20 @@ async def download_cover(
     )
 
 
+def _latex_to_text(tex: str) -> str:
+    """Rough LaTeX → plain text so an edited CV can be re-scored — drop comments and
+    commands, keep the words (skills/keywords survive for keyword matching)."""
+    s = re.sub(r"%.*", "", tex)                          # comments
+    s = re.sub(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?", " ", s)   # \commands + optional [args]
+    s = s.replace("{", " ").replace("}", " ").replace("\\", " ")
+    return re.sub(r"[ \t]+", " ", s)
+
+
 async def _commit_latex(job: Job, latex: str, *, stem: str):
     """Sanitise + compile editor LaTeX, store .tex/.pdf at the job's canonical keys.
 
-    Returns ((tex_key, pdf_key, pdf_url), None) on success or (None, stderr) when the
-    LaTeX does not compile. Raises DomainError (400) for forbidden primitives.
+    Returns ((tex_key, pdf_key, pdf_url, pdf_bytes), None) on success or (None, stderr)
+    when the LaTeX does not compile. Raises DomainError (400) for forbidden primitives.
     """
     assert_safe(latex)
     pdf, stderr = await render.render_pdf_checked(latex)
@@ -583,7 +594,7 @@ async def _commit_latex(job: Job, latex: str, *, stem: str):
     pdf_key = f"{job.user_id}/{job.id}/{stem}.pdf"
     await r2.put_bytes(tex_key, latex.encode(), "application/x-tex")
     pdf_url = await r2.put_bytes(pdf_key, pdf, "application/pdf")
-    return (tex_key, pdf_key, pdf_url), None
+    return (tex_key, pdf_key, pdf_url, pdf), None
 
 
 @router.post("/{job_id}/cv/from-latex")
@@ -602,11 +613,24 @@ async def set_cv_from_latex(
     keys, stderr = await _commit_latex(job, body.latex, stem="cv")
     if keys is None:
         return JSONResponse(status_code=422, content={"error": "compile_failed", "stderr": (stderr or "")[:4000]})
-    tex_key, pdf_key, pdf_url = keys
+    tex_key, pdf_key, pdf_url, pdf = keys
     cv = await _cv_for(session, job.id)
     if cv is None:
         cv = GeneratedCv(user_id=job.user_id, job_id=job.id, cv_json={}, status=CvStatus.ready)
         session.add(cv)
+    # Re-score the ATS match against the *edited* content so "Ready to apply?" stays
+    # truthful after a hand-edit (the doc compiled, so the format gate can evaluate it).
+    cv_json = cv_parse.cv_json_from_text(_latex_to_text(body.latex))
+    gate = format_gate.evaluate(
+        tex=body.latex, pdf=pdf, has_compiler=shutil.which("tectonic") is not None
+    )
+    breakdown = ats.score(
+        cv_json=cv_json, jd_text=job.description or "",
+        role_title=job.role_title or job.title, gate=gate,
+    )
+    cv.cv_json = cv_json
+    cv.ats_score = breakdown["score"]
+    cv.ats_breakdown = breakdown
     cv.latex_source = body.latex
     cv.tex_key = tex_key
     cv.pdf_key = pdf_key
@@ -634,7 +658,7 @@ async def set_cover_from_latex(
     keys, stderr = await _commit_latex(job, body.latex, stem="cover")
     if keys is None:
         return JSONResponse(status_code=422, content={"error": "compile_failed", "stderr": (stderr or "")[:4000]})
-    tex_key, pdf_key, pdf_url = keys
+    tex_key, pdf_key, pdf_url, _pdf = keys
     cover = await _cover_for(session, job.id)
     if cover is None:
         cover = CoverLetter(user_id=job.user_id, job_id=job.id, status=CoverLetterStatus.ready)
