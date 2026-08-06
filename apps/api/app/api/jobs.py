@@ -47,6 +47,7 @@ from app.api._files import serve_key
 from app.api._pagination import PageParam, PageSizeParam, paginate
 from app.pipelines.apply import render, service
 from app.pipelines.apply.latex_safety import assert_safe
+from app.pipelines.manual import service as manual_service
 from app.repositories import applications as app_repo
 from app.repositories import jobs as jobs_repo
 from app.repositories import profiles as profiles_repo
@@ -131,6 +132,35 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
         "hunter_name": hunter_name,
         "created_at": job.created_at.isoformat() if job.created_at else None,
     }
+
+
+class JobFromJdRequest(BaseModel):
+    jd_text: str
+    role_title: str | None = None
+    company: str | None = None
+    track: str | None = None
+
+
+@router.post("/from-jd")
+async def create_job_from_jd(
+    body: JobFromJdRequest,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Create (or reuse) a manual job from a pasted JD and return its id — the "Tailor"
+    nav entry. No generation here; the job workspace's Generate button runs the shared
+    engine, so both doors (a discovered job / a pasted JD) land in the same workspace."""
+    if not body.jd_text or not body.jd_text.strip():
+        return JSONResponse(
+            status_code=422,
+            content={"error": "empty_jd", "detail": "Paste a job description to tailor for."},
+        )
+    job = await manual_service.create_job_from_jd(
+        session, user_id=user.id, jd_text=body.jd_text,
+        role_title=body.role_title, company=body.company, track=body.track,
+    )
+    await session.flush()
+    return {"job_id": str(job.id)}
 
 
 class DiscoverRequest(BaseModel):

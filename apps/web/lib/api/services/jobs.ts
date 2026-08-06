@@ -99,6 +99,19 @@ export const jobsService = {
       .json<DiscoverReport>();
   },
 
+  /** Create (or reuse) a manual job from a pasted JD — the "Tailor" nav entry. Returns
+   *  the job id to open its workspace; generation happens there, not here. */
+  async createFromJd(body: {
+    jd_text: string;
+    role_title?: string;
+    company?: string;
+    track?: string;
+  }): Promise<{ job_id: string }> {
+    return api
+      .post(path("/api/jobs/from-jd"), { json: body })
+      .json<{ job_id: string }>();
+  },
+
   async detail(id: string): Promise<JobDetail> {
     const raw = await api.get(path(`/api/jobs/${id}`)).json<Record<string, unknown>>();
     return normalizeJobDetail(raw);

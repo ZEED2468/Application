@@ -274,6 +274,48 @@ async def answer_prompt(
     return prompt
 
 
+async def create_job_from_jd(
+    session, *, user_id: UUID, jd_text: str,
+    role_title: str | None = None, company: str | None = None, track: str | None = None,
+) -> Job:
+    """Create (or reuse) a manual job from a pasted JD — WITHOUT generating.
+
+    Powers the "Tailor" nav entry: paste a JD, pick a track, and land in the SAME job
+    workspace as a discovered job (where the Generate button runs the shared engine).
+    Track is honored when given, else classified from the JD against the user's CVs.
+    Deduped on the JD so re-pasting the same posting reuses its job (uq_job_user_dedupe).
+    """
+    role = (role_title or "").strip() or extract_role_title(jd_text)
+    comp = (company or "").strip() or extract_company(jd_text)
+
+    resolved: Track | None = None
+    if track:
+        try:
+            resolved = Track(track)
+        except ValueError:
+            resolved = None
+    if resolved is None:
+        available = await track_match_repo.available_track_previews(session, user_id=user_id)
+        match = await track_classify.classify_best(
+            title=role, description=jd_text, available=available,
+        )
+        resolved = match.track
+
+    dedupe = hashlib.sha256((jd_text or "").encode()).hexdigest()[:32]
+    job = (await session.execute(
+        select(Job).where(Job.user_id == user_id, Job.dedupe_key == dedupe)
+    )).scalar_one_or_none()
+    if job is None:
+        job = Job(
+            user_id=user_id, source=JobSourceName.manual, origin=Origin.manual,
+            dedupe_key=dedupe, company=comp, title=role or "Role", role_title=role,
+            description=jd_text, track=resolved, status=JobStatus.scored,
+        )
+        session.add(job)
+        await session.flush()
+    return job
+
+
 async def generate_application(
     session, *, user_id: UUID, chat_session_id: UUID, emit=_real_emit
 ) -> Job:

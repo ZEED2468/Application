@@ -3,30 +3,13 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
-import {
-  FileText,
-  ScanSearch,
-  UploadCloud,
-  Sparkles,
-  Wand2,
-  ArrowRight,
-} from "lucide-react";
-import type {
-  AtsCheckResult,
-  RegenerateAtsRecs,
-  ResumeIntelligence,
-  Track,
-} from "@jd/shared-types";
-import { TRACKS } from "@jd/shared-types";
 import Link from "next/link";
-import { atsService, jobsService, readinessService } from "@/lib/api/services";
+import { ArrowRight, ScanSearch, Sparkles } from "lucide-react";
+import type { Track } from "@jd/shared-types";
+import { atsService, jobsService } from "@/lib/api/services";
 import { toastApiError } from "@/lib/toast-error";
-import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
-import { previewCoverLetterTemplate } from "@/lib/cover-letter-template";
 import { PageHeading } from "@/components/states";
-import { AtsBreakdown } from "@/components/ats-breakdown";
 import {
   Card,
   CardHeader,
@@ -38,872 +21,156 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
-import { Tabs } from "@/components/ui/tabs";
 
-const CV_ACCEPT =
-  ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+export const dynamic = "force-dynamic";
 
-// Persist the last standalone check so a reload/return doesn't lose the analysis
-// (and doesn't re-paste the JD or re-spend AI tokens). Job-scoped checks restore
-// from the job itself instead.
-const LAST_CHECK_KEY = "jd_ats_last_check_v1";
-
-interface StoredCheck {
-  jdText: string;
-  cvText: string;
-  roleTitle: string;
-  selectedTrack: Track | "";
-  result: AtsCheckResult;
-}
-
-export default function AtsCheckerPage() {
+/**
+ * The "Tailor" nav door. Paste a JD, pick a track, and open the SAME job workspace a
+ * discovered job opens (generate → review → apply). No analysis-then-handoff: the JD
+ * becomes a manual job and we route to /jobs/{id}.
+ */
+export default function TailorPage() {
   const router = useRouter();
   const [jdText, setJdText] = React.useState("");
-  const [cvText, setCvText] = React.useState("");
   const [roleTitle, setRoleTitle] = React.useState("");
-  const [cvFile, setCvFile] = React.useState<File | null>(null);
-  const [result, setResult] = React.useState<AtsCheckResult | null>(null);
-  // Tracks whether the shown result was restored (from a job or the local cache) vs
-  // freshly run — so we can label it honestly and offer a "start fresh" escape.
-  const [restored, setRestored] = React.useState<null | "job" | "cache">(null);
-  const [selectedTrack, setSelectedTrack] = React.useState<Track | "">("");
-  const [trackManual, setTrackManual] = React.useState(false);
-  // Read the job (if launched from one) synchronously so context restore has no race.
-  const [jobId] = React.useState<string | null>(() =>
-    typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get("job_id")
-      : null,
-  );
-  const fileRef = React.useRef<HTMLInputElement>(null);
-  const restoredFromJob = React.useRef(false);
+  const [track, setTrack] = React.useState<Track | "">("");
+  const [trackTouched, setTrackTouched] = React.useState(false);
 
-  /** Clear the form + cached check so the user can start a genuinely new analysis. */
-  function startFresh() {
-    setJdText("");
-    setCvText("");
-    setRoleTitle("");
-    setCvFile(null);
-    setSelectedTrack("");
-    setTrackManual(false);
-    setResult(null);
-    setRestored(null);
-    try {
-      localStorage.removeItem(LAST_CHECK_KEY);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  /** Continue into the apply flow: carry the JD (+ role/track) so it isn't re-pasted,
-   *  then the confirm-true prompts + generate create the tracked application. */
-  function goCreateApplication() {
-    try {
-      window.sessionStorage.setItem(
-        "tailor-apply-handoff",
-        JSON.stringify({
-          jd_text: jdText,
-          role_title: roleTitle || result?.role_title || "",
-          track: result?.track ?? selectedTrack ?? null,
-        }),
-      );
-    } catch {
-      /* ignore quota */
-    }
-    router.push("/manual");
-  }
-
-  /** Hand the validated ATS recommendations to the LaTeX builder and route there. */
-  function goRegenerate() {
-    if (!result) return;
-    const recs: RegenerateAtsRecs = {
-      missing_critical: result.rule_based.breakdown.missing_critical ?? [],
-      gaps: result.rule_based.gaps ?? [],
-      recommendations: result.ai?.recommendations ?? [],
-    };
-    if (jobId) {
-      // The check already persisted its analysis against this job (server-side); the
-      // builder reads it from the DB — no browser handoff needed.
-      router.push(`/jobs/${jobId}/builder`);
-    } else {
-      window.sessionStorage.setItem(
-        "latex-regen-standalone",
-        JSON.stringify({
-          track: result.track ?? selectedTrack ?? null,
-          jd_text: jdText,
-          role_title: result.role_title,
-          ats: recs,
-        }),
-      );
-      router.push(
-        result.track ? `/builder?track=${result.track}` : "/builder",
-      );
-    }
-  }
-
-  const sourcesQuery = useQuery({
-    queryKey: queryKeys.atsSources,
-    queryFn: () => atsService.sources(),
-  });
-
-  // Whether the AI layer can actually run — the same signal the setup checklist uses.
-  const readinessQuery = useQuery({
-    queryKey: queryKeys.readiness,
-    queryFn: () => readinessService.get(),
-    staleTime: 60_000,
-  });
-  const aiAvailable = readinessQuery.data?.api_key_validated !== false;
-
-  // When arriving from a job, pull the JD + the analysis already computed for its CV
-  // so the checker opens with full context — no blank form, no re-run, no re-spend.
-  const jobDetailQuery = useQuery({
-    queryKey: queryKeys.job(jobId ?? ""),
-    queryFn: () => jobsService.detail(jobId!),
-    enabled: Boolean(jobId),
-  });
-
-  React.useEffect(() => {
-    if (!jobId || restoredFromJob.current) return;
-    const d = jobDetailQuery.data;
-    if (!d) return;
-    restoredFromJob.current = true;
-    const jd = d.job.jd_text ?? d.job.description ?? "";
-    if (jd) setJdText(jd);
-    if (d.job.role) setRoleTitle(d.job.role);
-    if (d.job.track) {
-      setSelectedTrack(d.job.track as Track);
-      setTrackManual(true); // the job fixes the track — don't let auto-suggest override
-    }
-    const cv = d.generated_cv;
-    if (cv?.ats_breakdown) {
-      setResult({
-        role_title: d.job.role ?? "Role",
-        track: (d.job.track as Track) ?? null,
-        cv_source: "profile",
-        cv_filename: null,
-        cv_word_count: 0,
-        rule_based: {
-          score: cv.ats_score ?? null,
-          breakdown: cv.ats_breakdown,
-          gaps:
-            cv.ats_breakdown.missing_critical ??
-            cv.ats_breakdown.missing_keywords?.slice(0, 5) ??
-            [],
-        },
-        ai: null,
-        intelligence: null,
-      });
-      setRestored("job");
-    }
-  }, [jobId, jobDetailQuery.data]);
-
-  // Standalone: restore the last check (inputs + result) on mount, so a reload doesn't
-  // wipe the analysis. Read job_id from the URL directly to avoid a first-render race.
+  // Older links arrive as /ats-checker?job_id=… — the workspace is canonical now, so
+  // send them straight there.
   React.useEffect(() => {
     if (typeof window === "undefined") return;
-    if (new URLSearchParams(window.location.search).get("job_id")) return;
-    try {
-      const raw = localStorage.getItem(LAST_CHECK_KEY);
-      if (!raw) return;
-      const s = JSON.parse(raw) as StoredCheck;
-      if (!s?.result) return;
-      if (s.jdText) setJdText(s.jdText);
-      if (s.cvText) setCvText(s.cvText);
-      if (s.roleTitle) setRoleTitle(s.roleTitle);
-      if (s.selectedTrack) {
-        setSelectedTrack(s.selectedTrack);
-        setTrackManual(true);
-      }
-      setResult(s.result);
-      setRestored("cache");
-    } catch {
-      /* ignore malformed cache */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const jid = new URLSearchParams(window.location.search).get("job_id");
+    if (jid) router.replace(`/jobs/${jid}`);
+  }, [router]);
 
-  const profileTracks = sourcesQuery.data?.tracks ?? [];
-  const profileByTrack = React.useMemo(() => {
-    const map = new Map<Track, (typeof profileTracks)[number]>();
-    profileTracks.forEach((t) => map.set(t.track, t));
-    return map;
-  }, [profileTracks]);
+  const { data: sources } = useQuery({
+    queryKey: ["ats", "sources"],
+    queryFn: () => atsService.sources(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const trackOptions = sources?.tracks ?? [];
 
-  const hasProfileCvs = profileTracks.length > 0;
-  const activeProfile =
-    selectedTrack && profileByTrack.has(selectedTrack)
-      ? profileByTrack.get(selectedTrack)!
-      : null;
-  const useProfileCv = Boolean(activeProfile) && !cvFile && cvText.trim().length < 20;
-
-  const coverLetterTemplate =
-    result?.cover_letter_template ?? sourcesQuery.data?.cover_letter_template ?? null;
-
-  const coverLetterPreview = React.useMemo(
-    () => previewCoverLetterTemplate(coverLetterTemplate?.body ?? ""),
-    [coverLetterTemplate?.body],
-  );
-
+  // Auto-suggest the best track from the JD (debounced) until the user picks one.
   React.useEffect(() => {
-    if (!hasProfileCvs || trackManual || selectedTrack) return;
-    const first = profileTracks[0]?.track;
-    if (first) setSelectedTrack(first);
-  }, [hasProfileCvs, profileTracks, selectedTrack, trackManual]);
-
-  React.useEffect(() => {
-    if (!hasProfileCvs || trackManual) return;
     const jd = jdText.trim();
-    if (jd.length < 20) return;
+    if (trackTouched || jd.length < 40) return;
+    const t = window.setTimeout(async () => {
+      try {
+        const s = await atsService.suggestTrack({
+          jdText: jd,
+          roleTitle: roleTitle || undefined,
+        });
+        setTrack((prev) => (trackTouched ? prev : s.track));
+      } catch {
+        /* non-fatal: the user can pick a track, or auto-detect on the server */
+      }
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [jdText, roleTitle, trackTouched]);
 
-    const timer = window.setTimeout(() => {
-      atsService
-        .suggestTrack({ jdText: jd, roleTitle: roleTitle || undefined })
-        .then((match) => {
-          if (profileByTrack.has(match.track)) {
-            setSelectedTrack(match.track);
-          }
-        })
-        .catch(() => {});
-    }, 600);
-
-    return () => window.clearTimeout(timer);
-  }, [jdText, roleTitle, hasProfileCvs, trackManual, profileByTrack]);
-
-  const check = useMutation({
+  const open = useMutation({
     mutationFn: () =>
-      atsService.check({
-        jdText,
-        track: useProfileCv ? (selectedTrack as Track) : undefined,
-        cvText: useProfileCv ? undefined : cvText,
-        cvFile: useProfileCv ? undefined : cvFile,
-        roleTitle: roleTitle || undefined,
-        jobId: jobId ?? undefined,
+      jobsService.createFromJd({
+        jd_text: jdText.trim(),
+        role_title: roleTitle.trim() || undefined,
+        track: track || undefined,
       }),
-    onSuccess: (data) => {
-      setResult(data);
-      setRestored(null); // a freshly-run check is no longer a "restored" view
-      if (data.track && !trackManual) {
-        setSelectedTrack(data.track);
-      }
-      // Remember standalone checks so a reload restores the analysis (job-scoped checks
-      // restore from the job itself).
-      if (!jobId) {
-        try {
-          const stored: StoredCheck = {
-            jdText,
-            cvText,
-            roleTitle,
-            selectedTrack: data.track ?? selectedTrack,
-            result: data,
-          };
-          localStorage.setItem(LAST_CHECK_KEY, JSON.stringify(stored));
-        } catch {
-          /* ignore quota */
-        }
-      }
-      toast.success("ATS check complete");
-    },
-    onError: (err) => toastApiError(err, "Couldn't run the ATS check"),
+    onSuccess: (res) => router.push(`/jobs/${res.job_id}`),
+    onError: (err) => toastApiError(err, "Couldn't open the tailor workspace"),
   });
 
-  const canRun =
-    jdText.trim().length >= 20 &&
-    (useProfileCv || cvFile !== null || cvText.trim().length >= 20);
+  const canOpen = jdText.trim().length > 0 && !open.isPending;
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <PageHeading
         title="Tailor"
-        description="Check any CV against any job description, then turn it into a tailored application. Uses your profile CV when uploaded, otherwise paste or upload."
+        description="Paste a job description to tailor your résumé for it. It opens as a workspace where you generate, review, and apply — the same place a job from your list opens."
       />
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Job description</CardTitle>
-            <CardDescription>Paste the full JD you are applying to.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="role-title">Role title (optional)</Label>
-              <Input
-                id="role-title"
-                placeholder="e.g. Backend Engineer"
-                value={roleTitle}
-                onChange={(e) => setRoleTitle(e.target.value)}
-              />
-            </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ScanSearch className="size-5" /> Tailor for a job description
+          </CardTitle>
+          <CardDescription>
+            The tailored CV is built from your profile for the chosen track —
+            truth-bounded, no invented facts.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="jd">Job description</Label>
             <Textarea
+              id="jd"
               value={jdText}
               onChange={(e) => setJdText(e.target.value)}
-              placeholder="Paste job description…"
-              className="min-h-52"
+              placeholder="Paste the full job description here…"
+              className="min-h-[220px] text-sm"
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && canOpen) {
+                  open.mutate();
+                }
+              }}
             />
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>CV / resume</CardTitle>
-            <CardDescription>
-              {hasProfileCvs
-                ? "Pick a profile track or paste/upload when none is on file."
-                : "Upload a file or paste plain text."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {hasProfileCvs && (
-              <div className="space-y-1.5">
-                <Label htmlFor="cv-track">Profile CV track</Label>
-                <Select
-                  id="cv-track"
-                  value={selectedTrack}
-                  onChange={(e) => {
-                    setTrackManual(true);
-                    setSelectedTrack(e.target.value as Track);
-                    setCvFile(null);
-                    setCvText("");
-                  }}
-                >
-                  <option value="">Select track…</option>
-                  {TRACKS.filter((t) => profileByTrack.has(t)).map((t) => (
-                    <option key={t} value={t}>
-                      {TRACK_LABELS[t]}
-                      {profileByTrack.get(t)?.filename
-                        ? ` · ${profileByTrack.get(t)!.filename}`
-                        : ""}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="role">Role title (optional)</Label>
+              <Input
+                id="role"
+                value={roleTitle}
+                onChange={(e) => setRoleTitle(e.target.value)}
+                placeholder="e.g. Backend Engineer"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="track">Track</Label>
+              <Select
+                id="track"
+                value={track}
+                onChange={(e) => {
+                  setTrack(e.target.value as Track | "");
+                  setTrackTouched(true);
+                }}
+              >
+                <option value="">Auto-detect from JD</option>
+                {trackOptions.map((t) => (
+                  <option key={t.track} value={t.track}>
+                    {TRACK_LABELS[t.track] ?? t.track}
+                    {t.confirmed ? "" : " (unconfirmed)"}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
 
-            {useProfileCv && activeProfile ? (
-              <div className="rounded-md border border-coffee-300 bg-coffee-50 px-4 py-3 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <FileText className="size-4 text-coffee-500" />
-                  <Badge variant="outline">{TRACK_LABELS[activeProfile.track]}</Badge>
-                  {activeProfile.filename && (
-                    <span className="text-sm text-coffee-700">{activeProfile.filename}</span>
-                  )}
-                </div>
-                <p className="text-xs text-coffee-500">
-                  Using profile CV · {activeProfile.word_count.toLocaleString()} words
-                  {activeProfile.confirmed ? " · confirmed" : ""}
-                </p>
-              </div>
-            ) : (
-              <>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept={CV_ACCEPT}
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0] ?? null;
-                    setCvFile(f);
-                    if (f) setCvText("");
-                    e.target.value = "";
-                  }}
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => fileRef.current?.click()}
-                  >
-                    <UploadCloud className="size-4" />
-                    {cvFile ? cvFile.name : "Upload PDF/DOCX"}
-                  </Button>
-                  {cvFile && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setCvFile(null)}
-                    >
-                      Clear file
-                    </Button>
-                  )}
-                </div>
-                <Textarea
-                  value={cvText}
-                  onChange={(e) => {
-                    setCvText(e.target.value);
-                    if (e.target.value.trim()) setCvFile(null);
-                  }}
-                  placeholder="Or paste CV text…"
-                  className="min-h-52"
-                  disabled={Boolean(cvFile)}
-                />
-                {hasProfileCvs && !selectedTrack && (
-                  <p className="text-xs text-coffee-500">
-                    Select a profile track above, or paste/upload a one-off CV here.
-                  </p>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          {sources && trackOptions.length === 0 && (
+            <p className="text-sm text-coffee-500">
+              You don&apos;t have a source CV yet.{" "}
+              <Link href="/profile" className="underline underline-offset-2">
+                Upload one on your Profile
+              </Link>{" "}
+              so the tailored CV has real facts to work from.
+            </p>
+          )}
 
-      {coverLetterTemplate?.body && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Cover letter template
-              <Badge variant="muted">Auto-selected</Badge>
-            </CardTitle>
-            <CardDescription>
-              {coverLetterTemplate.filename
-                ? coverLetterTemplate.filename
-                : "From your Profile page"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-coffee-300 bg-coffee-50 p-3 text-sm text-coffee-700">
-              {coverLetterPreview || coverLetterTemplate.body}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          {/* The AI review used to be an opt-in checkbox — a question about our
-              infrastructure that the user has no way to answer. It's simply on;
-              when no provider is configured we say so and still run the keyword scan. */}
-          <p className="text-sm text-coffee-500">
-            {aiAvailable ? (
-              <>Includes the AI review — gaps, false positives, and what to fix.</>
-            ) : (
-              <>
-                Keyword scan only —{" "}
-                <Link
-                  href="/settings"
-                  className="underline underline-offset-2 hover:text-coffee-700"
-                >
-                  add an AI provider key
-                </Link>{" "}
-                for the full review.
-              </>
-            )}
-          </p>
-          <Button
-            variant="accent"
-            disabled={!canRun || check.isPending}
-            onClick={() => check.mutate()}
-          >
-            <ScanSearch className="size-4" />
-            {check.isPending ? "Checking…" : "Run ATS check"}
-          </Button>
+          <div className="flex justify-end">
+            <Button
+              variant="primary"
+              onClick={() => open.mutate()}
+              disabled={!canOpen}
+            >
+              <Sparkles className="size-4" />
+              {open.isPending ? "Opening…" : "Open in workspace"}
+              {!open.isPending && <ArrowRight className="size-4" />}
+            </Button>
+          </div>
         </CardContent>
       </Card>
-
-      {result && (
-        <div className="space-y-6">
-          {restored && (
-            <div className="flex flex-col gap-2 rounded-lg border border-coffee-300 bg-coffee-50 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-              <span className="text-coffee-700">
-                {restored === "job"
-                  ? "Showing the analysis from when this CV was generated — run the check on the left for the full AI review."
-                  : "Restored your last check — edit and re-run, or start fresh."}
-              </span>
-              <button
-                type="button"
-                onClick={startFresh}
-                className="shrink-0 self-start rounded-md border border-coffee-300 bg-white px-3 py-1 text-sm font-medium text-coffee-700 hover:bg-coffee-100 sm:self-auto"
-              >
-                Start a new check
-              </button>
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{result.role_title}</Badge>
-            {result.track && (
-              <Badge variant="outline">{TRACK_LABELS[result.track]}</Badge>
-            )}
-            {result.cv_source === "profile" && (
-              <Badge variant="muted">Profile CV</Badge>
-            )}
-            {result.cv_filename && (
-              <Badge variant="muted">{result.cv_filename}</Badge>
-            )}
-            {result.cv_word_count > 0 && (
-              <span className="text-sm text-coffee-500">
-                {result.cv_word_count.toLocaleString()} words in CV
-              </span>
-            )}
-          </div>
-
-          {result.track_match?.reason && (
-            <p className="text-sm text-coffee-600">
-              {result.track_match.method === "ai" ? "AI track pick: " : "Track match: "}
-              {result.track_match.reason}
-            </p>
-          )}
-
-          <Card>
-            <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-medium text-coffee-900">
-                  {jobId ? "Regenerate in your LaTeX template" : "Turn this into an application"}
-                </p>
-                <p className="text-sm text-coffee-500">
-                  {jobId
-                    ? "Apply these recommendations to a fresh CV + cover letter, then preview and use it on the job."
-                    : "Confirm a few true details, then generate the tailored CV, cover letter, and application — tracked as a job. Or just regenerate the CV in your template."}
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
-                {!jobId && (
-                  <Button variant="primary" onClick={goCreateApplication}>
-                    Create application
-                    <ArrowRight className="size-4" />
-                  </Button>
-                )}
-                <Button
-                  variant={jobId ? "primary" : "secondary"}
-                  onClick={goRegenerate}
-                >
-                  <Wand2 className="size-4" />
-                  Regenerate CV
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Keyword match</CardTitle>
-                <CardDescription>
-                  Fast rule-based scan — the same engine used when you generate.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <AtsBreakdown
-                  score={result.rule_based.score}
-                  breakdown={result.rule_based.breakdown}
-                />
-                {result.rule_based.gaps.length > 0 && (
-                  <div className="mt-4 space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-                      Rule-based gaps
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {result.rule_based.gaps.map((g) => (
-                        <Badge key={g} variant="outline">
-                          {g}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {result.ai && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="size-4 text-coffee-500" />
-                    AI review
-                    {result.ai.ai_powered === false && (
-                      <Badge variant="muted">Offline</Badge>
-                    )}
-                  </CardTitle>
-                  <CardDescription>
-                    {result.ai.fit_summary || "No summary returned."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-5">
-                  <div className="flex items-center gap-4">
-                    <div className="text-3xl font-semibold text-coffee-900">
-                      {result.ai.fit_score != null
-                        ? Math.round(result.ai.fit_score)
-                        : "—"}
-                    </div>
-                    <div>
-                      <p className="font-medium text-coffee-900">
-                        {result.ai.verdict || "Fit assessment"}
-                      </p>
-                      <p className="text-xs text-coffee-500">AI fit score</p>
-                    </div>
-                  </div>
-
-                  {result.ai.strengths.length > 0 && (
-                    <Section title="Strengths" items={result.ai.strengths} />
-                  )}
-
-                  {result.ai.gaps.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-                        Real gaps
-                      </p>
-                      <ul className="space-y-2">
-                        {result.ai.gaps.map((g) => (
-                          <li
-                            key={g.skill}
-                            className="rounded-md border border-coffee-300 px-3 py-2 text-sm"
-                          >
-                            <span className="font-medium text-coffee-900">
-                              {g.skill}
-                            </span>
-                            <Badge variant="outline" className="ml-2 text-[0.65rem]">
-                              {g.severity}
-                            </Badge>
-                            {g.reason && (
-                              <p className="mt-1 text-coffee-600">{g.reason}</p>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {result.ai.false_positives.length > 0 && (
-                    <Section
-                      title="Not real gaps"
-                      items={result.ai.false_positives}
-                    />
-                  )}
-
-                  {result.ai.recommendations.length > 0 && (
-                    <Section
-                      title="Recommendations"
-                      items={result.ai.recommendations}
-                    />
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {result.intelligence && (
-            <ResumeIntelligencePanel intel={result.intelligence} />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ChipRow({
-  label,
-  items,
-  variant = "muted",
-  empty,
-}: {
-  label: string;
-  items: string[];
-  variant?: "default" | "outline" | "muted";
-  empty?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-        {label}
-      </p>
-      {items.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {items.map((it) => (
-            <Badge key={it} variant={variant}>
-              {it}
-            </Badge>
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-coffee-400">{empty ?? "None"}</p>
-      )}
-    </div>
-  );
-}
-
-function FlagList({ flags }: { flags: { code: string; severity: string; message: string }[] }) {
-  if (flags.length === 0) {
-    return <p className="text-sm text-status-offer">No issues detected.</p>;
-  }
-  return (
-    <ul className="space-y-2">
-      {flags.map((f) => (
-        <li
-          key={f.code + f.message}
-          className="flex gap-2 rounded-md border border-coffee-100 px-3 py-2 text-sm"
-        >
-          <Badge
-            variant={f.severity === "warn" ? "outline" : "muted"}
-            className="shrink-0 text-[0.65rem]"
-          >
-            {f.severity}
-          </Badge>
-          <span className="text-coffee-700">{f.message}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function ResumeIntelligencePanel({ intel }: { intel: ResumeIntelligence }) {
-  const [tab, setTab] = React.useState("tools");
-  const a = intel.advisory;
-  const tabs = [
-    { value: "tools", label: "Tools" },
-    { value: "structure", label: "Structure" },
-    {
-      value: "verbs",
-      label: `Verbs${intel.verbs.length ? ` (${intel.verbs.length})` : ""}`,
-    },
-    {
-      value: "standards",
-      label: `Standards${intel.lint.count ? ` (${intel.lint.count})` : ""}`,
-    },
-    { value: "coaching", label: "Coaching" },
-  ];
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="size-4 text-coffee-500" />
-          Resume Intelligence
-        </CardTitle>
-        <CardDescription>
-          Truthful, recruiter-focused suggestions you verify before applying — nothing
-          is rewritten automatically.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Tabs tabs={tabs} value={tab} onValueChange={setTab} />
-
-        {tab === "tools" && (
-          <div className="space-y-4">
-            <ChipRow label="Represented" items={intel.tools.represented} variant="default" empty="No required tools matched yet." />
-            <ChipRow label="Missing (required by JD)" items={intel.tools.missing} variant="outline" empty="Nothing missing." />
-            {intel.tools.underutilized_verified.length > 0 && (
-              <ChipRow label="Verified but underused" items={intel.tools.underutilized_verified} variant="muted" />
-            )}
-          </div>
-        )}
-
-        {tab === "structure" && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-2 text-sm text-coffee-600">
-              <Badge variant="muted">{intel.structure.word_count} words</Badge>
-              <Badge variant="muted">~{intel.structure.est_pages} page(s)</Badge>
-              <Badge variant={intel.structure.summary_present ? "default" : "outline"}>
-                {intel.structure.summary_present ? "Summary ✓" : "No summary"}
-              </Badge>
-              {(["email", "phone", "linkedin", "github"] as const).map((k) => (
-                <Badge key={k} variant={intel.structure.contact[k] ? "default" : "outline"}>
-                  {k} {intel.structure.contact[k] ? "✓" : "—"}
-                </Badge>
-              ))}
-            </div>
-            {intel.structure.headings.length > 0 && (
-              <ChipRow label="Sections detected" items={intel.structure.headings} variant="muted" />
-            )}
-            <FlagList flags={intel.structure.ats_flags} />
-          </div>
-        )}
-
-        {tab === "verbs" && (
-          intel.verbs.length === 0 ? (
-            <p className="text-sm text-status-offer">No weak bullet openers detected.</p>
-          ) : (
-            <ul className="space-y-2">
-              {intel.verbs.map((v, i) => (
-                <li key={i} className="rounded-md border border-coffee-100 px-3 py-2 text-sm">
-                  <p className="text-coffee-700">
-                    <span className="rounded bg-coffee-100 px-1 font-medium text-coffee-900">
-                      {v.weak_verb}
-                    </span>{" "}
-                    {v.bullet}
-                  </p>
-                  <p className="mt-1 text-xs text-coffee-500">
-                    Stronger (if accurate): {v.suggestions.join(", ")}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )
-        )}
-
-        {tab === "standards" && <FlagList flags={intel.lint.findings} />}
-
-        {tab === "coaching" && (
-          !a ? (
-            <p className="text-sm text-coffee-500">
-              Add an AI provider key on{" "}
-              <Link href="/settings" className="underline underline-offset-2">
-                Settings
-              </Link>{" "}
-              for tailored PAR/XYZ bullet coaching and a summary rewrite.
-            </p>
-          ) : (
-            <div className="space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ChipRow label="Strong matches" items={a.skills_alignment.strong} variant="default" empty="—" />
-                <ChipRow label="Omitted to stay truthful" items={a.skills_alignment.omitted_for_truth} variant="outline" empty="—" />
-              </div>
-              {a.summary_review.issues.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-                    Summary
-                  </p>
-                  <ul className="list-inside list-disc text-sm text-coffee-700">
-                    {a.summary_review.issues.map((s) => (
-                      <li key={s}>{s}</li>
-                    ))}
-                  </ul>
-                  {a.summary_review.suggestion && (
-                    <p className="rounded-md border border-coffee-100 bg-coffee-50 px-3 py-2 text-sm text-coffee-800">
-                      {a.summary_review.suggestion}
-                    </p>
-                  )}
-                </div>
-              )}
-              {a.bullet_coaching.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-                    Bullet coaching
-                  </p>
-                  <ul className="space-y-2">
-                    {a.bullet_coaching.map((c, i) => (
-                      <li key={i} className="rounded-md border border-coffee-100 px-3 py-2 text-sm">
-                        <Badge variant="muted" className="text-[0.65rem]">
-                          {c.framework}
-                        </Badge>
-                        {c.original && (
-                          <p className="mt-1 text-coffee-500 line-clamp-2">{c.original}</p>
-                        )}
-                        <p className="mt-1 text-coffee-800">{c.suggestion}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function Section({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wider text-coffee-500">
-        {title}
-      </p>
-      <ul className="list-inside list-disc space-y-1 text-sm text-coffee-700">
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
     </div>
   );
 }
