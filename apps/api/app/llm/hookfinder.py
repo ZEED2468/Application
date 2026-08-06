@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import structlog
+
 from app.core.enums import Track
+
+_log = structlog.get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -48,6 +52,11 @@ async def find_hook(*, company: str, track: Track, job_description: str | None =
         "use only what is in the provided job description. Return: <detail> || <source>."
     )
     prompt = f"Company: {company}\nTrack angle: {_TRACK_ANGLE.get(track)}\nJD:\n{job_description or ''}"
-    text = await client.complete_text(system, prompt, max_tokens=300, feature="hookfinder")
+    try:
+        text = await client.complete_text(system, prompt, max_tokens=300, feature="hookfinder")
+    except Exception as exc:  # noqa: BLE001 — a bad key / provider outage must not crash
+        # generation. Fall back to the deterministic (still truthful) hook, like tailoring.
+        _log.warning("hookfinder.live_failed", error=str(exc), exc_type=type(exc).__name__)
+        return _fake_hook(company, track, job_description)
     detail, _, source = text.partition("||")
     return Hook(text=detail.strip(), source=(source.strip() or "model"))
