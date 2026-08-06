@@ -19,6 +19,13 @@ export interface JobsFilter {
   origin?: Origin | "";
 }
 
+/** A JD skill the CV is missing, AI-vetted, with a question to ask the user. */
+export interface Gap {
+  skill: string;
+  question: string;
+  reason: string;
+}
+
 /** Backend returns a flat job row; normalize to the nested JobDetail shape. */
 function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
   const {
@@ -121,9 +128,33 @@ export const jobsService = {
     await api.patch(path(`/api/jobs/${id}/track`), { json: { track } });
   },
 
-  async generate(id: string, force = false): Promise<GenerateResponse> {
-    const qs = force ? "?force=true" : "";
-    return api.post(path(`/api/jobs/${id}/generate${qs}`)).json<GenerateResponse>();
+  async generate(
+    id: string,
+    force = false,
+    regenerate = false,
+  ): Promise<GenerateResponse> {
+    const params = new URLSearchParams();
+    if (force) params.set("force", "true");
+    if (regenerate) params.set("regenerate", "true");
+    const qs = params.toString();
+    return api
+      .post(path(`/api/jobs/${id}/generate${qs ? `?${qs}` : ""}`))
+      .json<GenerateResponse>();
+  },
+
+  /** JD skills the tailored CV is missing (AI-vetted) for this job. */
+  async gaps(id: string): Promise<Gap[]> {
+    const res = await api
+      .get(path(`/api/jobs/${id}/gaps`))
+      .json<{ gaps: Gap[] }>();
+    return res.gaps;
+  },
+
+  /** Confirm the user genuinely has a skill → add it to their profile (truth-bounded). */
+  async confirmSkill(id: string, skill: string, detail?: string): Promise<void> {
+    await api.post(path(`/api/jobs/${id}/confirm-skill`), {
+      json: { skill, detail: detail || undefined },
+    });
   },
 
   async submit(id: string): Promise<void> {

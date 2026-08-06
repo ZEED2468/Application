@@ -39,6 +39,7 @@ import { PageHeading, ErrorState } from "@/components/states";
 import { PdfPreviewModal } from "@/components/pdf-preview-modal";
 import { AtsBreakdown } from "@/components/ats-breakdown";
 import { ResumeEditor } from "@/components/resume-editor";
+import { GapFillerDrawer } from "@/components/gap-filler-drawer";
 import { StatusCell } from "../status-cell";
 import {
   Card,
@@ -65,6 +66,9 @@ export default function JobDetailPage({
     null,
   );
   const [jdOpen, setJdOpen] = React.useState(false);
+  const [gapsOpen, setGapsOpen] = React.useState(false);
+  // Bumped after a gap-filler regenerate so the résumé preview reloads the new PDF.
+  const [refreshToken, setRefreshToken] = React.useState(0);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.job(id),
@@ -193,6 +197,13 @@ export default function JobDetailPage({
         url={preview?.url}
       />
 
+      <GapFillerDrawer
+        jobId={id}
+        open={gapsOpen}
+        onClose={() => setGapsOpen(false)}
+        onRegenerated={() => setRefreshToken((t) => t + 1)}
+      />
+
       <PageHeading
         title={job.role}
         description={`${job.company}${job.location ? ` · ${job.location}` : ""}`}
@@ -255,6 +266,7 @@ export default function JobDetailPage({
             generatedCv={generated_cv}
             generating={generateMutation.isPending}
             onGenerate={() => generateMutation.mutate(false)}
+            refreshToken={refreshToken}
           />
         </div>
 
@@ -268,12 +280,25 @@ export default function JobDetailPage({
                 Whether this résumé is ready — and what would make it readier.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               <AtsBreakdown
                 variant="summary"
                 score={generated_cv?.ats_score ?? null}
                 breakdown={generated_cv?.ats_breakdown ?? null}
               />
+              {generated_cv?.ats_breakdown?.missing_critical &&
+                generated_cv.ats_breakdown.missing_critical.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setGapsOpen(true)}
+                  >
+                    <Sparkles className="size-4" />
+                    Review {generated_cv.ats_breakdown.missing_critical.length} gap
+                    {generated_cv.ats_breakdown.missing_critical.length > 1 ? "s" : ""}
+                  </Button>
+                )}
             </CardContent>
           </Card>
 
@@ -496,6 +521,7 @@ function ResumeHero({
   generatedCv,
   generating,
   onGenerate,
+  refreshToken,
 }: {
   id: string;
   company: string;
@@ -504,6 +530,7 @@ function ResumeHero({
   generatedCv: GeneratedCv | null;
   generating: boolean;
   onGenerate: () => void;
+  refreshToken: number;
 }) {
   // Deep links from "Regenerate CV" / the old builder route arrive as ?edit=…
   const [editing, setEditing] = React.useState(
@@ -599,7 +626,7 @@ function ResumeHero({
             )}
             {docUrl ? (
               <iframe
-                key={docVersion}
+                key={`${docVersion}-${refreshToken}`}
                 src={docUrl}
                 title={`Tailored résumé — ${company}`}
                 className="h-full min-h-[68vh] w-full rounded-md border border-coffee-200 bg-white"
