@@ -41,6 +41,7 @@ from app.llm import tailoring
 from app.llm import ats_vet
 from app.models.application import Application
 from app.models.chat import ChatPrompt, ChatSession
+from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
@@ -297,21 +298,32 @@ async def generate_application(
 
     company = chat.company or extract_company(chat.jd_text or "")
     dedupe = hashlib.sha256((chat.jd_text or str(chat.id)).encode()).hexdigest()[:32]
-    job = Job(
-        user_id=user_id, source=JobSourceName.manual, origin=Origin.manual,
-        dedupe_key=dedupe, company=company, title=chat.role_title or "Role",
-        role_title=chat.role_title, description=chat.jd_text, track=track,
-        status=JobStatus.scored,
-    )
-    session.add(job)
-    await session.flush()
+    # Reuse an existing job with the same dedupe (e.g. this JD was already discovered or
+    # applied to) instead of violating uq_job_user_dedupe.
+    job = (await session.execute(
+        select(Job).where(Job.user_id == user_id, Job.dedupe_key == dedupe)
+    )).scalar_one_or_none()
+    if job is None:
+        job = Job(
+            user_id=user_id, source=JobSourceName.manual, origin=Origin.manual,
+            dedupe_key=dedupe, company=company, title=chat.role_title or "Role",
+            role_title=chat.role_title, description=chat.jd_text, track=track,
+            status=JobStatus.scored,
+        )
+        session.add(job)
+        await session.flush()
     chat.job_id = job.id
 
-    # Shared engine sets job.status = ready when done (same as the autonomous path).
-    cv, _cover = await generation.generate_cv_and_cover(
-        session, job=job, profile=profile, owner=owner,
-        role_cv_id=chat.role_cv_id, confirmed_facts=chat.confirmed_facts, emit=emit,
-    )
+    # If the job already has a generated CV, reuse it (idempotent) — regenerating would
+    # violate uq_cover_letter_job. Otherwise the shared engine sets job.status = ready.
+    cv = (await session.execute(
+        select(GeneratedCv).where(GeneratedCv.job_id == job.id).limit(1)
+    )).scalar_one_or_none()
+    if cv is None:
+        cv, _cover = await generation.generate_cv_and_cover(
+            session, job=job, profile=profile, owner=owner,
+            role_cv_id=chat.role_cv_id, confirmed_facts=chat.confirmed_facts, emit=emit,
+        )
     chat.state = ChatState.application_created  # chat output produced; VA applies next
     await session.flush()
     log.info("manual.generated", job_id=str(job.id), ats=cv.ats_score)
