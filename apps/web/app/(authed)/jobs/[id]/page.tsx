@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Check,
+  ChevronRight,
   Eye,
   FileText,
   Sparkles,
@@ -35,8 +36,9 @@ import { queryKeys } from "@/lib/query-keys";
 import { TRACK_LABELS } from "@/lib/status";
 import { formatDateTime, cn } from "@/lib/utils";
 import { absoluteApiUrl } from "@/lib/api/client";
-import { PageHeading, ErrorState } from "@/components/states";
+import { ErrorState } from "@/components/states";
 import { PdfPreviewModal } from "@/components/pdf-preview-modal";
+import { Drawer } from "@/components/ui/drawer";
 import { AtsBreakdown } from "@/components/ats-breakdown";
 import { ResumeEditor } from "@/components/resume-editor";
 import { GapFillerDrawer } from "@/components/gap-filler-drawer";
@@ -46,7 +48,6 @@ import {
   CardHeader,
   CardTitle,
   CardContent,
-  CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +67,7 @@ export default function JobDetailPage({
     null,
   );
   const [jdOpen, setJdOpen] = React.useState(false);
+  const [activityOpen, setActivityOpen] = React.useState(false);
   const [gapsOpen, setGapsOpen] = React.useState(false);
   // Bumped after a gap-filler regenerate so the résumé preview reloads the new PDF.
   const [refreshToken, setRefreshToken] = React.useState(0);
@@ -204,56 +206,176 @@ export default function JobDetailPage({
         onRegenerated={() => setRefreshToken((t) => t + 1)}
       />
 
-      <PageHeading
-        title={job.role}
-        description={`${job.company}${job.location ? ` · ${job.location}` : ""}`}
-        actions={
-          // The résumé (centre) owns Generate + Edit; the header owns Apply once it exists.
-          generated_cv && !application ? (
-            <Button
-              variant="primary"
-              onClick={() => applyMutation.mutate()}
-              disabled={applyMutation.isPending}
-            >
-              <Send className="size-4" />
-              {applyMutation.isPending ? "Applying…" : "Apply"}
-            </Button>
-          ) : application ? (
-            <Badge variant="default" className="px-3 py-1.5 text-sm">
-              Applied
-            </Badge>
-          ) : undefined
-        }
-      />
-
-      <JobStepper
-        current={application ? 3 : generated_cv ? 2 : job.status === "discovered" ? 0 : 1}
-      />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline">
-          {TRACK_LABELS[job.track as keyof typeof TRACK_LABELS] || job.track}
-        </Badge>
-        <Badge variant={job.origin === "manual" ? "default" : "muted"}>
-          {job.origin === "manual" ? "Manual" : "Auto"}
-        </Badge>
-        {application?.submitted_at && (
-          <span className="text-xs text-coffee-400">
-            Submitted {formatDateTime(application.submitted_at)}
-          </span>
+      <Drawer
+        open={jdOpen}
+        onClose={() => setJdOpen(false)}
+        title="Job description"
+        description={`${job.company} · ${job.role}`}
+        width="w-[34rem]"
+      >
+        {jdText ? (
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-coffee-700">
+            {jdText}
+          </p>
+        ) : (
+          <p className="text-sm text-coffee-400">No job description on file.</p>
         )}
-        {job.url && (
-          <a
-            href={job.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-sm text-coffee-500 underline underline-offset-4 hover:text-coffee-700"
-          >
-            View original posting
-            <ExternalLink className="size-3.5" />
-          </a>
-        )}
-      </div>
+      </Drawer>
+
+      <Drawer
+        open={activityOpen}
+        onClose={() => setActivityOpen(false)}
+        title="Activity"
+        description="Outreach and the application audit trail."
+        width="w-[34rem]"
+      >
+        <div className="space-y-6">
+          <section className="space-y-2.5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-coffee-900">
+              <Mail className="size-4 text-coffee-400" /> Outreach
+            </h3>
+            {outreach && (
+              <p className="text-xs text-coffee-500">
+                {outreach.contact_name
+                  ? `To ${outreach.contact_name}${outreach.contact_title ? `, ${outreach.contact_title}` : ""} · `
+                  : ""}
+                Step: {outreach.step} · {outreach.sent_count} sent
+              </p>
+            )}
+            {outreach?.company_hook && (
+              <p className="rounded-md border border-coffee-100 bg-coffee-100/40 px-3 py-2 text-sm text-coffee-700">
+                Hook: {outreach.company_hook}
+              </p>
+            )}
+            {thread.length === 0 ? (
+              <p className="text-sm text-coffee-400">
+                No messages yet. Apply to start first-contact outreach.
+              </p>
+            ) : (
+              <ol className="space-y-3">
+                {thread.map((m) => (
+                  <li
+                    key={m.id}
+                    className="rounded-md border border-coffee-100 px-4 py-3"
+                  >
+                    <div className="mb-1 flex items-center justify-between gap-2 text-xs text-coffee-500">
+                      <span>
+                        <Badge
+                          variant={m.direction === "inbound" ? "default" : "muted"}
+                        >
+                          {m.direction === "inbound" ? "Reply" : "Sent"}
+                        </Badge>{" "}
+                        <span className="ml-1">
+                          {m.from} → {m.to}
+                        </span>
+                      </span>
+                      <span>{formatDateTime(m.sent_at)}</span>
+                    </div>
+                    {m.subject && (
+                      <p className="text-sm font-medium text-coffee-900">
+                        {m.subject}
+                      </p>
+                    )}
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-coffee-700">
+                      {m.body}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+
+          <section className="space-y-2.5">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-coffee-900">
+              <History className="size-4 text-coffee-400" /> Audit trail
+            </h3>
+            {!application ? (
+              <p className="text-sm text-coffee-400">
+                No application yet — apply to create one.
+              </p>
+            ) : audit.isLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+              </div>
+            ) : (audit.data?.length ?? 0) === 0 ? (
+              <p className="text-sm text-coffee-400">No events recorded.</p>
+            ) : (
+              <ol className="space-y-3">
+                {audit.data!.map((ev) => (
+                  <li key={ev.id} className="flex gap-3">
+                    <span className="mt-1.5 size-2 shrink-0 rounded-full bg-coffee-300" />
+                    <div>
+                      <p className="text-sm text-coffee-900">{ev.message}</p>
+                      <p className="text-xs text-coffee-400">
+                        {ev.type} · {formatDateTime(ev.created_at)}
+                        {ev.actor ? ` · ${ev.actor}` : ""}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        </div>
+      </Drawer>
+
+      <header className="space-y-4 border-b border-coffee-200 pb-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1.5">
+            <h1 className="text-2xl font-semibold tracking-tight text-coffee-900">
+              {job.role}
+            </h1>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-coffee-500">
+              <span className="font-medium text-coffee-700">{job.company}</span>
+              {job.location && (
+                <>
+                  <span className="text-coffee-300">·</span>
+                  <span>{job.location}</span>
+                </>
+              )}
+              <span className="text-coffee-300">·</span>
+              <span>
+                {TRACK_LABELS[job.track as keyof typeof TRACK_LABELS] || job.track}
+              </span>
+              <span className="text-coffee-300">·</span>
+              <span>{job.origin === "manual" ? "Manual" : "Auto"}</span>
+              {job.url && (
+                <>
+                  <span className="text-coffee-300">·</span>
+                  <a
+                    href={job.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 underline underline-offset-4 hover:text-coffee-700"
+                  >
+                    View posting <ExternalLink className="size-3" />
+                  </a>
+                </>
+              )}
+            </p>
+          </div>
+          <div className="shrink-0">
+            {generated_cv && !application ? (
+              <Button
+                variant="primary"
+                onClick={() => applyMutation.mutate()}
+                disabled={applyMutation.isPending}
+              >
+                <Send className="size-4" />
+                {applyMutation.isPending ? "Applying…" : "Apply"}
+              </Button>
+            ) : application ? (
+              <Badge variant="solid" className="gap-1 px-3 py-1.5 text-sm">
+                <Check className="size-3.5" /> Applied
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+        <JobStepper
+          current={application ? 3 : generated_cv ? 2 : job.status === "discovered" ? 0 : 1}
+        />
+      </header>
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* The résumé is the workspace — centre stage. */}
@@ -270,89 +392,50 @@ export default function JobDetailPage({
           />
         </div>
 
-        {/* Everything else supports the document, in a context rail. */}
-        <div className="space-y-6">
-          {/* Ready to apply? */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Ready to apply?</CardTitle>
-              <CardDescription>
-                Whether this résumé is ready — and what would make it readier.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <AtsBreakdown
-                variant="summary"
-                score={generated_cv?.ats_score ?? null}
-                breakdown={generated_cv?.ats_breakdown ?? null}
-              />
-              {generated_cv?.ats_breakdown?.missing_critical &&
-                generated_cv.ats_breakdown.missing_critical.length > 0 && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => setGapsOpen(true)}
-                  >
-                    <Sparkles className="size-4" />
-                    Review {generated_cv.ats_breakdown.missing_critical.length} gap
-                    {generated_cv.ats_breakdown.missing_critical.length > 1 ? "s" : ""}
-                  </Button>
-                )}
-            </CardContent>
-          </Card>
-
-          {/* Job description (collapsible — the document, not the JD, leads) */}
-          <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0">
-              <CardTitle>Job description</CardTitle>
-              {jdText && (
-                <button
-                  type="button"
-                  onClick={() => setJdOpen((o) => !o)}
-                  className="text-xs text-coffee-500 hover:text-coffee-700"
-                >
-                  {jdOpen ? "Collapse" : "Expand"}
-                </button>
-              )}
-            </CardHeader>
-            <CardContent>
-              {jdText ? (
-                <p
-                  className={cn(
-                    "whitespace-pre-wrap text-sm leading-relaxed text-coffee-700",
-                    !jdOpen && "line-clamp-6",
-                  )}
-                >
-                  {jdText}
-                </p>
+        {/* Everything else supports the document, in a labelled context rail. */}
+        <div className="space-y-7">
+          {/* Ready to apply — the focal point of the rail */}
+          <RailSection label="Ready to apply">
+            <div className="space-y-3 rounded-lg border border-coffee-300 bg-white p-4 shadow-sm">
+              {generated_cv ? (
+                <>
+                  <AtsBreakdown
+                    variant="summary"
+                    score={generated_cv.ats_score ?? null}
+                    breakdown={generated_cv.ats_breakdown ?? null}
+                  />
+                  {generated_cv.ats_breakdown?.missing_critical &&
+                    generated_cv.ats_breakdown.missing_critical.length > 0 && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => setGapsOpen(true)}
+                      >
+                        <Sparkles className="size-4" />
+                        Review {generated_cv.ats_breakdown.missing_critical.length} gap
+                        {generated_cv.ats_breakdown.missing_critical.length > 1 ? "s" : ""}
+                      </Button>
+                    )}
+                </>
               ) : (
-                <p className="text-coffee-400">No job description on file.</p>
+                <p className="text-sm text-coffee-500">
+                  Generate the résumé to see its ATS readiness for this role.
+                </p>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </RailSection>
 
-          {/* Cover letter (the CV is the hero; the cover lives here) */}
-          <Card>
-            <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-              <CardTitle>Cover letter</CardTitle>
-              {generated_cv && (
-                <Button
-                  variant={cover_letter ? "ghost" : "secondary"}
-                  size="sm"
-                  onClick={() => coverMutation.mutate()}
-                  disabled={coverMutation.isPending}
-                >
-                  <Sparkles className="size-4" />
-                  {coverMutation.isPending
-                    ? "Writing…"
-                    : cover_letter
-                      ? "Regenerate"
-                      : "Generate"}
-                </Button>
-              )}
-            </CardHeader>
-            <CardContent>
+          {/* Documents — résumé + cover as compact rows */}
+          <RailSection label="Documents">
+            <div className="space-y-2">
+              <DocRow
+                label="Résumé"
+                href={generated_cv?.download_url ?? null}
+                onPreview={(u) =>
+                  setPreview({ url: u, title: `Résumé — ${job.company}` })
+                }
+              />
               {cover_letter ? (
                 <DocRow
                   label="Cover letter"
@@ -362,148 +445,82 @@ export default function JobDetailPage({
                   }
                 />
               ) : (
-                <p className="text-sm text-coffee-500">
-                  {generated_cv
-                    ? "Tailored to this job from your template and the same analysis behind the résumé."
-                    : "Generate the résumé first — the cover letter is written from the same analysis."}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>
-                Update after applying, interviewing, or hearing back.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <StatusCell job={job} jobDetailId={id} />
-            </CardContent>
-          </Card>
-
-          {/* Track override */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Track</CardTitle>
-              <CardDescription>Override the classified track.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Select
-                value={job.track}
-                disabled={trackMutation.isPending}
-                onChange={(e) => trackMutation.mutate(e.target.value as Track)}
-              >
-                {TRACKS.map((t) => (
-                  <option key={t} value={t}>
-                    {TRACK_LABELS[t]}
-                  </option>
-                ))}
-              </Select>
-            </CardContent>
-          </Card>
-
-          {/* Outreach thread */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="size-4 text-coffee-500" />
-                Outreach
-              </CardTitle>
-              {outreach && (
-                <CardDescription>
-                  {outreach.contact_name
-                    ? `To ${outreach.contact_name}${outreach.contact_title ? `, ${outreach.contact_title}` : ""} · `
-                    : ""}
-                  Step: {outreach.step} · {outreach.sent_count} sent
-                </CardDescription>
-              )}
-            </CardHeader>
-            <CardContent>
-              {outreach?.company_hook && (
-                <p className="mb-4 rounded-md border border-coffee-100 bg-coffee-100/40 px-3 py-2 text-sm text-coffee-700">
-                  Hook: {outreach.company_hook}
-                </p>
-              )}
-              {thread.length === 0 ? (
-                <p className="text-sm text-coffee-400">
-                  No messages yet. Apply to start first-contact outreach.
-                </p>
-              ) : (
-                <ol className="space-y-4">
-                  {thread.map((m) => (
-                    <li
-                      key={m.id}
-                      className="rounded-md border border-coffee-100 px-4 py-3"
+                <div className="flex items-center justify-between rounded-md border border-coffee-100 px-3 py-2.5">
+                  <span className="flex items-center gap-2 text-sm text-coffee-400">
+                    <FileText className="size-4" />
+                    Cover letter
+                  </span>
+                  {generated_cv ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => coverMutation.mutate()}
+                      disabled={coverMutation.isPending}
                     >
-                      <div className="mb-1 flex items-center justify-between gap-2 text-xs text-coffee-500">
-                        <span>
-                          <Badge
-                            variant={m.direction === "inbound" ? "default" : "muted"}
-                          >
-                            {m.direction === "inbound" ? "Reply" : "Sent"}
-                          </Badge>{" "}
-                          <span className="ml-1">
-                            {m.from} → {m.to}
-                          </span>
-                        </span>
-                        <span>{formatDateTime(m.sent_at)}</span>
-                      </div>
-                      {m.subject && (
-                        <p className="text-sm font-medium text-coffee-900">
-                          {m.subject}
-                        </p>
-                      )}
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-coffee-700">
-                        {m.body}
-                      </p>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Audit */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <History className="size-4 text-coffee-500" />
-                Audit trail
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {!application ? (
-                <p className="text-sm text-coffee-400">
-                  No application yet — apply to create one.
-                </p>
-              ) : audit.isLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-3/4" />
+                      <Sparkles className="size-3.5" />
+                      {coverMutation.isPending ? "Writing…" : "Generate"}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-coffee-400">After the résumé</span>
+                  )}
                 </div>
-              ) : (audit.data?.length ?? 0) === 0 ? (
-                <p className="text-sm text-coffee-400">No events recorded.</p>
-              ) : (
-                <ol className="space-y-3">
-                  {audit.data!.map((ev) => (
-                    <li key={ev.id} className="flex gap-3">
-                      <span className="mt-1.5 size-2 shrink-0 rounded-full bg-coffee-300" />
-                      <div>
-                        <p className="text-sm text-coffee-900">{ev.message}</p>
-                        <p className="text-xs text-coffee-400">
-                          {ev.type} · {formatDateTime(ev.created_at)}
-                          {ev.actor ? ` · ${ev.actor}` : ""}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </RailSection>
+
+          {/* Details — status + track as compact rows */}
+          <RailSection label="Details">
+            <div className="overflow-hidden rounded-lg border border-coffee-200 bg-white">
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <span className="text-sm text-coffee-600">Status</span>
+                <StatusCell job={job} jobDetailId={id} />
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-coffee-100 px-4 py-3">
+                <span className="text-sm text-coffee-600">Track</span>
+                <Select
+                  value={job.track}
+                  selectSize="sm"
+                  disabled={trackMutation.isPending}
+                  onChange={(e) => trackMutation.mutate(e.target.value as Track)}
+                  className="w-40"
+                >
+                  {TRACKS.map((t) => (
+                    <option key={t} value={t}>
+                      {TRACK_LABELS[t]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          </RailSection>
+
+          {/* More — the JD and activity live one click away, in drawers */}
+          <RailSection label="More">
+            <div className="overflow-hidden rounded-lg border border-coffee-200 bg-white">
+              <button
+                type="button"
+                onClick={() => setJdOpen(true)}
+                className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-sm text-coffee-700 hover:bg-coffee-50"
+              >
+                <span className="flex items-center gap-2">
+                  <FileText className="size-4 text-coffee-400" />
+                  Job description
+                </span>
+                <ChevronRight className="size-4 text-coffee-400" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivityOpen(true)}
+                className="flex w-full items-center justify-between gap-2 border-t border-coffee-100 px-4 py-3 text-left text-sm text-coffee-700 hover:bg-coffee-50"
+              >
+                <span className="flex items-center gap-2">
+                  <History className="size-4 text-coffee-400" />
+                  Activity{thread.length > 0 ? ` · ${thread.length}` : ""}
+                </span>
+                <ChevronRight className="size-4 text-coffee-400" />
+              </button>
+            </div>
+          </RailSection>
         </div>
       </div>
     </div>
@@ -553,7 +570,7 @@ function ResumeHero({
     status !== "submitted";
 
   return (
-    <Card className="flex min-h-[78vh] flex-col">
+    <Card className="flex min-h-[78vh] flex-col shadow-sm">
       <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
         <CardTitle>{editing ? "Edit résumé" : "Tailored résumé"}</CardTitle>
         {editing ? (
@@ -641,6 +658,25 @@ function ResumeHero({
   );
 }
 
+/** A labelled rail group — an uppercase micro-label over its content. Turns the rail
+ *  from a stack of equal cards into a few purposeful, scannable sections. */
+function RailSection({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-2.5">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-coffee-400">
+        {label}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
 function BackLink() {
   return (
     <Link
@@ -656,23 +692,47 @@ function BackLink() {
 function JobStepper({ current }: { current: number }) {
   const steps = ["Discovered", "Tailored", "Ready", "Applied"];
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-      {steps.map((s, i) => (
-        <React.Fragment key={s}>
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2.5 py-1",
-              i < current && "bg-coffee-100 text-coffee-500",
-              i === current && "bg-coffee-700 font-medium text-cream",
-              i > current && "border border-coffee-100 text-coffee-400",
+    <div className="flex items-center">
+      {steps.map((s, i) => {
+        const done = i < current;
+        const active = i === current;
+        return (
+          <React.Fragment key={s}>
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                  done && "bg-coffee-700 text-cream",
+                  active && "bg-coffee-900 text-cream",
+                  !done && !active && "border border-coffee-300 text-coffee-400",
+                )}
+              >
+                {done ? <Check className="size-3" /> : i + 1}
+              </span>
+              <span
+                className={cn(
+                  "hidden text-xs sm:inline",
+                  active
+                    ? "font-medium text-coffee-900"
+                    : done
+                      ? "text-coffee-600"
+                      : "text-coffee-400",
+                )}
+              >
+                {s}
+              </span>
+            </div>
+            {i < steps.length - 1 && (
+              <span
+                className={cn(
+                  "mx-2 h-px flex-1 sm:mx-3",
+                  done ? "bg-coffee-400" : "bg-coffee-200",
+                )}
+              />
             )}
-          >
-            {i < current && <Check className="size-3" />}
-            {s}
-          </span>
-          {i < steps.length - 1 && <span className="h-px w-4 bg-coffee-200" />}
-        </React.Fragment>
-      ))}
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 }
@@ -706,7 +766,7 @@ function DocRow({
       <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={() => onPreview(href)}
+          onClick={() => onPreview(absoluteApiUrl(href) ?? href)}
           className="inline-flex items-center gap-1 text-xs text-coffee-700 underline underline-offset-2 hover:text-coffee-900"
         >
           <Eye className="size-3.5" />
