@@ -90,6 +90,31 @@ async def _seed_job(maker, uid, *, dedupe="dk-latex") -> UUID:
 
 
 @pytest.mark.asyncio
+async def test_gaps_empty_without_cv_and_confirm_skill_persists(ctx):
+    """The gap-filler backend: no CV → no gaps; confirming a skill lands it in the
+    profile's verified_extras (truth-bounded), so future generations can use it."""
+    client, maker = ctx
+    uid = await _login(client)
+    job_id = await _seed_job(maker, uid, dedupe="dk-gap")
+
+    r = await client.get(f"/api/jobs/{job_id}/gaps")
+    assert r.status_code == 200, r.text
+    assert r.json()["gaps"] == []  # nothing to compare against yet
+
+    r = await client.post(f"/api/jobs/{job_id}/confirm-skill", json={"skill": "Kafka"})
+    assert r.status_code == 200, r.text
+    async with maker() as s:
+        prof = (
+            await s.execute(
+                select(MasterProfile).where(
+                    MasterProfile.user_id == uid, MasterProfile.track == Track.backend
+                )
+            )
+        ).scalar_one()
+        assert "Kafka" in (prof.verified_extras or {}).get("skills", [])
+
+
+@pytest.mark.asyncio
 async def test_application_status_creates_application_without_null_event(ctx):
     """Marking a never-tracked job 'applied' creates the Application and logs its
     creation event — the event must carry a real application_id (regression: it was

@@ -47,6 +47,7 @@ from app.models.thread import Thread
 from app.models.user import User
 from app.api._files import serve_key
 from app.api._pagination import PageParam, PageSizeParam, paginate
+from app.llm import ats_vet
 from app.pipelines.apply import ats, cv_parse, format_gate, render, service
 from app.pipelines.apply.latex_safety import assert_safe
 from app.pipelines.manual import service as manual_service
@@ -446,10 +447,15 @@ async def override_track(
 async def generate(
     job_id: UUID,
     force: bool = False,
+    regenerate: bool = False,
     principal: Principal = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> GenerateResponse:
-    """Run classify -> score -> tailor + render synchronously (dashboard action)."""
+    """Run classify -> score -> tailor + render synchronously (dashboard action).
+
+    `regenerate=true` re-tailors an existing CV (e.g. after confirming new profile
+    skills) by dropping the current CV + cover first, so the shared engine runs fresh.
+    """
     job = await session.get(Job, job_id)
     if job is None:
         raise NotFoundError("Job not found")
@@ -468,15 +474,93 @@ async def generate(
     # regenerating — a second cover-letter insert would violate uq_cover_letter_job.
     # (Re-tailoring an existing CV goes through the LaTeX builder, not this endpoint.)
     existing = await _cv_for(session, job.id)
-    if existing is not None:
+    if existing is not None and not regenerate:
         return GenerateResponse(
             job_id=job.id, status=job.status,
             generated_cv_id=existing.id, pdf_url=existing.pdf_url,
         )
+    if existing is not None:
+        # Force a fresh re-tailor: drop the existing CV + cover so the shared engine can
+        # run without violating uq_cv_job / uq_cover_letter_job.
+        cover = await _cover_for(session, job.id)
+        if cover is not None:
+            await session.delete(cover)
+        await session.delete(existing)
+        await session.flush()
     cv = await service.generate_cv(session, job=job, profile=profile)
     return GenerateResponse(
         job_id=job.id, status=job.status, generated_cv_id=cv.id, pdf_url=cv.pdf_url
     )
+
+
+class ConfirmSkillBody(BaseModel):
+    skill: str
+    detail: str | None = None
+
+
+@router.get("/{job_id}/gaps")
+async def job_gaps(
+    job_id: UUID,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """The JD's confirmable missing skills for this job — derived from the tailored CV's
+    ATS breakdown and AI-vetted to drop false positives — so the user can confirm the
+    ones they genuinely have. Empty until a CV exists (nothing to compare against yet)."""
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    cv = await _cv_for(session, job.id)
+    breakdown = (cv.ats_breakdown if cv else None) or {}
+    candidate = ats.gap_skills(breakdown, limit=10)
+    if not candidate:
+        return {"gaps": []}
+    track = job.track or Track.general
+    profile = await profiles_repo.get_by_user_track(session, user_id=job.user_id, track=track)
+    profile_dict = profiles_repo.profile_to_dict(profile) if profile else {}
+    result = await ats_vet.vet_gaps(
+        profile=profile_dict, jd_text=job.description or "",
+        role_title=job.role_title or job.title, candidate_gaps=candidate,
+        missing_keywords=breakdown.get("missing_keywords") or [],
+        matched_keywords=breakdown.get("matched_keywords") or [],
+    )
+    return {"gaps": [
+        {"skill": g.skill, "question": g.question, "reason": g.reason}
+        for g in result.gaps
+    ]}
+
+
+@router.post("/{job_id}/confirm-skill")
+async def confirm_skill(
+    job_id: UUID,
+    body: ConfirmSkillBody,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """The user confirms they genuinely have a JD skill → add it to their profile's
+    verified skills (per-track, truth-bounded). profile_to_dict → _augment_skills then
+    feeds it into every future generation for this track, and it stops being re-flagged."""
+    skill = (body.detail or body.skill or "").strip()
+    if not skill:
+        return JSONResponse(status_code=422, content={"error": "empty_skill",
+                            "detail": "Nothing to confirm."})
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    track = job.track or Track.general
+    profile = await profiles_repo.get_by_user_track(session, user_id=job.user_id, track=track)
+    if profile is None:
+        raise ConflictError(f"No master profile for track '{track.value}'")
+    extras = dict(profile.verified_extras or {})
+    skills = list(extras.get("skills") or [])
+    if skill.lower() not in {s.lower() for s in skills}:
+        skills.append(skill)
+    extras["skills"] = skills[:50]
+    profile.verified_extras = extras
+    await session.flush()
+    return {"ok": True, "skill": skill, "track": track.value}
 
 
 @router.post("/{job_id}/submit", response_model=SubmitResponse)
