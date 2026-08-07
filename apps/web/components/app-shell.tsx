@@ -17,6 +17,7 @@ import {
   LogOut,
   Menu,
   X,
+  PanelLeft,
 } from "lucide-react";
 import type { MeResponse } from "@jd/shared-types";
 import { authService } from "@/lib/api/services";
@@ -99,15 +100,18 @@ function BrandLink() {
   );
 }
 
-/** Grouped nav list, shared by the desktop sidebar and the mobile drawer. */
+/** Grouped nav list, shared by the desktop sidebar and the mobile drawer. When
+ *  `collapsed`, renders an icon-only rail (labels hidden, tooltips via title). */
 function SidebarNav({
   groups,
   pathname,
   onNavigate,
+  collapsed,
 }: {
   groups: NavGroup[];
   pathname: string;
   onNavigate?: () => void;
+  collapsed?: boolean;
 }) {
   return (
     <nav className="flex flex-1 flex-col gap-4">
@@ -116,7 +120,7 @@ function SidebarNav({
           key={group.label ?? `group-${gi}`}
           className={cn("flex flex-col gap-1", !group.label && "mt-auto")}
         >
-          {group.label && (
+          {group.label && !collapsed && (
             <p className="px-3 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-coffee-400">
               {group.label}
             </p>
@@ -131,15 +135,17 @@ function SidebarNav({
                 href={item.href}
                 data-tour={item.href}
                 onClick={onNavigate}
+                title={collapsed ? item.label : undefined}
                 className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-[0.95rem] transition-colors",
+                  "flex items-center rounded-md text-[0.95rem] transition-colors",
+                  collapsed ? "justify-center p-2" : "gap-3 px-3 py-2",
                   active
                     ? "bg-coffee-100 font-medium text-coffee-900"
                     : "text-coffee-700 hover:bg-coffee-100/60",
                 )}
               >
-                <Icon className="size-4 text-coffee-500" />
-                {item.label}
+                <Icon className="size-4 shrink-0 text-coffee-500" />
+                {!collapsed && item.label}
               </Link>
             );
           })}
@@ -154,6 +160,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  // Collapsible desktop sidebar → an icon rail, giving the content more room.
+  const [collapsed, setCollapsed] = React.useState(false);
+  React.useEffect(() => {
+    setCollapsed(localStorage.getItem("jd_sidebar_collapsed") === "true");
+  }, []);
+  const toggleCollapsed = React.useCallback(() => {
+    setCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem("jd_sidebar_collapsed", next ? "true" : "false");
+      return next;
+    });
+  }, []);
 
   const { data: me, isLoading } = useQuery<MeResponse>({
     queryKey: queryKeys.me,
@@ -184,11 +202,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-white">
-      {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-coffee-300 bg-white px-4 py-6 md:flex">
-        <BrandLink />
-        <div className="mt-8 flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <SidebarNav groups={groups} pathname={pathname} />
+      {/* Desktop sidebar (collapsible → icon rail) */}
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-coffee-300 bg-white py-6 transition-[width] duration-200 md:flex",
+          collapsed ? "w-16 items-center px-2" : "w-64 px-4",
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center gap-2",
+            collapsed ? "justify-center" : "justify-between",
+          )}
+        >
+          {!collapsed && <BrandLink />}
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand" : "Collapse"}
+            className="rounded-md p-2 text-coffee-500 hover:bg-coffee-100"
+          >
+            <PanelLeft className="size-5" />
+          </button>
+        </div>
+        <div className="mt-8 flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
+          <SidebarNav groups={groups} pathname={pathname} collapsed={collapsed} />
         </div>
       </aside>
 
