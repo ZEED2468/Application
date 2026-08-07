@@ -11,8 +11,10 @@ import {
   Loader2,
   CheckCircle2,
   Settings,
+  Wand2,
 } from "lucide-react";
 import type {
+  CvRunResult,
   LatexKind,
   LatexTemplate,
   MasterProfile,
@@ -20,7 +22,11 @@ import type {
   Track,
 } from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
-import { authService, onboardingService } from "@/lib/api/services";
+import {
+  authService,
+  cvRunsService,
+  onboardingService,
+} from "@/lib/api/services";
 import { absoluteApiUrl } from "@/lib/api/client";
 import { toastApiError } from "@/lib/toast-error";
 import { queryKeys } from "@/lib/query-keys";
@@ -36,6 +42,8 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Drawer } from "@/components/ui/drawer";
+import { FormatFixes } from "@/components/format-fixes";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -156,20 +164,34 @@ export default function ProfilePage() {
     mutationFn: ({ track, file }: { track: Track; file: File }) =>
       onboardingService.uploadRoleCv(track, file),
     onSuccess: (_data, vars) => {
-      const structured = _data as {
-        structured_by?: string;
+      const res = _data as {
+        parse_status?: string;
         experience_entries?: number;
+        flags?: string[];
       };
-      const detail =
-        structured.structured_by === "llm"
-          ? `Structured with AI (${structured.experience_entries ?? 0} experience blocks). Review and confirm.`
-          : profileByTrack.get(vars.track)?.role_cv
-            ? `${TRACK_LABELS[vars.track]} CV replaced — review and confirm again`
-            : `${TRACK_LABELS[vars.track]} CV saved`;
-      toast.success(detail);
+      if (res.parse_status === "failed") {
+        toast.error(
+          res.flags?.includes("scanned")
+            ? "We can't read this CV yet — it looks scanned/image-only. Upload a text-based PDF or Word file."
+            : "That file doesn't look like a CV we can read. Try a text-based PDF or Word file.",
+        );
+      } else {
+        const n = res.experience_entries ?? 0;
+        toast.success(
+          `${TRACK_LABELS[vars.track]} CV read — ${n} experience ${n === 1 ? "entry" : "entries"} found. Review and confirm.`,
+        );
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.profiles });
     },
     onError: (err) => toastApiError(err),
+  });
+
+  // Revamp: parse the stored CV deterministically and re-render it clean through the engine.
+  const [revamp, setRevamp] = React.useState<CvRunResult | null>(null);
+  const revampMutation = useMutation({
+    mutationFn: (track: Track) => cvRunsService.revampTrack(track),
+    onSuccess: (res) => setRevamp(res),
+    onError: (err) => toastApiError(err, "Couldn't revamp this CV"),
   });
 
   const templateUploadMutation = useMutation({
@@ -485,8 +507,46 @@ export default function ProfilePage() {
                     looks right — you can refine the details below anytime.
                   </p>
                 </div>
-                {uploadBtn(true)}
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => revampMutation.mutate(activeTrack)}
+                    disabled={revampMutation.isPending}
+                  >
+                    <Wand2 className="size-4" />
+                    {revampMutation.isPending ? "Revamping…" : "Revamp this CV"}
+                  </Button>
+                  {uploadBtn(true)}
+                </div>
               </div>
+
+              <Drawer
+                open={revamp !== null}
+                onClose={() => setRevamp(null)}
+                title="CV revamp — clean re-render"
+              >
+                {revamp && (
+                  <div className="space-y-4">
+                    <FormatFixes run={revamp} />
+                    {revamp.artifact_ref && (
+                      <a
+                        href={
+                          absoluteApiUrl(
+                            `/api/cv/runs/${revamp.run_id}/artifact`,
+                          ) ?? undefined
+                        }
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-coffee-800 px-4 py-2 text-sm font-medium text-white hover:bg-coffee-900"
+                      >
+                        <FileText className="size-4" />
+                        Download the clean CV
+                      </a>
+                    )}
+                  </div>
+                )}
+              </Drawer>
               <div className="space-y-3 rounded-md border border-coffee-100 bg-coffee-50/40 p-4">
                 {profile?.headline && (
                   <p className="font-medium text-coffee-900">{profile.headline}</p>

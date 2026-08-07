@@ -8,4 +8,11 @@ export const cvRunsService = {
       .post(path(`/api/cv/runs/job/${jobId}`))
       .json<CvRunResult>();
   },
+
+  /** Revamp a track's stored source CV: parse it and re-render it clean through the engine. */
+  async revampTrack(track: string): Promise<CvRunResult> {
+    return api
+      .post(path(`/api/cv/runs/revamp/track/${track}`))
+      .json<CvRunResult>();
+  },
 };
