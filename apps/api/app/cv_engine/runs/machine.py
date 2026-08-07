@@ -31,15 +31,16 @@ from app.cv_engine.rules import default_registry
 from app.cv_engine.rules.base import Phase, Registry, RuleContext, Violation, is_blocking
 from app.cv_engine.runs.models import CvRun, CvRunStep
 from app.cv_engine.scoring import score_artifact
+from app.cv_engine.templates import (
+    TemplateSpec,
+    default_template,
+    get_template,
+    render_template,
+    resolve_template,
+)
+from app.cv_engine.templates.library import slot_present
 from app.integrations import r2
 from app.pipelines.apply import format_gate
-from app.pipelines.apply.render import build_tex
-
-DEFAULT_TEMPLATE_ID = "canonical"
-DEFAULT_TEMPLATE_VERSION = 1
-# The canonical template's required slots (the mold's demand). The full TemplateSpec /
-# slot manifest lands in Slice 4; here the default template's demand is fixed.
-REQUIRED_SLOTS = ("summary", "experience", "skills", "contact")
 
 
 @dataclass
@@ -58,6 +59,7 @@ class _Work:
     draft_violations: list[Violation] = field(default_factory=list)
     rendered_violations: list[Violation] = field(default_factory=list)
     patch: dict = field(default_factory=lambda: {"fixed": [], "resolved": []})
+    spec: TemplateSpec | None = None
 
     @property
     def cv_json(self) -> dict:
@@ -95,7 +97,7 @@ def _draft_ctx(work: _Work) -> RuleContext:
     return RuleContext(
         cv_json=work.cv_json, ledger=work.ledger, jd_text=work.input.get("jd_text") or "",
         role_title=work.input.get("role_title"), track=work.input.get("track"),
-        name=work.name,
+        name=work.name, spec=work.spec,
     )
 
 
@@ -126,7 +128,7 @@ async def _ingest(session, run: CvRun, work: _Work) -> None:
 
 
 async def _gap_analyze(session, run: CvRun, work: _Work) -> None:
-    """Record slot verdicts against the canonical template's required slots.
+    """Record slot verdicts against the resolved template's REQUIRED slots (its demand).
 
     Deterministic pass only (FILLED vs TRUE_GAP). INFERABLE (LLM selection) and the
     NEEDS_INPUT suspension for TRUE_GAPs land in Slice 7 — here a missing required slot
@@ -134,15 +136,11 @@ async def _gap_analyze(session, run: CvRun, work: _Work) -> None:
     """
     t = time.perf_counter()
     cv = work.cv_json
-    filled = {
-        "summary": bool((cv.get("summary") or "").strip()),
-        "experience": bool(cv.get("experience")),
-        "skills": bool(cv.get("skills")),
-        "contact": any(str(v).strip() for v in (cv.get("links") or {}).values()),
-    }
-    verdicts = {s: ("FILLED" if filled.get(s) else "TRUE_GAP") for s in REQUIRED_SLOTS}
+    required = [s.id for s in (work.spec.required_slots() if work.spec else ())]
+    verdicts = {sid: ("FILLED" if slot_present(sid, cv) else "TRUE_GAP") for sid in required}
     await _record(
-        session, run, RunState.gap_analyzed, detail={"slots": verdicts},
+        session, run, RunState.gap_analyzed,
+        detail={"slots": verdicts, "template": work.spec.id if work.spec else None},
         duration_ms=int((time.perf_counter() - t) * 1000),
     )
 
@@ -187,7 +185,7 @@ async def _patch(session, run: CvRun, work: _Work) -> None:
 
 async def _render(session, run: CvRun, work: _Work) -> None:
     t = time.perf_counter()
-    work.tex = build_tex(work.cv_json, name=work.name)
+    work.tex = render_template(work.spec, work.cv_json, name=work.name)
     work.compiled = await compile_tex(work.tex)
     pdf = work.compiled.pdf
     if pdf:
@@ -265,13 +263,15 @@ async def _release(session, run: CvRun, work: _Work) -> None:
 
 async def create_run(
     session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build, job_id=None,
+    spec: TemplateSpec | None = None,
 ) -> CvRun:
     """Create a pinned run row (state INGESTED). Pins: registry version + template + input."""
     registry = default_registry()
+    spec = spec or default_template()
     run = CvRun(
         user_id=user_id, job_id=job_id, state=RunState.ingested, mode=mode, input=input,
         registry_version=registry.version(),
-        template_id=DEFAULT_TEMPLATE_ID, template_version=DEFAULT_TEMPLATE_VERSION,
+        template_id=spec.id, template_version=spec.version,
         violations=[], delta={},
     )
     session.add(run)
@@ -279,9 +279,12 @@ async def create_run(
     return run
 
 
-async def coordinate(session, run: CvRun) -> CvRun:
+async def coordinate(session, run: CvRun, *, spec: TemplateSpec | None = None) -> CvRun:
     """Run the pipeline to a terminal state (RELEASED / NEEDS_REVIEW), recording each step."""
-    work = _Work(input=run.input or {}, registry=default_registry())
+    if spec is None:  # re-resolve the EXACT pinned template (immutable) if not threaded in
+        spec = await get_template(session, run.template_id, run.template_version)
+        spec = spec or default_template()
+    work = _Work(input=run.input or {}, registry=default_registry(), spec=spec)
     await _ingest(session, run, work)
     await _gap_analyze(session, run, work)
     await _diagnose(session, run, work)
@@ -294,7 +297,13 @@ async def coordinate(session, run: CvRun) -> CvRun:
 
 async def run_pipeline(
     session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build, job_id=None,
+    template_ref: str | None = None,
 ) -> CvRun:
     """Create + coordinate a run in one call (the endpoint + tests use this)."""
-    run = await create_run(session, user_id=user_id, input=input, mode=mode, job_id=job_id)
-    return await coordinate(session, run)
+    spec = await resolve_template(
+        session, user_id=user_id, track=(input or {}).get("track"), ref=template_ref
+    )
+    run = await create_run(
+        session, user_id=user_id, input=input, mode=mode, job_id=job_id, spec=spec
+    )
+    return await coordinate(session, run, spec=spec)

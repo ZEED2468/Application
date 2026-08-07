@@ -14,6 +14,7 @@ import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
+from app.cv_engine.templates.spec import TemplateSpec
 from app.pipelines.apply import ats, intel
 
 
@@ -71,6 +72,7 @@ class RuleContext:
     role_title: str | None = None
     track: str | None = None
     name: str = ""
+    spec: TemplateSpec | None = None  # the resolved template (page_limit etc.)
     # Populated only at the rendered phase (after a real compile).
     tex: str | None = None
     pdf: bytes | None = None

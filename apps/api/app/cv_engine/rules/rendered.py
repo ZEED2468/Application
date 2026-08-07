@@ -94,12 +94,13 @@ def _text_extractable(ctx: RuleContext) -> Iterable[Violation]:
 def _page_limit(ctx: RuleContext) -> Iterable[Violation]:
     if not ctx.pdf:
         return
+    limit = ctx.spec.page_limit if ctx.spec else 2  # the template's policy
     pages = _page_count(ctx.pdf)
-    if pages > 2:
+    if pages > limit:
         yield Violation(
             rule_id="rendered.page_count", severity=Severity.minor,
-            message=f"~{pages} pages — tighten toward 1–2.",
-            fix_hint="Trim the lowest-relevance content to fit two pages.",
+            message=f"~{pages} pages — this template targets {limit}.",
+            fix_hint=f"Trim the lowest-relevance content to fit {limit} page(s).",
         )
 
 
