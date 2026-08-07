@@ -9,6 +9,7 @@ from app.api import (
     auth,
     chat,
     cv_runs,
+    cv_templates,
     integrations,
     invites,
     jobs,
@@ -31,6 +32,7 @@ api_router.include_router(onboarding.router)
 api_router.include_router(latex.router)
 api_router.include_router(ats_checker.router)
 api_router.include_router(cv_runs.router)
+api_router.include_router(cv_templates.router)
 api_router.include_router(chat.router)
 api_router.include_router(va.router)
 api_router.include_router(invites.router)
