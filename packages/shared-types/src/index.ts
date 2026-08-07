@@ -464,6 +464,54 @@ export interface TrackReadiness {
   action: { label: string; route: string } | null;
 }
 
+/** CV-engine run state machine. */
+export type RunState =
+  | "ingested"
+  | "gap_analyzed"
+  | "diagnosed"
+  | "patching"
+  | "recompiled"
+  | "verified"
+  | "released"
+  | "needs_input"
+  | "needs_review";
+
+export interface CvViolation {
+  rule_id: string;
+  severity: "critical" | "major" | "minor";
+  message: string;
+  fix_hint: string;
+  span: Record<string, unknown> | null;
+}
+
+/** A single deterministic fix the PATCH phase applied. */
+export interface CvFix {
+  rule_id: string;
+  field: string;
+  before: string;
+  after: string;
+}
+
+export interface CvRunDelta {
+  fixed: CvFix[];
+  resolved: string[]; // rule_ids that went fail→pass after fixes
+  failed: string[];
+  blocking: string[];
+  violation_count: number;
+}
+
+/** A CV-engine run result: score on the compiled artifact + violations + what got fixed. */
+export interface CvRunResult {
+  run_id: string;
+  state: RunState;
+  score: number | null;
+  registry_version: string | null;
+  template: { id: string | null; version: number | null };
+  artifact_ref: string | null;
+  violations: CvViolation[];
+  delta: CvRunDelta;
+}
+
 export interface JobDetail {
   job: JobOut & { jd_text?: string | null; description?: string | null };
   generated_cv: GeneratedCv | null;
@@ -472,6 +520,7 @@ export interface JobDetail {
   outreach: OutreachSummary | null;
   thread: ThreadMessage[];
   readiness: TrackReadiness | null;
+  cv_run: CvRunResult | null;
 }
 
 export interface AuditEvent {

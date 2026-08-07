@@ -4,6 +4,7 @@ export { applicationsService } from "./applications";
 export { onboardingService } from "./onboarding";
 export { chatService } from "./chat";
 export { atsService } from "./ats";
+export { cvRunsService } from "./cv-runs";
 export { latexService, LatexCompileError } from "./latex";
 export { tracksService } from "./tracks";
 export { readinessService } from "./readiness";

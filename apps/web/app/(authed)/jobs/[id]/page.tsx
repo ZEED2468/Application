@@ -23,6 +23,7 @@ import {
   Pencil,
   ExternalLink,
   UploadCloud,
+  Wand2,
 } from "lucide-react";
 import type {
   GeneratedCv,
@@ -35,6 +36,7 @@ import {
   jobsService,
   applicationsService,
   atsService,
+  cvRunsService,
   latexService,
 } from "@/lib/api/services";
 import { toApiError } from "@/lib/api/client";
@@ -46,6 +48,7 @@ import { absoluteApiUrl } from "@/lib/api/client";
 import { ErrorState } from "@/components/states";
 import { SidePanel } from "@/components/ui/drawer";
 import { AtsBreakdown } from "@/components/ats-breakdown";
+import { FormatFixes } from "@/components/format-fixes";
 import { ResumeEditor } from "@/components/resume-editor";
 import { GapFiller } from "@/components/gap-filler-drawer";
 import { StatusCell } from "../status-cell";
@@ -68,7 +71,8 @@ type Panel =
   | { kind: "documents" }
   | { kind: "jd" }
   | { kind: "activity" }
-  | { kind: "gaps" };
+  | { kind: "gaps" }
+  | { kind: "fixes" };
 
 const PANEL_TITLE: Record<Panel["kind"], string> = {
   keywords: "Keyword breakdown",
@@ -76,6 +80,7 @@ const PANEL_TITLE: Record<Panel["kind"], string> = {
   jd: "Job description",
   activity: "Activity",
   gaps: "Close the gaps for this role",
+  fixes: "Format check & fixes",
 };
 
 export default function JobDetailPage({
@@ -134,6 +139,17 @@ export default function JobDetailPage({
       }
     },
     onError: (err) => toastApiError(err),
+  });
+
+  // Deterministic, zero-LLM format check + fixes (the CV engine): compiles the CV, scores
+  // it on the real PDF, and reports what it normalized. Opens the fixes panel on success.
+  const formatMutation = useMutation({
+    mutationFn: () => cvRunsService.runForJob(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.job(id) });
+      setPanel({ kind: "fixes" });
+    },
+    onError: (err) => toastApiError(err, "Couldn't run the format check"),
   });
 
   // The cover letter used to be an information row that said "Not generated" and
@@ -332,6 +348,41 @@ export default function JobDetailPage({
                   Generate the résumé to see its ATS readiness for this role.
                 </p>
               )}
+
+              {/* Deterministic format check + fixes (compiled artifact, zero LLM). */}
+              <div className="border-t border-coffee-100 pt-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="w-full"
+                  onClick={() =>
+                    data.cv_run
+                      ? setPanel({ kind: "fixes" })
+                      : formatMutation.mutate()
+                  }
+                  disabled={formatMutation.isPending}
+                >
+                  <Wand2 className="size-4" />
+                  {formatMutation.isPending
+                    ? "Checking format…"
+                    : data.cv_run
+                      ? "View format fixes"
+                      : "Check & fix format"}
+                </Button>
+                {data.cv_run && (
+                  <button
+                    type="button"
+                    onClick={() => formatMutation.mutate()}
+                    disabled={formatMutation.isPending}
+                    className="mt-1.5 w-full text-center text-xs text-coffee-500 underline underline-offset-2 hover:text-coffee-800"
+                  >
+                    {data.cv_run.delta.fixed.length > 0
+                      ? `${data.cv_run.delta.fixed.length} fix${data.cv_run.delta.fixed.length > 1 ? "es" : ""} applied`
+                      : "No format issues"}{" "}
+                    · re-run
+                  </button>
+                )}
+              </div>
             </div>
           </RailSection>
 
@@ -422,6 +473,15 @@ export default function JobDetailPage({
             breakdown={generated_cv?.ats_breakdown ?? null}
           />
         )}
+
+        {shownPanel?.kind === "fixes" &&
+          (data.cv_run ? (
+            <FormatFixes run={data.cv_run} />
+          ) : (
+            <p className="text-sm text-coffee-500">
+              Run “Check &amp; fix format” to see the report.
+            </p>
+          ))}
 
         {shownPanel?.kind === "documents" && (
           <div className="space-y-6">

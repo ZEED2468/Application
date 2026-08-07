@@ -36,6 +36,7 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
     thread,
     description,
     readiness,
+    cv_run: cvRun,
     ...jobFields
   } = raw;
 
@@ -69,6 +70,7 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
         : null,
     thread: (thread as unknown as JobDetail["thread"]) ?? [],
     readiness: (readiness as unknown as JobDetail["readiness"]) ?? null,
+    cv_run: (cvRun as unknown as JobDetail["cv_run"]) ?? null,
   };
 }
 
