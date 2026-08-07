@@ -99,15 +99,17 @@ async def test_discover_is_idempotent(session):
 
 @pytest.mark.asyncio
 async def test_custom_track_match_never_corrupts_enum_column(session):
-    """A selected *custom* track (not a Track enum member) may match a posting, but it
-    must never be written to the Enum(Track) column — else the job reads back as a
-    LookupError and 500s the whole jobs list. The stored track stays a real enum."""
+    """A selected *custom* track (not a Track enum member) may sit in the track filter, but
+    a stored job's track must always be a real Track enum — never the raw custom string,
+    which would read back as a LookupError and 500 the whole jobs list."""
     user, profile = await _seed(session)
-    # "microservices" appears in the fake backend JD but is NOT a Track member.
+    # "microservices" is a custom track (not a Track member); "backend" is the real one.
+    # (nigeria_only off: this test is about the enum column, not location eligibility.)
     new_jobs, _report = await service._run_sources(
         session, user_id=user.id, profile=profile,
-        selected_tracks=["microservices"], cooldown=False, emit=EventSink(),
+        selected_tracks=["microservices", "backend"], cooldown=False,
+        nigeria_only=False, emit=EventSink(),
     )
-    assert new_jobs, "a custom-track match should still insert the job"
+    assert new_jobs, "a matching posting should still insert the job"
     for j in new_jobs:
         assert isinstance(j.track, Track)  # never the raw custom string

@@ -1,6 +1,7 @@
 """Global ATS checker API."""
 
 import pytest
+from sqlalchemy import select
 
 from app.api.ats_checker import _load_profile_cv, _profile_sources, _run_check
 from app.core.enums import ParseStatus, Track
@@ -27,14 +28,16 @@ Experience:
 
 
 async def _seed_parsed_role_cv(session, user, profile, *, filename="backend.pdf"):
-    session.add(
-        RoleCv(
-            user_id=user.id,
-            track=profile.track,
-            original_filename=filename,
-            parse_status=ParseStatus.parsed,
-        )
-    )
+    # A set-up hunter already has a parsed RoleCv (seed_hunter); update it in place so the
+    # per-(user, track) uniqueness holds, whether or not one exists yet.
+    existing = (await session.execute(
+        select(RoleCv).where(RoleCv.user_id == user.id, RoleCv.track == profile.track)
+    )).scalar_one_or_none()
+    if existing is None:
+        existing = RoleCv(user_id=user.id, track=profile.track)
+        session.add(existing)
+    existing.original_filename = filename
+    existing.parse_status = ParseStatus.parsed
     await session.flush()
 
 
