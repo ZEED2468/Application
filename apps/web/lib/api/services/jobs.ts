@@ -35,6 +35,7 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
     outreach,
     thread,
     description,
+    readiness,
     ...jobFields
   } = raw;
 
@@ -67,6 +68,7 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
         ? (outreachList[0] as unknown as JobDetail["outreach"])
         : null,
     thread: (thread as unknown as JobDetail["thread"]) ?? [],
+    readiness: (readiness as unknown as JobDetail["readiness"]) ?? null,
   };
 }
 

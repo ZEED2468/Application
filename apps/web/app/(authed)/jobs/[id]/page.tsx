@@ -11,6 +11,7 @@ import {
 import { toast } from "sonner";
 import {
   ArrowLeft,
+  AlertTriangle,
   Check,
   ChevronRight,
   Eye,
@@ -21,8 +22,14 @@ import {
   History,
   Pencil,
   ExternalLink,
+  UploadCloud,
 } from "lucide-react";
-import type { GeneratedCv, JobDetail, Track } from "@jd/shared-types";
+import type {
+  GeneratedCv,
+  JobDetail,
+  Track,
+  TrackReadiness,
+} from "@jd/shared-types";
 import { TRACKS } from "@jd/shared-types";
 import {
   jobsService,
@@ -276,6 +283,7 @@ export default function JobDetailPage({
             generating={generateMutation.isPending}
             onGenerate={() => generateMutation.mutate(false)}
             refreshToken={refreshToken}
+            readiness={data.readiness}
           />
         </div>
 
@@ -625,6 +633,7 @@ function ResumeHero({
   generating,
   onGenerate,
   refreshToken,
+  readiness,
 }: {
   id: string;
   company: string;
@@ -634,6 +643,7 @@ function ResumeHero({
   generating: boolean;
   onGenerate: () => void;
   refreshToken: number;
+  readiness: TrackReadiness | null;
 }) {
   // Deep links from "Regenerate CV" / the old builder route arrive as ?edit=…
   const [editing, setEditing] = React.useState(
@@ -701,24 +711,51 @@ function ResumeHero({
             }}
           />
         ) : !generatedCv ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-md border border-dashed border-coffee-200 p-8 text-center">
-            <div className="flex size-12 items-center justify-center rounded-full bg-coffee-100 text-coffee-500">
-              <FileText className="size-6" />
+          readiness && !readiness.ready ? (
+            // Trust gate: this track has no readable CV, so we won't fabricate one —
+            // tell the user exactly what's missing and where to fix it.
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-md border border-dashed border-status-interviewed/40 bg-status-interviewed/5 p-8 text-center">
+              <div className="flex size-12 items-center justify-center rounded-full bg-status-interviewed/10 text-status-interviewed">
+                <AlertTriangle className="size-6" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-base font-medium text-coffee-900">
+                  {readiness.title ?? "Set up this track first"}
+                </p>
+                <p className="mx-auto max-w-sm text-sm text-coffee-600">
+                  {readiness.message ??
+                    "Upload a CV for this track so the résumé is tailored from your real experience."}
+                </p>
+              </div>
+              {readiness.action && (
+                <Link href={readiness.action.route}>
+                  <Button variant="primary">
+                    <UploadCloud className="size-4" />
+                    {readiness.action.label}
+                  </Button>
+                </Link>
+              )}
             </div>
-            <div className="space-y-1">
-              <p className="text-base font-medium text-coffee-900">
-                Your tailored résumé will appear here
-              </p>
-              <p className="mx-auto max-w-sm text-sm text-coffee-500">
-                Generate a truth-bounded CV for this role — rendered into your LaTeX
-                template — then review it and apply.
-              </p>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-md border border-dashed border-coffee-200 p-8 text-center">
+              <div className="flex size-12 items-center justify-center rounded-full bg-coffee-100 text-coffee-500">
+                <FileText className="size-6" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-base font-medium text-coffee-900">
+                  Your tailored résumé will appear here
+                </p>
+                <p className="mx-auto max-w-sm text-sm text-coffee-500">
+                  Generate a truth-bounded CV for this role — rendered into your LaTeX
+                  template — then review it and apply.
+                </p>
+              </div>
+              <Button variant="accent" onClick={onGenerate} disabled={generating}>
+                <Sparkles className="size-4" />
+                {generating ? "Generating…" : "Generate résumé"}
+              </Button>
             </div>
-            <Button variant="accent" onClick={onGenerate} disabled={generating}>
-              <Sparkles className="size-4" />
-              {generating ? "Generating…" : "Generate résumé"}
-            </Button>
-          </div>
+          )
         ) : (
           <div className="flex flex-1 flex-col gap-3">
             {notFullyRendered && (

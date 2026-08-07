@@ -50,6 +50,14 @@ export default function ProfilePage() {
   // One active track at a time drives the whole page. `trackOverride` lets the
   // switcher feel instant before the /me mutation round-trips.
   const [trackOverride, setTrackOverride] = React.useState<Track | null>(null);
+  // Honor a ?track= deep link (e.g. the workspace "Upload your Frontend CV" CTA) so it
+  // opens straight on that track.
+  React.useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("track");
+    if (t && (TRACKS as readonly string[]).includes(t)) {
+      setTrackOverride(t as Track);
+    }
+  }, []);
   const [showManage, setShowManage] = React.useState(false);
   // Optimistic per-track target-role counts so the guided flow advances to
   // "ready" the moment a first role is added — no profiles refetch needed.

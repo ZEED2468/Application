@@ -454,6 +454,16 @@ export interface ThreadMessage {
   sent_at: string;
 }
 
+/** Whether a job's track can back a real CV, with an actionable next step when it can't. */
+export interface TrackReadiness {
+  ready: boolean;
+  reason: string | null;
+  title: string | null;
+  message: string | null;
+  remediation: string | null;
+  action: { label: string; route: string } | null;
+}
+
 export interface JobDetail {
   job: JobOut & { jd_text?: string | null; description?: string | null };
   generated_cv: GeneratedCv | null;
@@ -461,6 +471,7 @@ export interface JobDetail {
   application: ApplicationSummary | null;
   outreach: OutreachSummary | null;
   thread: ThreadMessage[];
+  readiness: TrackReadiness | null;
 }
 
 export interface AuditEvent {
