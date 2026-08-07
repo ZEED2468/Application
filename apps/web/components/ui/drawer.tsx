@@ -63,19 +63,14 @@ export function SidePanel({
   return (
     <div
       className={cn(
-        "sticky top-4 shrink-0 self-start overflow-hidden transition-[width] duration-300 ease-out",
-        shown ? cn(width, "max-w-[44vw]") : "w-0",
+        "fixed bottom-0 right-0 top-16 z-30 flex flex-col overflow-hidden border-l border-coffee-300 bg-white shadow-xl transition-transform duration-300 ease-out",
+        width,
+        "max-w-[calc(100vw-4rem)]",
+        shown ? "translate-x-0" : "translate-x-full",
       )}
       role="dialog"
       aria-label={title}
     >
-      <div
-        className={cn(
-          "flex h-[calc(100vh-6rem)] flex-col overflow-hidden rounded-lg border border-coffee-300 bg-white shadow-lg",
-          width,
-          "max-w-[44vw]",
-        )}
-      >
         <div className="flex items-start justify-between gap-3 border-b border-coffee-100 px-5 py-4">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-coffee-900">{title}</h2>
@@ -100,7 +95,6 @@ export function SidePanel({
             {footer}
           </div>
         )}
-      </div>
     </div>
   );
 }

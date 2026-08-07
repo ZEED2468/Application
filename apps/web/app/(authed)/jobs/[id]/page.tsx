@@ -204,9 +204,8 @@ export default function JobDetailPage({
   const jdText = job.jd_text ?? job.description ?? "";
 
   return (
-    <div className="flex items-start gap-6">
-      <div className="min-w-0 flex-1 space-y-6">
-        <BackLink />
+    <div className="space-y-6">
+      <BackLink />
 
       <header className="space-y-4 border-b border-coffee-200 pb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -265,9 +264,9 @@ export default function JobDetailPage({
         />
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* The résumé is the workspace — centre stage. */}
-        <div className="lg:col-span-2">
+      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
+        {/* The résumé is the canvas — a fixed, always-full document. */}
+        <div className="min-w-0 flex-1 xl:max-w-[46rem]">
           <ResumeHero
             id={id}
             company={job.company}
@@ -280,8 +279,8 @@ export default function JobDetailPage({
           />
         </div>
 
-        {/* Everything else supports the document, in a labelled context rail. */}
-        <div className="space-y-7">
+        {/* A compact context rail; heavy detail opens in the floating panel. */}
+        <div className="w-full space-y-7 xl:w-[17rem] xl:shrink-0">
           {/* Ready to apply — the focal point of the rail */}
           <RailSection label="Ready to apply">
             <div className="space-y-3 rounded-lg border border-coffee-300 bg-white p-4 shadow-sm">
@@ -393,7 +392,6 @@ export default function JobDetailPage({
             </div>
           </RailSection>
         </div>
-      </div>
       </div>
 
       <SidePanel
