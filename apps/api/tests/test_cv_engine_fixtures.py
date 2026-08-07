@@ -53,6 +53,16 @@ async def test_cv_engine_fixture(session, path):
             f"{path.stem}: expected {exp['blocking']} within blocking {blocking}"
         )
 
+    # Optional PATCH-phase assertions (compiler-independent — fixes run before render).
+    if "fixed_min" in exp:
+        assert len(run.delta.get("fixed", [])) >= exp["fixed_min"], (
+            f"{path.stem}: expected >= {exp['fixed_min']} fixes, got {run.delta.get('fixed')}"
+        )
+    if "resolved" in exp:
+        assert set(exp["resolved"]) <= set(run.delta.get("resolved", [])), (
+            f"{path.stem}: expected {exp['resolved']} resolved, got {run.delta.get('resolved')}"
+        )
+
 
 def test_every_fixture_exercised():
     assert FIXTURES, "no cv_engine fixtures found"

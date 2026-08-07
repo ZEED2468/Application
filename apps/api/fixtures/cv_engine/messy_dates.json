@@ -1,0 +1,37 @@
+{
+  "name": "messy_dates",
+  "description": "Inconsistent dates + untidy text — the PATCH phase fixes them deterministically and the run releases (minor issues, non-blocking).",
+  "input": {
+    "name": "Ada Hunter",
+    "role_title": "Senior Backend Engineer",
+    "track": "backend",
+    "jd_text": "Senior Backend Engineer. Must have Go and Kubernetes. Postgres required.",
+    "cv_json": {
+      "headline": "Backend Engineer",
+      "summary": "  Backend engineer who builds  production systems in Go and Kubernetes. ",
+      "skills": ["Go", "Kubernetes", "Postgres"],
+      "experience": [
+        {"title": "Backend Engineer", "company": "Streamline", "dates": "Jan 2020 - present",
+         "bullets": ["• Built Go microservices", "  Reduced latency by 40%  "]}
+      ],
+      "links": {"github": "github.com/adahunter"},
+      "education": [
+        {"degree": "BSc Computer Science", "school": "Unilag", "dates": "2016/2020"}
+      ],
+      "projects": []
+    },
+    "ledger": [
+      {"kind": "summary", "text": "Backend engineer who builds production systems in Go and Kubernetes."},
+      {"kind": "role", "text": "Backend Engineer at Streamline. Jan 2020 present. Built Go microservices. Reduced latency by 40%."},
+      {"kind": "education", "text": "BSc Computer Science Unilag 2016 2020"},
+      {"kind": "skill", "text": "Go Kubernetes Postgres"},
+      {"kind": "link", "text": "github.com/adahunter"}
+    ]
+  },
+  "expect": {
+    "clean": true,
+    "blocking": [],
+    "fixed_min": 3,
+    "resolved": ["structure.date_format", "structure.clean_text"]
+  }
+}
