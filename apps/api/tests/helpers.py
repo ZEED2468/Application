@@ -4,10 +4,19 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.core.enums import ApplicationStatus, JobSourceName, JobStatus, Origin, Track, UserRole
+from app.core.enums import (
+    ApplicationStatus,
+    JobSourceName,
+    JobStatus,
+    Origin,
+    ParseStatus,
+    Track,
+    UserRole,
+)
 from app.models.application import Application
 from app.models.job import Job
 from app.models.master_profile import MasterProfile
+from app.models.role_cv import RoleCv
 from app.models.user import User
 from app.models.va import Va
 from app.models.va_assignment import VaAssignment
@@ -38,8 +47,15 @@ async def seed_hunter(session, *, track=Track.backend) -> tuple[User, MasterProf
                      "bullets": ["Built Go microservices", "Ran Kubernetes clusters"]}],
         projects=[{"name": "Queue", "description": "A Go task queue"}],
         education=[], links={"backend": "https://demo.example/backend"},
+        truth_corpus="Backend Engineer at Streamline. Go, Kubernetes, Postgres.",
     )
     session.add(profile)
+    # A parsed source CV so the track passes the generation trust gate (a fully set-up hunter).
+    session.add(RoleCv(
+        user_id=user.id, track=track, original_filename="cv.pdf",
+        source_file_key=f"{user.id}/role-cv/{track.value}/source.pdf",
+        parse_status=ParseStatus.parsed,
+    ))
     await session.flush()
     return user, profile
 

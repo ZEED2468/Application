@@ -26,7 +26,7 @@ from app.core.enums import (
     Origin,
     Track,
 )
-from app.core.errors import NotFoundError
+from app.core.errors import ConflictError, NotFoundError
 from app.events import names
 from app.events.bus import emit as _real_emit
 from app.events.contracts import (
@@ -331,12 +331,13 @@ async def generate_application(
                             remediation="Start a new manual application from the Manual Apply page.")
     track = chat.track or Track.general
     owner = await session.get(User, user_id)
+    # Trust gate: don't manufacture an empty placeholder profile and tailor from nothing —
+    # require a readable, parsed source CV for this track (raises actionable guidance).
+    from app.api.tracks import assert_track_generatable
+    await assert_track_generatable(session, user_id, track)
     profile = await profiles_repo.get_by_user_track(session, user_id=user_id, track=track)
     if profile is None:
-        profile = MasterProfile(user_id=user_id, track=track, skills=[], experience=[],
-                                projects=[], education=[], links={})
-        session.add(profile)
-        await session.flush()
+        raise ConflictError(f"No master profile for track '{track.value}'")
 
     company = chat.company or extract_company(chat.jd_text or "")
     dedupe = hashlib.sha256((chat.jd_text or str(chat.id)).encode()).hexdigest()[:32]

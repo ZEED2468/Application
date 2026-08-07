@@ -348,8 +348,14 @@ async def get_job(
                                     "classification": r.classification.value if r.classification else None})
     audit = await app_repo.list_audit(session, user_id=job.user_id, application_id=app.id) if app else []
 
+    from app.api.tracks import track_generation_readiness
+    readiness = await track_generation_readiness(session, job.user_id, job.track)
+
     row.update({
         "description": job.description,
+        # Whether this track can back a real CV (parsed source CV + profile content) —
+        # the workspace shows an actionable "fill the gap" prompt when it can't.
+        "readiness": readiness,
         "cv": ({"pdf_url": cv.pdf_url,
                 "download_url": f"/api/jobs/{job.id}/cv" if cv.pdf_key else None,
                 "ats_score": cv.ats_score,
@@ -461,8 +467,10 @@ async def generate(
         raise NotFoundError("Job not found")
     await authorize_owner(session, principal, job.user_id, track=job.track)
     track = service.classify_track(job)
-    from app.api.tracks import require_track_resume
-    await require_track_resume(session, job.user_id, track)
+    from app.api.tracks import assert_track_generatable
+    # Trust gate: block (with actionable guidance) unless this track has a readable,
+    # parsed source CV + real profile content — never tailor from an empty placeholder.
+    await assert_track_generatable(session, job.user_id, track)
     profile = await profiles_repo.get_by_user_track(session, user_id=job.user_id, track=track)
     if profile is None:
         raise ConflictError(f"No master profile for track '{track.value}'")

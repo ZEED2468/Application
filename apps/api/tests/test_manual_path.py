@@ -53,6 +53,26 @@ async def test_create_job_from_jd_creates_and_dedupes(session):
 
 
 @pytest.mark.asyncio
+async def test_generation_trust_gate_blocks_track_without_cv(session):
+    """A track with a parsed source CV is generatable; one without is blocked with an
+    actionable CTA — no hollow CV from an empty placeholder."""
+    from app.api.tracks import track_generation_readiness, assert_track_generatable
+    from app.core.errors import DomainError
+
+    user, _ = await seed_hunter(session)  # backend fully set up (CV parsed + content)
+    ready = await track_generation_readiness(session, user.id, Track.backend)
+    assert ready["ready"] is True
+
+    gap = await track_generation_readiness(session, user.id, Track.frontend)
+    assert gap["ready"] is False
+    assert gap["reason"] == "no_cv"
+    assert gap["action"]["route"] == "/profile?track=frontend"
+
+    with pytest.raises(DomainError):
+        await assert_track_generatable(session, user.id, Track.frontend)
+
+
+@pytest.mark.asyncio
 async def test_manual_chatbot_full_flow_creates_identical_objects(session):
     user, _ = await seed_hunter(session)
     sink = EventSink()
@@ -94,7 +114,8 @@ async def test_manual_chatbot_full_flow_creates_identical_objects(session):
     cover = (await session.execute(
         select(CoverLetter).where(CoverLetter.job_id == job.id)
     )).scalar_one()
-    assert cv.ats_score is not None and cv.source_role_cv_id is None
+    # A set-up hunter has a source CV, so generation links it (source_role_cv_id set).
+    assert cv.ats_score is not None and cv.source_role_cv_id is not None
     assert cover.body and len([p for p in cover.body.split("\n\n") if p.strip()]) == 3
     # The confirmed-true Kafka fact made it into the tailored CV (truth-bounded).
     assert "kafka" in str(cv.cv_json).lower()
