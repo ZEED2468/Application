@@ -31,6 +31,10 @@ class CvRun(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = pk()
     user_id: Mapped[uuid.UUID] = user_fk()
+    # Null for a standalone run (POST /cv/runs); set when a run is scoped to a job.
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("job.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     state: Mapped[RunState] = mapped_column(
         Enum(RunState, native_enum=False), default=RunState.ingested, nullable=False
     )

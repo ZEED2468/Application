@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 
 from app.core.enums import RunMode, RunState
+from app.cv_engine.fixes.deterministic import FIX_MAP, tidy_links
 from app.cv_engine.ingest import build_ledger
 from app.cv_engine.render.compile import CompileResult, compile_tex
 from app.cv_engine.render.extract import dual_extract
@@ -56,6 +57,7 @@ class _Work:
     breakdown: dict | None = None
     draft_violations: list[Violation] = field(default_factory=list)
     rendered_violations: list[Violation] = field(default_factory=list)
+    patch: dict = field(default_factory=lambda: {"fixed": [], "resolved": []})
 
     @property
     def cv_json(self) -> dict:
@@ -155,6 +157,34 @@ async def _diagnose(session, run: CvRun, work: _Work) -> None:
     )
 
 
+async def _patch(session, run: CvRun, work: _Work) -> None:
+    """Apply deterministic, zero-LLM fixes; re-diagnose the draft to record the fail→pass delta.
+
+    Rule-driven: for each fixable rule that fired, run its mapped transform; plus link hygiene.
+    Every fix is grounding-safe (reformat/trim only), so the same ledger still bounds the run.
+    """
+    t = time.perf_counter()
+    pre_ids = {v.rule_id for v in work.draft_violations}
+    cv = work.cv_json
+    fixes: list[dict] = []
+    for rule_id, fix_fn in FIX_MAP.items():
+        if rule_id in pre_ids:
+            cv, applied = fix_fn(cv)
+            fixes.extend(applied)
+    cv, applied = tidy_links(cv)  # link hygiene has no dedicated rule
+    fixes.extend(applied)
+    work.input["cv_json"] = cv
+
+    work.draft_violations = work.registry.run(_draft_ctx(work), Phase.draft)
+    resolved = sorted(pre_ids - {v.rule_id for v in work.draft_violations})
+    work.patch = {"fixed": fixes, "resolved": resolved}
+    await _record(
+        session, run, RunState.patching, violations=work.draft_violations,
+        detail={"fixed_count": len(fixes), "resolved": resolved},
+        duration_ms=int((time.perf_counter() - t) * 1000),
+    )
+
+
 async def _render(session, run: CvRun, work: _Work) -> None:
     t = time.perf_counter()
     work.tex = build_tex(work.cv_json, name=work.name)
@@ -216,7 +246,7 @@ async def _release(session, run: CvRun, work: _Work) -> None:
     t = time.perf_counter()
     final = [*work.draft_violations, *work.rendered_violations]
     run.violations = [v.to_dict() for v in final]
-    run.delta = _delta(final)
+    run.delta = {**work.patch, **_delta(final)}
     blocking = any(is_blocking(v.severity) for v in final)
     gate_passed = bool(work.gate and work.gate.get("status") == "pass")
     state = RunState.released if (gate_passed and not blocking) else RunState.needs_review
@@ -234,12 +264,12 @@ async def _release(session, run: CvRun, work: _Work) -> None:
 
 
 async def create_run(
-    session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build,
+    session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build, job_id=None,
 ) -> CvRun:
     """Create a pinned run row (state INGESTED). Pins: registry version + template + input."""
     registry = default_registry()
     run = CvRun(
-        user_id=user_id, state=RunState.ingested, mode=mode, input=input,
+        user_id=user_id, job_id=job_id, state=RunState.ingested, mode=mode, input=input,
         registry_version=registry.version(),
         template_id=DEFAULT_TEMPLATE_ID, template_version=DEFAULT_TEMPLATE_VERSION,
         violations=[], delta={},
@@ -255,6 +285,7 @@ async def coordinate(session, run: CvRun) -> CvRun:
     await _ingest(session, run, work)
     await _gap_analyze(session, run, work)
     await _diagnose(session, run, work)
+    await _patch(session, run, work)
     await _render(session, run, work)
     await _re_diagnose(session, run, work)
     await _release(session, run, work)
@@ -262,8 +293,8 @@ async def coordinate(session, run: CvRun) -> CvRun:
 
 
 async def run_pipeline(
-    session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build,
+    session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build, job_id=None,
 ) -> CvRun:
     """Create + coordinate a run in one call (the endpoint + tests use this)."""
-    run = await create_run(session, user_id=user_id, input=input, mode=mode)
+    run = await create_run(session, user_id=user_id, input=input, mode=mode, job_id=job_id)
     return await coordinate(session, run)
