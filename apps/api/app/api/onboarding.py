@@ -45,16 +45,17 @@ def _serve_extras(ext: str) -> tuple[str, bool]:
     if ext == ".pdf":
         return "application/pdf", True
     return "application/octet-stream", False
+import shutil
+from datetime import UTC, datetime
+
+from app.cv_engine.ingest import parse_cv_text
+from app.cv_engine.ingest.to_profile import apply_parsed_to_profile
+from app.llm.credentials import provider_status
 from app.models.cover_letter import CoverLetterTemplate
 from app.models.latex_template import LatexTemplate
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
-from app.llm.credentials import provider_status
-
-import shutil
-
-from app.llm import cv_structure
 from app.pipelines.apply import format_gate, render
 from app.pipelines.apply.cv_parse import extract_text_from_bytes, naive_skills
 from app.pipelines.apply.latex_safety import assert_safe
@@ -273,7 +274,12 @@ async def upload_role_cv(
         session.add(role_cv)
     role_cv.original_filename = file.filename
     role_cv.source_file_key = key
-    role_cv.parse_status = ParseStatus.parsed if text else ParseStatus.failed
+
+    # Deterministic "honest 80%" parse (zero-LLM): real sections, dated experience, contact.
+    parsed = parse_cv_text(text)
+    readable = parsed.is_cv and not parsed.scanned
+    role_cv.parse_status = ParseStatus.parsed if readable else ParseStatus.failed
+    role_cv.parsed_at = datetime.now(UTC)
 
     # Seed/refresh the master profile for this track (truth corpus = the real CV text).
     profile = (await session.execute(
@@ -286,19 +292,19 @@ async def upload_role_cv(
                                 education=[], links={})
         session.add(profile)
     profile.truth_corpus = text or profile.truth_corpus
-    structured = await cv_structure.structure_cv(text, track=track.value)
-    cv_structure.apply_to_profile(profile, structured)
+    apply_parsed_to_profile(profile, parsed)
     if not profile.skills and skills:
         profile.skills = skills
     profile.confirmed = False
     await session.flush()
-    exp_count = len(profile.experience or [])
     return {
         "role_cv_id": str(role_cv.id),
         "parse_status": role_cv.parse_status.value,
         "skills_found": len(profile.skills) if isinstance(profile.skills, list) else len(skills),
-        "structured_by": structured.structured_by,
-        "experience_entries": exp_count,
+        "structured_by": parsed.structured_by,
+        "experience_entries": len(profile.experience or []),
+        "confidence": parsed.confidence,
+        "flags": parsed.flags,
     }
 
 
