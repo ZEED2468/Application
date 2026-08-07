@@ -44,6 +44,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
 import { FormatFixes } from "@/components/format-fixes";
+import { TemplatePicker } from "@/components/template-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -547,6 +548,7 @@ export default function ProfilePage() {
                   </div>
                 )}
               </Drawer>
+              <TemplatePicker track={activeTrack} />
               <div className="space-y-3 rounded-md border border-coffee-100 bg-coffee-50/40 p-4">
                 {profile?.headline && (
                   <p className="font-medium text-coffee-900">{profile.headline}</p>

@@ -523,6 +523,33 @@ export interface JobDetail {
   cv_run: CvRunResult | null;
 }
 
+/** A CV-engine template (built-in or a validated custom .tex). */
+export interface TemplateSlot {
+  id: string;
+  kind: string;
+  required: boolean;
+  min_items: number;
+  fill_from: string[];
+  absence_ok: string;
+}
+
+export interface TemplateSummary {
+  id: string;
+  version: number;
+  name: string;
+  kind: "canonical" | "latex";
+  track: string | null;
+  slots: TemplateSlot[];
+  registry_overrides: Record<string, unknown>;
+  source: "builtin" | "custom";
+  gate?: { status: "pass" | "fail" | "unevaluated"; reasons?: string[] } | null;
+}
+
+export interface TemplateListResponse {
+  templates: TemplateSummary[];
+  bound: string | null;
+}
+
 export interface AuditEvent {
   id: string;
   type: string;
