@@ -6,6 +6,7 @@ additive only (new nullable columns / new tables).
 
 # CV engine tables (registered so Alembic autogenerate + Base.metadata see them).
 from app.cv_engine.runs.models import CvRun, CvRunStep
+from app.cv_engine.templates.models import CvTemplate
 from app.db import Base
 from app.models.ai_integration import AiIntegration
 from app.models.application import Application
@@ -67,4 +68,5 @@ __all__ = [
     # CV engine (Pipeline × Rule Registry)
     "CvRun",
     "CvRunStep",
+    "CvTemplate",
 ]
