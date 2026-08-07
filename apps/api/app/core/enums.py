@@ -178,3 +178,31 @@ class InviteStatus(str, enum.Enum):
     pending = "pending"
     accepted = "accepted"
     revoked = "revoked"
+
+
+# --- CV engine (Pipeline × Rule Registry) ---
+
+
+class RunState(str, enum.Enum):
+    """A CvRun's position in the one-pipeline state machine.
+
+    INGESTED → GAP_ANALYZED → DIAGNOSED → PATCHING → RECOMPILED → VERIFIED → RELEASED,
+    with two off-ramps: NEEDS_INPUT (suspend/resume) and NEEDS_REVIEW (terminal, visible).
+    """
+
+    ingested = "ingested"
+    gap_analyzed = "gap_analyzed"
+    diagnosed = "diagnosed"
+    patching = "patching"
+    recompiled = "recompiled"
+    verified = "verified"
+    released = "released"
+    needs_input = "needs_input"
+    needs_review = "needs_review"
+
+
+class RunMode(str, enum.Enum):
+    """Which door a run entered through — both converge on one pipeline."""
+
+    fresh_build = "fresh_build"  # ledger (stored profile) → render
+    revamp = "revamp"            # uploaded CV → ingest → render
