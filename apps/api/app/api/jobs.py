@@ -351,11 +351,19 @@ async def get_job(
     from app.api.tracks import track_generation_readiness
     readiness = await track_generation_readiness(session, job.user_id, job.track)
 
+    # Latest CV-engine run for this job (format-fixes panel): state, real-artifact score, delta.
+    from app.api.cv_runs import run_to_dict
+    from app.cv_engine.runs.models import CvRun
+    latest_run = (await session.execute(
+        select(CvRun).where(CvRun.job_id == job.id).order_by(CvRun.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
     row.update({
         "description": job.description,
         # Whether this track can back a real CV (parsed source CV + profile content) —
         # the workspace shows an actionable "fill the gap" prompt when it can't.
         "readiness": readiness,
+        "cv_run": run_to_dict(latest_run) if latest_run else None,
         "cv": ({"pdf_url": cv.pdf_url,
                 "download_url": f"/api/jobs/{job.id}/cv" if cv.pdf_key else None,
                 "ats_score": cv.ats_score,
