@@ -76,3 +76,30 @@ async def test_grounding_catches_a_fabricated_employer(session, monkeypatch):
     # this makes GeneratedCv.status=failed; fake/dev mode keeps the stub-render convenience.)
     assert run.state is RunState.needs_review
     assert any(v["rule_id"].startswith("grounding.") for v in run.violations)
+
+
+async def test_priority_techs_excludes_unowned_criticals(session, monkeypatch):
+    # We used to feed EVERY JD must-have to tailoring as a "priority tech to emphasize" — including
+    # ones the profile lacks — which is exactly what makes a live model fabricate them. Only owned
+    # criticals may be emphasized; the rest are the JD gaps the engine asks about (never invented).
+    user, profile, job = await _seed(session)
+    job.description = "Backend Engineer. Kafka is required. Strong Go experience is essential."
+    captured: dict = {}
+
+    async def _capture(profile_dict, *, priority_techs, **k):
+        captured["priority_techs"] = priority_techs
+        return {
+            "summary": "Backend engineer building production systems.",
+            "skills": ["Go", "Kubernetes"],
+            "experience": [{"title": "Backend Engineer", "company": "Streamline",
+                            "bullets": ["Built Go microservices"]}],
+            "links": {"github": "https://github.com/adahunter"},
+        }, {}
+
+    monkeypatch.setattr(tailoring, "tailor", _capture)
+    await generation.generate_cv_and_cover(
+        session, job=job, profile=profile, owner=user, emit=lambda *a, **k: None)
+
+    pt = {p.lower() for p in captured["priority_techs"]}
+    assert "go" in pt              # owned critical → still emphasized
+    assert "kafka" not in pt       # un-owned critical → filtered out, never handed to the model
