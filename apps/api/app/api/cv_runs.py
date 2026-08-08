@@ -20,10 +20,13 @@ from app.core.enums import RunMode, Track
 from app.core.errors import DomainError, NotFoundError
 from app.cv_engine.ingest import parse_cv_text
 from app.cv_engine.ingest.normalize import normalize_text
-from app.cv_engine.runs.machine import run_pipeline
+from app.cv_engine.runs.machine import run_pipeline, submit_run
 from app.cv_engine.runs.models import CvRun, CvRunStep
 from app.db import get_session
 from app.deps import Principal, authorize_owner, current_principal, current_user
+from app.events.bus import emit
+from app.events.contracts import CvRunSubmitted
+from app.events.names import CV_RUN_SUBMITTED
 from app.integrations import r2
 from app.llm.tailoring import _flatten_skills
 from app.models.job import Job
@@ -103,6 +106,27 @@ async def create_cv_run(
             **({"ledger": body.ledger} if body.ledger is not None else {}),
         },
     )
+    return run_to_dict(run)
+
+
+@router.post("/runs/async", summary="Submit a run to be driven off-request; poll for the result")
+async def create_cv_run_async(
+    body: RunRequest,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Create the run (state INGESTED) and hand it to a worker so a long render never blocks the
+    request. The response returns immediately; poll GET /cv/runs/{id} for the terminal state."""
+    run = await submit_run(
+        session, user_id=user.id,
+        input={
+            "cv_json": body.cv_json, "jd_text": body.jd_text, "role_title": body.role_title,
+            "track": body.track, "name": body.name or user.name,
+            **({"ledger": body.ledger} if body.ledger is not None else {}),
+        },
+    )
+    await session.commit()  # the worker must see the committed run before it's driven
+    emit(CV_RUN_SUBMITTED, CvRunSubmitted(user_id=user.id, run_id=run.id))
     return run_to_dict(run)
 
 
