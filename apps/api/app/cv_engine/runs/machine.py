@@ -25,6 +25,7 @@ import time
 from dataclasses import dataclass, field
 
 from app.core.enums import RunMode, RunState
+from app.cv_engine import provenance
 from app.cv_engine.fixes.deterministic import FIX_MAP, tidy_links
 from app.cv_engine.ingest import build_ledger
 from app.cv_engine.render.compile import CompileResult, compile_tex
@@ -141,7 +142,7 @@ async def _infer_slots(work: _Work) -> dict:
     Splices the summary into work.cv_json; returns audit meta for the gap step."""
     from app.llm import client
 
-    meta = {"model": None, "prompt_version": None, "inferred": []}
+    meta = {"model": None, "prompt_version": None, "inferred": [], "derived_fact": False}
     if not client.is_live("cv_infer") or slot_present("summary", work.cv_json):
         return meta
     from app.llm import cv_infer
@@ -170,7 +171,17 @@ async def _infer_slots(work: _Work) -> dict:
         return meta
 
     work.input["cv_json"] = candidate
-    meta.update(model=result.model, prompt_version=cv_infer.PROMPT_VERSION, inferred=["summary"])
+
+    # Provenance (Slice 8): record the inferred summary as a source-cited change, and add it to
+    # the ledger as a derived fact carrying its `derived_from` edges.
+    source_ids = provenance.source_for({"rule_id": "agent.infer_summary"}, work.ledger)
+    work.patch.setdefault("fixed", []).append({
+        "rule_id": "agent.infer_summary", "field": "summary",
+        "before": "", "after": result.summary, "source": source_ids,
+    })
+    work.ledger.append(provenance.derived_summary_fact(result.summary, source_ids, work.ledger))
+    meta.update(model=result.model, prompt_version=cv_infer.PROMPT_VERSION,
+                inferred=["summary"], derived_fact=True)
     return meta
 
 
@@ -187,6 +198,10 @@ async def _gap_analyze(session, run: CvRun, work: _Work) -> None:
     t = time.perf_counter()
     verdicts = gaps.classify(work.spec, work.cv_json)
     infer = await _infer_slots(work)
+    if infer["derived_fact"]:
+        # Re-persist the snapshot: inference added a derived fact after ingest froze it, and JsonB
+        # isn't mutation-tracked, so reassign to flush the new `derived_from` edge.
+        run.ledger_snapshot = {"facts": work.ledger}
     slots = gaps.gap_slots(work.spec, work.cv_json)
     detail = {"slots": verdicts, "template": work.spec.id if work.spec else None}
     if infer["inferred"]:
@@ -229,7 +244,8 @@ async def _patch(session, run: CvRun, work: _Work) -> None:
     t = time.perf_counter()
     pre_ids = {v.rule_id for v in work.draft_violations}
     cv = work.cv_json
-    fixes: list[dict] = []
+    # Preserve any earlier records (the Slice-7 inferred summary is recorded at GAP).
+    fixes: list[dict] = list(work.patch.get("fixed") or [])
     for rule_id, fix_fn in FIX_MAP.items():
         if rule_id in pre_ids:
             cv, applied = fix_fn(cv)
@@ -244,6 +260,8 @@ async def _patch(session, run: CvRun, work: _Work) -> None:
     repair = await _agent_repair_draft(work, fixes)
 
     resolved = sorted(pre_ids - {v.rule_id for v in work.draft_violations})
+    # Provenance (Slice 8): cite the ledger fact(s) each change derived from.
+    provenance.annotate(fixes, work.ledger)
     work.patch = {"fixed": fixes, "resolved": resolved}
     await _record(
         session, run, RunState.patching, violations=work.draft_violations,
@@ -458,7 +476,7 @@ async def _page_fit(session, run: CvRun, work: _Work) -> None:
             return
         work.input["cv_json"] = result.cv_json
         work.patch.setdefault("fixed", []).append(
-            {"rule_id": "agent.trim_to_fit", "field": "cv_json",
+            {"rule_id": "agent.trim_to_fit", "field": "cv_json", "source": [],
              "before": "over the page limit", "after": f"trimmed to fit {work.spec.page_limit}"}
         )
         work.draft_violations = work.registry.run(_draft_ctx(work), Phase.draft)
