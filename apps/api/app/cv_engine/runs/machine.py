@@ -412,6 +412,76 @@ async def _page_fit(session, run: CvRun, work: _Work) -> None:
         await _re_diagnose(session, run, work)
 
 
+async def _judge(session, run: CvRun, work: _Work) -> None:
+    """Advisory LLM judgment on the verified artifact — second, on the deterministic floor.
+
+    Slice 6. Rescues JD terms the exact-keyword scan missed, each backed by a verbatim quote
+    (door #1) and confirmed by an independent skeptical verifier (door #2); adds an advisory fit
+    verdict (reusing ats_analyze). Writes `run.judgment` ONLY — never the score, the violations, or
+    the release decision. A no-op offline, without a JD, or when there is no artifact text."""
+    from app.llm import client
+
+    jd_text = (work.input.get("jd_text") or "").strip()
+    cv_text = work.extracted_text
+    if not work.breakdown or not jd_text or not cv_text.strip():
+        return
+    if not (client.is_live("cv_judge") or client.is_live("ats_analyze")):
+        return
+    from app.llm import ats_analyze, cv_judge
+
+    t = time.perf_counter()
+    role_title = work.input.get("role_title")
+    det_missing = list(dict.fromkeys([
+        *(work.breakdown.get("missing_critical") or []),
+        *(work.breakdown.get("missing_keywords") or []),
+    ]))
+    pool = set(det_missing)
+
+    # Semantic coverage rescue — two doors: verbatim evidence (door #1) + a skeptical verifier.
+    result = await cv_judge.rescue_coverage(
+        cv_text, work.breakdown, jd_text=jd_text, role_title=role_title,
+    )
+    rescued: list[dict] = []
+    for r in result.rescues:
+        # Pool guard + door #1 (verbatim quote) BEFORE spending a verifier call on door #2.
+        if r["keyword"] not in pool:
+            continue
+        if not cv_judge.evidence_present(r["evidence"], cv_text):
+            continue
+        if not await cv_judge.confirms(r["keyword"], r["evidence"]):
+            continue
+        rescued.append(r)
+    covered = {r["keyword"] for r in rescued}
+    still_missing = [k for k in det_missing if k not in covered]
+
+    # Advisory fit verdict — the existing ats_analyze facade (its own offline-safe fallback inside).
+    analysis = await ats_analyze.analyze(
+        cv_text=cv_text, jd_text=jd_text, role_title=role_title or "",
+        rule_score=run.score or 0.0, breakdown=work.breakdown,
+    )
+
+    run.judgment = {
+        "coverage": {
+            "deterministic_missing": det_missing,
+            "semantic_covered": rescued,
+            "still_missing": still_missing,
+            "summary": (
+                f"{len(rescued)}/{len(det_missing)} keyword-missed term(s) covered under "
+                f"another name; {len(still_missing)} genuinely missing."
+            ),
+        },
+        "fit": ats_analyze.analysis_to_dict(analysis),
+        "model": result.model,
+        "prompt_version": cv_judge.PROMPT_VERSION,
+    }
+    await _record(
+        session, run, RunState.judged, model=result.model,
+        prompt_version=cv_judge.PROMPT_VERSION,
+        detail={"rescued": sorted(covered), "still_missing_count": len(still_missing)},
+        duration_ms=int((time.perf_counter() - t) * 1000),
+    )
+
+
 # --- Public API ---------------------------------------------------------------------
 
 
@@ -446,6 +516,7 @@ async def coordinate(session, run: CvRun, *, spec: TemplateSpec | None = None) -
     await _render(session, run, work)
     await _re_diagnose(session, run, work)
     await _page_fit(session, run, work)
+    await _judge(session, run, work)
     await _release(session, run, work)
     return run
 
