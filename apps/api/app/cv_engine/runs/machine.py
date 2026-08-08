@@ -615,6 +615,20 @@ async def coordinate(
     return run
 
 
+async def submit_run(
+    session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build, job_id=None,
+    template_ref: str | None = None,
+) -> CvRun:
+    """Create an INGESTED run WITHOUT coordinating it (the async submit path). A worker drives it
+    to a terminal state off-request; the client polls GET /cv/runs/{id}."""
+    spec = await resolve_template(
+        session, user_id=user_id, track=(input or {}).get("track"), ref=template_ref
+    )
+    return await create_run(
+        session, user_id=user_id, input=input, mode=mode, job_id=job_id, spec=spec
+    )
+
+
 async def run_pipeline(
     session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build, job_id=None,
     template_ref: str | None = None, allow_suspend: bool = True,
