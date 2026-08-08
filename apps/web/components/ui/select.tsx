@@ -23,7 +23,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         >
           {children}
         </select>
-        <ChevronDown className="pointer-events-none absolute right-2.5 size-4 text-coffee-300" />
+        <ChevronDown className="pointer-events-none absolute right-2.5 size-4 text-coffee-400" />
       </div>
     );
   },

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
@@ -10,17 +11,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.enums import ParseStatus, Track
-from app.core.errors import DomainError
+from app.core.errors import DomainError, NotFoundError
 from app.db import get_session
 from app.deps import bind_user_llm, current_user
 from app.llm import ats_analyze, resume_intel, track_classify
 from app.models.cover_letter import CoverLetterTemplate
+from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.role_cv import RoleCv
 from app.models.user import User
 from app.pipelines.apply import ats, intel, verbs
 from app.pipelines.apply.cv_parse import cv_json_from_text, extract_text_from_bytes
 from app.pipelines.apply.profile_cv import cv_text_from_profile
+from app.repositories import ats_analysis as ats_repo
 from app.repositories import profiles as profiles_repo
 from app.repositories import track_match as track_match_repo
 
@@ -87,6 +90,18 @@ class AtsCheckJsonRequest(BaseModel):
     track: Track | None = None
     role_title: str | None = None
     use_ai: bool = True
+    # When launched from a job, persist the analysis against it (else standalone).
+    job_id: UUID | None = None
+
+
+async def _resolve_job_id(session, user_id, job_id) -> UUID | None:
+    """Validate an optional job binding for a check (owned by the caller), else None."""
+    if job_id is None:
+        return None
+    job = await session.get(Job, job_id)
+    if job is None or job.user_id != user_id:
+        raise NotFoundError("Job not found")
+    return job_id
 
 
 @router.get("/sources")
@@ -133,12 +148,14 @@ async def check_ats_multipart(
     track: str | None = Form(default=None),
     cv_text: str | None = Form(default=None),
     use_ai: bool = Form(default=True),
+    job_id: UUID | None = Form(default=None),
     file: UploadFile | None = File(default=None),
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Compare a profile CV, upload, or pasted text against a JD."""
     parsed_track = Track(track) if track else None
+    bound_job_id = await _resolve_job_id(session, user.id, job_id)
     filename: str | None = None
     text = (cv_text or "").strip()
     cv_source = "paste"
@@ -203,6 +220,9 @@ async def check_ats_multipart(
         track_match=track_match,
         cover_letter_template=_cover_letter_out(tpl),
         verified_terms=await _verified_terms(session, user.id, parsed_track),
+        session=session,
+        user_id=user.id,
+        job_id=bound_job_id,
     )
     return result
 
@@ -230,6 +250,7 @@ async def check_ats_json(
         raise DomainError("CV text is too short.")
 
     title = (body.role_title or "").strip() or _default_role_title(jd)
+    bound_job_id = await _resolve_job_id(session, user.id, body.job_id)
     tpl = (await session.execute(
         select(CoverLetterTemplate).where(CoverLetterTemplate.user_id == user.id)
     )).scalar_one_or_none()
@@ -244,7 +265,36 @@ async def check_ats_json(
         cv_source=cv_source,
         cover_letter_template=_cover_letter_out(tpl),
         verified_terms=await _verified_terms(session, user.id, track),
+        session=session,
+        user_id=user.id,
+        job_id=bound_job_id,
     )
+
+
+@router.get("/analysis")
+async def latest_analysis(
+    job_id: UUID | None = None,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict | None:
+    """Latest persisted ATS analysis for a job (or the standalone check) — powers the
+    LaTeX builder's recommendations from the DB instead of a browser handoff."""
+    row = await ats_repo.latest(session, user_id=user.id, job_id=job_id)
+    if row is None:
+        return None
+    b = row.breakdown or {}
+    ai = row.ai or {}
+    return {
+        "analysis_id": str(row.id),
+        "version": row.version,
+        "gate_status": row.gate_status,
+        "score": row.score,
+        "recs": {
+            "missing_critical": b.get("missing_critical") or [],
+            "gaps": ats.gap_skills(b),
+            "recommendations": ai.get("recommendations") or [],
+        },
+    }
 
 
 async def _load_profile_cv(
@@ -288,6 +338,9 @@ async def _run_check(
     track_match=None,
     cover_letter_template: dict | None = None,
     verified_terms: list[str] | None = None,
+    session: AsyncSession | None = None,
+    user_id=None,
+    job_id: UUID | None = None,
 ) -> dict:
     from app.llm import client
 
@@ -346,6 +399,19 @@ async def _run_check(
         )
         intelligence["advisory"] = resume_intel.analysis_to_dict(ri)
 
+    # Persist the result (durable, versioned) so the builder/regen reads it from the DB
+    # instead of a browser sessionStorage handoff. Standalone checks persist with job_id=None.
+    analysis_id: str | None = None
+    version: int | None = None
+    if session is not None and user_id is not None:
+        row = await ats_repo.record(
+            session, user_id=user_id, job_id=job_id,
+            track=track.value if track else None, role_title=role_title,
+            gate_status=(breakdown.get("gate") or {}).get("status", "unevaluated"),
+            score=rule_score, breakdown=breakdown, ai=ai_block, ai_live=ai_live,
+        )
+        analysis_id, version = str(row.id), row.version
+
     return {
         "role_title": role_title,
         "track": track.value if track else None,
@@ -355,6 +421,8 @@ async def _run_check(
         "track_match": breakdown.get("track_match"),
         "cover_letter_template": cover_letter_template,
         "ai_live": ai_live,
+        "analysis_id": analysis_id,
+        "version": version,
         "rule_based": {
             "score": rule_score,
             "breakdown": breakdown,

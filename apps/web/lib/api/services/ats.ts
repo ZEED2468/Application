@@ -1,4 +1,10 @@
-import type { AtsCheckResult, AtsSources, Track } from "@jd/shared-types";
+import type {
+  AtsCheckResult,
+  AtsLatestAnalysis,
+  AtsSources,
+  RegenerateAtsRecs,
+  Track,
+} from "@jd/shared-types";
 import { api, path } from "../client";
 
 export const atsService = {
@@ -27,6 +33,7 @@ export const atsService = {
     cvFile?: File | null;
     roleTitle?: string;
     useAi?: boolean;
+    jobId?: string | null;
   }): Promise<AtsCheckResult> {
     const form = new FormData();
     form.append("jd_text", params.jdText);
@@ -37,11 +44,24 @@ export const atsService = {
     if (params.track) {
       form.append("track", params.track);
     }
+    // Bind the check to a job so its analysis persists against it (server-side).
+    if (params.jobId) {
+      form.append("job_id", params.jobId);
+    }
     if (params.cvFile) {
       form.append("file", params.cvFile);
     } else if (params.cvText?.trim()) {
       form.append("cv_text", params.cvText.trim());
     }
     return api.post(path("/api/ats/check"), { body: form }).json<AtsCheckResult>();
+  },
+
+  /** The latest persisted ATS recommendations for a job (or the standalone check). */
+  async latestRecs(jobId?: string | null): Promise<RegenerateAtsRecs | null> {
+    const qs = jobId ? `?job_id=${encodeURIComponent(jobId)}` : "";
+    const res = await api
+      .get(path(`/api/ats/analysis${qs}`))
+      .json<AtsLatestAnalysis | null>();
+    return res?.recs ?? null;
   },
 };

@@ -4,6 +4,7 @@ import * as React from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 export function JdModal({
   open,
@@ -18,14 +19,7 @@ export function JdModal({
   company: string;
   description: string;
 }) {
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  const panelRef = useFocusTrap<HTMLDivElement>(open, onClose);
 
   if (!open) return null;
 
@@ -43,9 +37,11 @@ export function JdModal({
         onClick={onClose}
       />
       <div
+        ref={panelRef}
+        tabIndex={-1}
         className={cn(
           "relative z-10 flex max-h-[85vh] w-full max-w-2xl flex-col",
-          "rounded-lg border border-coffee-300 bg-white shadow-lg",
+          "rounded-lg border border-coffee-300 bg-white shadow-lg outline-none",
         )}
       >
         <div className="flex items-start justify-between gap-4 border-b border-coffee-100 px-6 py-4">

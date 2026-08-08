@@ -20,12 +20,12 @@ const STEPS: TourStep[] = [
   },
   {
     selector: '[data-tour="/jobs"]',
-    title: "Jobs & Tracker",
-    body: "Discovered roles matched to your tracks, and your read-only application tracker.",
+    title: "Jobs",
+    body: "Roles matched to your tracks in Pipeline, and everything you've submitted in Submitted.",
   },
   {
     selector: '[data-tour="/ats-checker"]',
-    title: "ATS Checker",
+    title: "Tailor",
     body: "Score any CV against a job description, see keyword/tool gaps, then regenerate it in your own LaTeX template.",
   },
   {

@@ -1,0 +1,35 @@
+{
+  "name": "clean",
+  "description": "A well-formed, fully-grounded CV — releases when compiled, no violations.",
+  "input": {
+    "name": "Ada Hunter",
+    "role_title": "Senior Backend Engineer",
+    "track": "backend",
+    "jd_text": "Senior Backend Engineer. Must have Go and Kubernetes. Postgres required.",
+    "cv_json": {
+      "headline": "Backend Engineer",
+      "summary": "Backend engineer who builds production systems in Go and Kubernetes.",
+      "skills": ["Go", "Kubernetes", "Postgres", "microservices"],
+      "experience": [
+        {"title": "Backend Engineer", "company": "Streamline", "dates": "2021 -- 2024",
+         "bullets": ["Built Go microservices", "Reduced latency by 40%"]}
+      ],
+      "links": {"github": "https://github.com/adahunter"},
+      "education": [
+        {"degree": "BSc Computer Science", "school": "Unilag", "dates": "2016 -- 2020"}
+      ],
+      "projects": []
+    },
+    "ledger": [
+      {"kind": "summary", "text": "Backend engineer who builds production systems in Go and Kubernetes."},
+      {"kind": "role", "text": "Backend Engineer at Streamline 2021 2024. Built Go microservices. Reduced latency by 40%."},
+      {"kind": "education", "text": "BSc Computer Science Unilag 2016 2020"},
+      {"kind": "skill", "text": "Go Kubernetes Postgres microservices"},
+      {"kind": "link", "text": "https://github.com/adahunter"}
+    ]
+  },
+  "expect": {
+    "clean": true,
+    "blocking": []
+  }
+}

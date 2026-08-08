@@ -126,8 +126,8 @@ async def test_guard_blocks_generate_without_resume(ctx):
     blocked = await client.post(f"/api/jobs/{job_id}/generate")
     assert blocked.status_code == 400, blocked.text
     body = blocked.json()
-    assert body["code"] == "track_resume_required"
-    assert body["action"]["label"] == "Upload Resume"
+    assert body["code"] == "track_not_ready"
+    assert body["action"]["label"] == "Upload CV"
     assert body["action"]["route"] == "/profile?track=backend"
 
     # once a resume exists for the track, the guard no longer blocks generation

@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Enum, Text, UniqueConstraint
+from sqlalchemy import Boolean, Enum, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
@@ -46,3 +46,6 @@ class MasterProfile(Base, TimestampMixin):
     preferred_job_types: Mapped[list] = mapped_column(JsonB, default=list)
     salary_expectation: Mapped[dict] = mapped_column(JsonB, default=dict)
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The CV-engine template bound for this track (a built-in id or a cv_template ref;
+    # NULL → the canonical default). Resolved by templates.resolve.
+    template_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

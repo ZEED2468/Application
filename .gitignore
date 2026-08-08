@@ -24,6 +24,9 @@ htmlcov/
 node_modules/
 .next/
 out/
+# Incremental-build artifact: rewritten on every typecheck, so it shows up dirty
+# in every diff and conflicts on every merge.
+*.tsbuildinfo
 .pnpm-store/
 npm-debug.log*
 pnpm-debug.log*

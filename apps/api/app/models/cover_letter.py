@@ -36,6 +36,9 @@ class CoverLetter(Base, TimestampMixin):
         Uuid, ForeignKey("cover_letter_template.id", ondelete="SET NULL"), nullable=True
     )
     body: Mapped[str | None] = mapped_column(Text, nullable=True)  # 3-paragraph text
+    # The committed cover LaTeX, stored inline (like GeneratedCv.latex_source) so the
+    # résumé editor can open YOUR current cover letter to tweak — not just regenerate.
+    latex_source: Mapped[str | None] = mapped_column(Text, nullable=True)
     tex_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     pdf_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
     pdf_url: Mapped[str | None] = mapped_column(Text, nullable=True)

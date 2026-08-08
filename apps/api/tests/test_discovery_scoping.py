@@ -49,9 +49,11 @@ async def test_adzuna_scoped_by_roles_location_experience(monkeypatch):
     async for _ in AdzunaSource().fetch(q):
         pass
     p = cap["params"]
-    # role title used (not raw skills), seniority folded in, location -> where, recency cap
-    assert "backend engineer" in p["what_or"].lower()
-    assert "senior" in p["what_or"].lower()
+    # role titles → Adzuna relevance search (`what`, not `what_or`), seniority folded in,
+    # location -> where, recency cap; skills are NOT used when role titles are present.
+    assert "backend engineer" in p["what"].lower()
+    assert "senior" in p["what"].lower()
+    assert "what_or" not in p  # role path uses relevance `what`, not the skills `what_or`
     assert p["where"] == "Berlin"
     assert p["max_days_old"] == 30
 

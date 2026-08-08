@@ -23,7 +23,7 @@ from app.events.contracts import (
     JobDiscovered,
     JobScored,
 )
-from app.llm import relevance, tailoring, track_classify, experience_classify
+from app.llm import relevance, tailoring, track_classify, experience_classify, location_classify
 from app.models.application import Application
 from app.models.generated_cv import GeneratedCv
 from app.models.job import Job
@@ -54,16 +54,32 @@ def _location(profile: MasterProfile) -> str | None:
     return next((loc for loc in locs if isinstance(loc, str) and loc.strip()), None)
 
 
+# Generic job words that don't distinguish a role — dropped so a search for "Frontend
+# Engineer" matches "Frontend Developer" (both distinctively about *frontend*) while a
+# plain "Software Engineer" is not pulled in by the shared word "engineer".
+_GENERIC_ROLE_WORDS = frozenset({
+    "engineer", "engineering", "developer", "development", "dev", "programmer",
+    "architect", "manager", "specialist", "analyst", "consultant", "lead", "senior",
+    "junior", "mid", "staff", "principal", "associate", "contract", "contractor",
+    "permanent", "remote", "hybrid", "officer", "assistant", "role", "position",
+})
+
+
 def title_matches_roles(title: str, roles: list[str]) -> bool:
-    """True if `title` matches any target role — every significant word of the role
-    appears in the title (so 'React Engineer' matches 'Senior React Engineer'). No
-    roles set ⇒ everything matches (no filtering)."""
+    """True if `title` matches any target role by its DISTINCTIVE word(s) — the
+    generic job words (engineer/developer/senior/…) are dropped, so 'Frontend Engineer'
+    matches 'Senior Frontend Developer' but a plain 'Software Engineer' does not. A role
+    with only generic words falls back to matching all of them. No roles ⇒ no filtering."""
     if not roles:
         return True
     title_tokens = set(re.findall(r"[a-z0-9]+", (title or "").lower()))
     for role in roles:
-        role_tokens = [t for t in re.findall(r"[a-z0-9]+", role.lower()) if len(t) > 2]
-        if role_tokens and all(t in title_tokens for t in role_tokens):
+        # Keep 2-char tokens — short role words like UI, UX, Go, ML, AI, QA are meaningful
+        # (a search for "UI/UX" or "Go Developer" must not filter to nothing).
+        tokens = [t for t in re.findall(r"[a-z0-9]+", role.lower()) if len(t) >= 2]
+        distinctive = [t for t in tokens if t not in _GENERIC_ROLE_WORDS]
+        required = distinctive or tokens
+        if required and all(t in title_tokens for t in required):
             return True
     return False
 
@@ -83,11 +99,69 @@ def _config_note(name: JobSourceName, boards: list[str]) -> str | None:
     return None
 
 
+def _as_track(value) -> Track | None:
+    """Coerce a profile/track value — a real profile's `Track` enum or a discovery
+    placeholder's raw string — to a built-in `Track`, or `None` for a custom/unknown
+    track (which can't be stored in the Enum(Track) column)."""
+    if isinstance(value, Track):
+        return value
+    try:
+        return Track(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _decide_track(
+    *, title: str, description: str | None, profile_track, selected_tracks: list[str] | None
+) -> tuple[Track, bool]:
+    """Decide a discovered job's track, and whether it's off-target (should be dropped).
+
+    The keyword classifier is advisory. Priority: the JD literally names a selected
+    track > a confident keyword classification > the track the search ran under
+    (context) > general. So when the classifier can't tell, we keep the searched track
+    instead of silently mislabeling the job "general".
+
+    With an explicit track filter (`selected_tracks`), a job is dropped ONLY when it
+    classifies CONFIDENTLY to a built-in track the user did not ask for; a job that
+    merely defaulted to the searched track is kept (it already passed the role filter).
+    """
+    context_track = _as_track(profile_track)
+    classified = track_classify.classify(title=title, description=description)
+    sel = {s.lower() for s in (selected_tracks or [])}
+
+    literal_track = None
+    if selected_tracks:
+        tl, dl = title.lower(), (description or "").lower()
+        for st in selected_tracks:
+            if st.lower() in tl or st.lower() in dl:
+                # Only a *built-in* track can be stored in the Enum(Track) column.
+                literal_track = _as_track(st)
+                if literal_track is not None:
+                    break
+
+    if literal_track is not None:
+        job_track = literal_track
+    elif classified is not Track.general:
+        job_track = classified
+    else:
+        job_track = context_track or Track.general
+
+    if sel and literal_track is None and job_track.value not in sel:
+        if classified is not Track.general:
+            return job_track, True  # confidently a track the user didn't search for
+        # Uncertain classification: keep it, retagged to the searched track.
+        if context_track is not None and context_track.value in sel:
+            job_track = context_track
+    return job_track, False
+
+
 async def _run_sources(
     session, *, user_id: UUID, profile: MasterProfile, boards: list[str] | None = None,
+    role_titles: list[str] | None = None,
     selected_tracks: list[str] | None = None,
     selected_experience_levels: list[str] | None = None,
     cooldown: bool = True,
+    nigeria_only: bool = True,
     emit=_real_emit,
 ) -> tuple[list[Job], list[dict]]:
     """Run active sources for the hunter's track; dedupe-insert; emit job.discovered.
@@ -96,7 +170,10 @@ async def _run_sources(
     `source_board` table) can never kill the whole run. Returns the new jobs plus a
     per-source report for the on-demand diagnostics endpoint.
     """
-    roles = _target_roles(profile)
+    # User-supplied search roles (the on-demand role box) win; else the hunter's saved
+    # target roles. With NEITHER set we don't search at all (see the guard below) — a
+    # role-less query returns broad, mostly-irrelevant postings and burns provider tokens.
+    roles = [r.strip() for r in (role_titles or []) if r and r.strip()] or _target_roles(profile)
     # Scope the outbound query so providers return only relevant postings (saves tokens):
     # role titles + location + (on-demand) seniority all narrow the fetch, not just a
     # post-fetch discard.
@@ -119,8 +196,21 @@ async def _run_sources(
     
     track_val = profile.track.value if hasattr(profile.track, "value") else profile.track
     log.info("discover.start", user_id=str(user_id), track=track_val,
-             keywords=query.keywords, fake_mode=settings.use_fake_integrations,
+             keywords=query.keywords, roles=roles, fake_mode=settings.use_fake_integrations,
              sources=[s.name.value for s in actives])
+
+    # No role scope → skip EVERY source (zero provider API calls). A role-less search
+    # returns mostly irrelevant jobs and wastes Adzuna/SerpApi tokens; the user drives the
+    # search via the on-demand role box, and the 30-min beat stays quiet for a hunter with
+    # no target roles set. Only enforced with REAL integrations — fake mode has no token
+    # cost, so dev/tests keep discovering without a role. Single choke point for both paths.
+    if not roles and not settings.use_fake_integrations:
+        log.info("discover.skipped_no_roles", user_id=str(user_id), track=track_val)
+        report = [{"source": s.name.value, "found": 0, "inserted": 0, "off_target": 0,
+                   "error": None,
+                   "note": "skipped: enter a search role (or set target roles) to search"}
+                  for s in actives]
+        return [], report
 
     # Board scrapers (Greenhouse/Lever/Ashby) pull per-company tokens. Resilient: a
     # missing/un-migrated `source_board` table must not break discovery.
@@ -162,29 +252,15 @@ async def _run_sources(
                     off_target += 1
                     continue
 
-                # Dynamic track classification
-                job_track = track_classify.classify(title=raw.title, description=raw.description)
-                if selected_tracks:
-                    title_lower = raw.title.lower()
-                    desc_lower = (raw.description or "").lower()
-                    matched_track = None
-                    for st in selected_tracks:
-                        st_lower = st.lower()
-                        if st_lower in title_lower or st_lower in desc_lower:
-                            matched_track = st
-                            break
-                    if matched_track:
-                        # Only relabel to a *built-in* track — a custom string cannot be
-                        # stored in the Enum(Track) column (it reads back as a LookupError
-                        # and 500s the whole jobs list). Custom tracks stay a filter concept.
-                        try:
-                            job_track = Track(matched_track.lower())
-                        except ValueError:
-                            pass  # keep the classified (valid) track
-                    elif job_track not in selected_tracks:
-                        # Skip: job classified track does not match the selected tracks
-                        off_target += 1
-                        continue
+                # Track assignment — searched track is the fallback, never a silent
+                # "general" (see _decide_track). Off-target jobs are dropped.
+                job_track, off_target_drop = _decide_track(
+                    title=raw.title, description=raw.description,
+                    profile_track=profile.track, selected_tracks=selected_tracks,
+                )
+                if off_target_drop:
+                    off_target += 1
+                    continue
 
                 # Experience level classification
                 job_exp = experience_classify.classify(title=raw.title, description=raw.description)
@@ -193,8 +269,17 @@ async def _run_sources(
                     off_target += 1
                     continue
 
+                # Eligibility: keep only jobs a Nigeria-based candidate can actually apply
+                # to (remote / worldwide / Africa / Nigeria + ambiguous); drop clear
+                # blockers (onsite abroad, "US only", foreign work authorization).
+                if nigeria_only and not location_classify.is_appliable_from_nigeria(
+                    title=raw.title, location=raw.location, description=raw.description
+                ):
+                    off_target += 1
+                    continue
+
                 fields = to_job_fields(raw)
-                fields.setdefault("role_title", raw.title)  # auto jobs: posting title
+                fields.setdefault("role_title", fields["title"])  # auto jobs: posting title (capped)
                 fields["track"] = job_track
                 fields["experience_level"] = job_exp
                 

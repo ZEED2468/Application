@@ -255,6 +255,9 @@ export interface AtsCheckResult {
   cover_letter_template?: CoverLetterTemplate | null;
   /** Whether the AI review layer was live for this run (capability, declared up front). */
   ai_live?: boolean;
+  /** Id + version of the persisted `ats_analysis` row this result was recorded as. */
+  analysis_id?: string | null;
+  version?: number | null;
   rule_based: {
     /** null when the format gate failed — a fix-first state, never a fabricated number. */
     score: number | null;
@@ -264,6 +267,15 @@ export interface AtsCheckResult {
   ai: AtsAiAnalysis | null;
   /** Resume Intelligence workspace (deterministic + advisory); optional/back-compat. */
   intelligence?: ResumeIntelligence | null;
+}
+
+/** The latest persisted ATS analysis for a job (or standalone) — GET /api/ats/analysis. */
+export interface AtsLatestAnalysis {
+  analysis_id: string;
+  version: number;
+  gate_status: "pass" | "fail" | "unevaluated";
+  score: number | null;
+  recs: RegenerateAtsRecs;
 }
 
 /* ---- Resume Intelligence (R5) ---- */
@@ -333,11 +345,17 @@ export interface GeneratedCv {
   download_url?: string | null;
   ats_score: number | null;
   ats_breakdown: AtsBreakdown | null;
+  /** the committed CV LaTeX — lets the editor open YOUR current résumé to tweak */
+  latex_source?: string | null;
 }
 
 export interface CoverLetter {
   pdf_url: string | null;
   download_url?: string | null;
+  /** the tailored 3-paragraph body text */
+  body?: string | null;
+  /** the committed cover LaTeX — lets the editor open YOUR current cover letter to tweak */
+  latex_source?: string | null;
 }
 
 /* ----------------------------------------------------------------------------
@@ -436,6 +454,64 @@ export interface ThreadMessage {
   sent_at: string;
 }
 
+/** Whether a job's track can back a real CV, with an actionable next step when it can't. */
+export interface TrackReadiness {
+  ready: boolean;
+  reason: string | null;
+  title: string | null;
+  message: string | null;
+  remediation: string | null;
+  action: { label: string; route: string } | null;
+}
+
+/** CV-engine run state machine. */
+export type RunState =
+  | "ingested"
+  | "gap_analyzed"
+  | "diagnosed"
+  | "patching"
+  | "recompiled"
+  | "verified"
+  | "released"
+  | "needs_input"
+  | "needs_review";
+
+export interface CvViolation {
+  rule_id: string;
+  severity: "critical" | "major" | "minor";
+  message: string;
+  fix_hint: string;
+  span: Record<string, unknown> | null;
+}
+
+/** A single deterministic fix the PATCH phase applied. */
+export interface CvFix {
+  rule_id: string;
+  field: string;
+  before: string;
+  after: string;
+}
+
+export interface CvRunDelta {
+  fixed: CvFix[];
+  resolved: string[]; // rule_ids that went fail→pass after fixes
+  failed: string[];
+  blocking: string[];
+  violation_count: number;
+}
+
+/** A CV-engine run result: score on the compiled artifact + violations + what got fixed. */
+export interface CvRunResult {
+  run_id: string;
+  state: RunState;
+  score: number | null;
+  registry_version: string | null;
+  template: { id: string | null; version: number | null };
+  artifact_ref: string | null;
+  violations: CvViolation[];
+  delta: CvRunDelta;
+}
+
 export interface JobDetail {
   job: JobOut & { jd_text?: string | null; description?: string | null };
   generated_cv: GeneratedCv | null;
@@ -443,6 +519,35 @@ export interface JobDetail {
   application: ApplicationSummary | null;
   outreach: OutreachSummary | null;
   thread: ThreadMessage[];
+  readiness: TrackReadiness | null;
+  cv_run: CvRunResult | null;
+}
+
+/** A CV-engine template (built-in or a validated custom .tex). */
+export interface TemplateSlot {
+  id: string;
+  kind: string;
+  required: boolean;
+  min_items: number;
+  fill_from: string[];
+  absence_ok: string;
+}
+
+export interface TemplateSummary {
+  id: string;
+  version: number;
+  name: string;
+  kind: "canonical" | "latex";
+  track: string | null;
+  slots: TemplateSlot[];
+  registry_overrides: Record<string, unknown>;
+  source: "builtin" | "custom";
+  gate?: { status: "pass" | "fail" | "unevaluated"; reasons?: string[] } | null;
+}
+
+export interface TemplateListResponse {
+  templates: TemplateSummary[];
+  bound: string | null;
 }
 
 export interface AuditEvent {
@@ -613,6 +718,12 @@ export interface LatexTemplate {
   filename?: string | null;
   has_source: boolean;
   source?: string | null;
+  /** ATS format gate from a trial compile at save (status: pass | fail | unevaluated). */
+  gate?: {
+    status: "pass" | "fail" | "unevaluated";
+    reasons?: string[];
+    flags?: Record<string, boolean>;
+  } | null;
 }
 
 /** ATS recommendations that drive a regeneration (subset of AtsCheckResult). */
@@ -694,11 +805,19 @@ export interface ChatPrompt {
   kind: PromptKind;
   /** allow multiple selections */
   multi?: boolean;
+  /** Options the user already confirmed — lets a reloaded session restore its answers. */
+  selected?: string[];
+  /** Free text the user added alongside the selection. */
+  detail?: string | null;
+  /** Whether this prompt has been confirmed. */
+  resolved?: boolean;
 }
 
 export interface ChatSession {
   session_id: string;
   state?: string;
+  /** The JD this session was started from — lets a resumed session refill its input. */
+  jd_text?: string | null;
   company?: string | null;
   role_title?: string | null;
   track?: Track | null;
@@ -738,6 +857,15 @@ export interface ChatAnswerRequest {
 
 export interface ChatGenerateResult {
   job_id: string;
+}
+
+/** Response from POST /api/jobs/{id}/generate. status "rejected" (with no
+ *  generated_cv_id) means the job scored below the relevance bar — retry with force. */
+export interface GenerateResponse {
+  job_id: string;
+  status: string;
+  generated_cv_id?: string | null;
+  pdf_url?: string | null;
 }
 
 /** Result of the VA's Apply action on a job. */

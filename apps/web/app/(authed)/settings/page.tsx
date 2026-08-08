@@ -145,7 +145,7 @@ export default function IntegrationsPage() {
           {integrations.isLoading ? (
             <p className="text-sm text-coffee-400">Loading…</p>
           ) : (integrations.data ?? []).length === 0 ? (
-            <p className="text-sm text-coffee-300">None yet — add one from Quick setup above.</p>
+            <p className="text-sm text-coffee-400">None yet — add one from Quick setup above.</p>
           ) : (
             integrations.data!.map((it) => (
               <IntegrationRow

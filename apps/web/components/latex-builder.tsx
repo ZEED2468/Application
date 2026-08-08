@@ -62,6 +62,16 @@ export function LatexBuilder({
     }
   }
 
+  // Live preview: recompile ~1.2s after typing stops (and on first load), so the PDF
+  // tracks your edits without a manual click. Tectonic is ~2–5s, hence the debounce.
+  const compileRef = React.useRef(compile);
+  compileRef.current = compile;
+  React.useEffect(() => {
+    if (!value.trim() || disabled) return;
+    const t = window.setTimeout(() => compileRef.current(), 1200);
+    return () => window.clearTimeout(t);
+  }, [value, disabled]);
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="flex flex-col gap-2">
@@ -123,7 +133,7 @@ export function LatexBuilder({
             <iframe src={previewUrl} title={`${kind} preview`} className="h-full w-full" />
           ) : (
             <div className="flex h-full items-center justify-center px-6 text-center text-sm text-coffee-400">
-              Click “Compile preview” to render the PDF.
+              {compiling ? "Rendering the PDF…" : "The preview updates as you edit."}
             </div>
           )}
         </div>

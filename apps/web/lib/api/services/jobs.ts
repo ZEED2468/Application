@@ -1,6 +1,7 @@
 import type {
   ApplyResult,
   DiscoverReport,
+  GenerateResponse,
   JobDetail,
   JobOut,
   Origin,
@@ -18,6 +19,13 @@ export interface JobsFilter {
   origin?: Origin | "";
 }
 
+/** A JD skill the CV is missing, AI-vetted, with a question to ask the user. */
+export interface Gap {
+  skill: string;
+  question: string;
+  reason: string;
+}
+
 /** Backend returns a flat job row; normalize to the nested JobDetail shape. */
 function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
   const {
@@ -27,6 +35,8 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
     outreach,
     thread,
     description,
+    readiness,
+    cv_run: cvRun,
     ...jobFields
   } = raw;
 
@@ -59,6 +69,8 @@ function normalizeJobDetail(raw: Record<string, unknown>): JobDetail {
         ? (outreachList[0] as unknown as JobDetail["outreach"])
         : null,
     thread: (thread as unknown as JobDetail["thread"]) ?? [],
+    readiness: (readiness as unknown as JobDetail["readiness"]) ?? null,
+    cv_run: (cvRun as unknown as JobDetail["cv_run"]) ?? null,
   };
 }
 
@@ -86,14 +98,29 @@ export const jobsService = {
   },
 
   async discover(body?: {
+    roles?: string[];
     tracks?: string[];
     experience_levels?: string[];
     force?: boolean;
+    nigeria_only?: boolean;
   }): Promise<DiscoverReport> {
     // 60s: discovery makes live HTTP calls to each source.
     return api
       .post(path("/api/jobs/discover"), { json: body || {}, timeout: 60000 })
       .json<DiscoverReport>();
+  },
+
+  /** Create (or reuse) a manual job from a pasted JD — the "Tailor" nav entry. Returns
+   *  the job id to open its workspace; generation happens there, not here. */
+  async createFromJd(body: {
+    jd_text: string;
+    role_title?: string;
+    company?: string;
+    track?: string;
+  }): Promise<{ job_id: string }> {
+    return api
+      .post(path("/api/jobs/from-jd"), { json: body })
+      .json<{ job_id: string }>();
   },
 
   async detail(id: string): Promise<JobDetail> {
@@ -105,8 +132,33 @@ export const jobsService = {
     await api.patch(path(`/api/jobs/${id}/track`), { json: { track } });
   },
 
-  async generate(id: string): Promise<void> {
-    await api.post(path(`/api/jobs/${id}/generate`));
+  async generate(
+    id: string,
+    force = false,
+    regenerate = false,
+  ): Promise<GenerateResponse> {
+    const params = new URLSearchParams();
+    if (force) params.set("force", "true");
+    if (regenerate) params.set("regenerate", "true");
+    const qs = params.toString();
+    return api
+      .post(path(`/api/jobs/${id}/generate${qs ? `?${qs}` : ""}`))
+      .json<GenerateResponse>();
+  },
+
+  /** JD skills the tailored CV is missing (AI-vetted) for this job. */
+  async gaps(id: string): Promise<Gap[]> {
+    const res = await api
+      .get(path(`/api/jobs/${id}/gaps`))
+      .json<{ gaps: Gap[] }>();
+    return res.gaps;
+  },
+
+  /** Confirm the user genuinely has a skill → add it to their profile (truth-bounded). */
+  async confirmSkill(id: string, skill: string, detail?: string): Promise<void> {
+    await api.post(path(`/api/jobs/${id}/confirm-skill`), {
+      json: { skill, detail: detail || undefined },
+    });
   },
 
   async submit(id: string): Promise<void> {

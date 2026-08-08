@@ -23,40 +23,97 @@ def _esc(text) -> str:
     return "".join(_LATEX_ESCAPE.get(c, c) for c in str(text or ""))
 
 
+def _section(title: str) -> str:
+    return (
+        rf"\vspace{{9pt}}\noindent{{\large\bfseries {_esc(title)}}}"
+        r"\vspace{2pt}\hrule\vspace{5pt}"
+    )
+
+
 def build_tex(cv_json: dict, *, name: str) -> str:
-    """Single-column, ATS-safe LaTeX (no multicol, no graphics, plain text flow)."""
+    """Single-column, ATS-safe LaTeX (no multicol, no tables, no graphics; plain text
+    flow). Renders whatever the profile actually has — contact, dates, education,
+    projects — with proper itemized bullets, so a rich profile yields a rich CV."""
     lines = [
         r"\documentclass[11pt]{article}",
-        r"\usepackage[margin=1in]{geometry}",
+        r"\usepackage[margin=0.9in]{geometry}",
         r"\usepackage{enumitem}",
-        r"\setlist{nosep}",
+        r"\usepackage[hidelinks]{hyperref}",
+        r"\setlist[itemize]{nosep, leftmargin=1.3em, label=$\bullet$}",
+        r"\setlength{\parindent}{0pt}",
         r"\pagestyle{empty}",
         r"\begin{document}",
-        rf"\begin{{center}}{{\Large\bfseries {_esc(name)}}}\end{{center}}",
+        rf"\begin{{center}}{{\LARGE\bfseries {_esc(name)}}}\end{{center}}",
     ]
     if cv_json.get("headline"):
         lines.append(rf"\begin{{center}}{_esc(cv_json['headline'])}\end{{center}}")
+    contacts = [str(v) for v in (cv_json.get("links") or {}).values() if v]
+    if contacts:
+        lines.append(rf"\begin{{center}}\small {_esc('  |  '.join(contacts))}\end{{center}}")
+
     if cv_json.get("summary"):
-        lines += [r"\section*{Summary}", _esc(cv_json["summary"])]
+        lines += [_section("Summary"), _esc(cv_json["summary"])]
 
     skills = cv_json.get("skills") or []
     if skills:
-        lines += [r"\section*{Skills}", _esc(", ".join(skills))]
+        lines += [_section("Skills"), _esc(", ".join(str(s) for s in skills))]
 
     experience = cv_json.get("experience") or []
     if experience:
-        lines.append(r"\section*{Experience}")
+        lines.append(_section("Experience"))
         for e in experience:
-            title = " - ".join(filter(None, [e.get("title") or e.get("role"), e.get("company")]))
-            lines.append(rf"\textbf{{{_esc(title)}}}\\")
-            for b in e.get("bullets", []):
-                lines.append(rf"\hspace*{{1em}}$\bullet$ {_esc(b)}\\")
+            title = " --- ".join(
+                filter(None, [e.get("title") or e.get("role"), e.get("company")])
+            )
+            dates = e.get("dates") or " -- ".join(
+                filter(None, [e.get("start"), e.get("end")])
+            )
+            header = rf"\textbf{{{_esc(title)}}}"
+            if dates:
+                header += rf"\hfill {_esc(dates)}"
+            lines.append(header + r"\\[2pt]")
+            bullets = e.get("bullets") or []
+            if bullets:
+                lines.append(r"\begin{itemize}")
+                lines += [rf"\item {_esc(b)}" for b in bullets]
+                lines.append(r"\end{itemize}")
 
     projects = cv_json.get("projects") or []
     if projects:
-        lines.append(r"\section*{Projects}")
+        lines.append(_section("Projects"))
         for p in projects:
-            lines.append(rf"\textbf{{{_esc(p.get('name'))}}}: {_esc(p.get('description'))}\\")
+            head = rf"\textbf{{{_esc(p.get('name') or '')}}}"
+            desc = p.get("description")
+            lines.append(head + (rf": {_esc(desc)}" if desc else "") + r"\\[3pt]")
+
+    education = cv_json.get("education") or []
+    if education:
+        lines.append(_section("Education"))
+        for ed in education:
+            if isinstance(ed, str):
+                lines.append(_esc(ed) + r"\\[2pt]")
+                continue
+            deg = " --- ".join(
+                filter(None, [ed.get("degree"), ed.get("school") or ed.get("institution")])
+            )
+            dates = ed.get("dates") or " -- ".join(
+                filter(None, [ed.get("start"), ed.get("end")])
+            )
+            row = rf"\textbf{{{_esc(deg)}}}"
+            if dates:
+                row += rf"\hfill {_esc(dates)}"
+            lines.append(row + r"\\[2pt]")
+
+    certifications = cv_json.get("certifications") or []
+    if certifications:
+        lines.append(_section("Certifications"))
+        lines.append(r"\begin{itemize}")
+        lines += [rf"\item {_esc(c)}" for c in certifications]
+        lines.append(r"\end{itemize}")
+
+    languages = cv_json.get("languages") or []
+    if languages:
+        lines += [_section("Languages"), _esc(", ".join(str(l) for l in languages))]
 
     lines.append(r"\end{document}")
     return "\n".join(lines)

@@ -31,7 +31,7 @@ const GUIDES: AccordionItemData[] = [
     id: "ats-workflow",
     title: "The ATS optimization workflow",
     content:
-      "Run a job description through the ATS Checker to see keyword coverage, tool gaps, structure/hygiene flags, weak-verb suggestions, and (with AI on) PAR/XYZ bullet coaching. Apply the truthful suggestions, then regenerate your CV in your LaTeX template.",
+      "Run a job description through Tailor to see keyword coverage, tool gaps, structure/hygiene flags, weak-verb suggestions, and (with AI on) PAR/XYZ bullet coaching. Apply the truthful suggestions, then regenerate your CV in your LaTeX template.",
   },
   {
     id: "upload-cv",
@@ -49,7 +49,7 @@ const GUIDES: AccordionItemData[] = [
     id: "latex",
     title: "LaTeX CV & cover-letter templates",
     content:
-      "Upload your own .tex templates per track on Profile. When you regenerate from the ATS Checker, your tailored, truth-bounded content is rendered into that exact design; preview it side-by-side and use it on the job.",
+      "Upload your own .tex templates per track on Profile. When you regenerate from Tailor, your tailored, truth-bounded content is rendered into that exact design; preview it side-by-side and use it on the job.",
   },
   {
     id: "verified-extras",
@@ -73,7 +73,7 @@ const GUIDES: AccordionItemData[] = [
     id: "applying",
     title: "Applying for jobs",
     content:
-      "Open a job, review the JD + generated CV/cover + ATS, then Apply — it records the application, opens the posting, and surfaces the documents to attach. The read-only Tracker logs everything with credibility signals.",
+      "Open a job, review the JD + generated CV/cover + ATS, then Apply — it records the application, opens the posting, and surfaces the documents to attach. The read-only Submitted list logs everything with credibility signals.",
   },
 ];
 
@@ -133,7 +133,7 @@ export default function HelpPage() {
                       {s.completed ? (
                         <CheckCircle2 className="size-4 text-status-offer" />
                       ) : (
-                        <Circle className="size-4 text-coffee-300" />
+                        <Circle className="size-4 text-coffee-400" />
                       )}
                       <span className={s.completed ? "line-through text-coffee-400" : ""}>
                         {s.label}

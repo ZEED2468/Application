@@ -1,0 +1,31 @@
+{
+  "name": "missing_summary",
+  "description": "No professional summary — a blocking structure violation (needs_review).",
+  "input": {
+    "name": "Ada Hunter",
+    "role_title": "Senior Backend Engineer",
+    "track": "backend",
+    "jd_text": "Senior Backend Engineer. Must have Go and Kubernetes. Postgres required.",
+    "cv_json": {
+      "headline": "Backend Engineer",
+      "summary": "",
+      "skills": ["Go", "Kubernetes", "Postgres"],
+      "experience": [
+        {"title": "Backend Engineer", "company": "Streamline", "dates": "2021 -- 2024",
+         "bullets": ["Built Go microservices", "Reduced latency by 40%"]}
+      ],
+      "links": {"github": "https://github.com/adahunter"},
+      "education": [],
+      "projects": []
+    },
+    "ledger": [
+      {"kind": "role", "text": "Backend Engineer at Streamline 2021 2024. Built Go microservices. Reduced latency by 40%."},
+      {"kind": "skill", "text": "Go Kubernetes Postgres"},
+      {"kind": "link", "text": "https://github.com/adahunter"}
+    ]
+  },
+  "expect": {
+    "clean": false,
+    "blocking": ["structure.summary_present"]
+  }
+}

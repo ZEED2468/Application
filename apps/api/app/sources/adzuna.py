@@ -26,20 +26,28 @@ class AdzunaSource:
             return  # no creds -> no-op (tests/dev use the fake source)
         country = settings.adzuna_country or "gb"
         url = f"https://api.adzuna.com/v1/api/jobs/{country}/search/1"
-        # Scope the outbound query to what the hunter actually wants (saves tokens):
-        # prefer target role titles + seniority over raw skills. `what_or` = match ANY
-        # of the terms (AND-style `what` over many skills returns almost nothing).
-        terms = list(query.role_titles) or list(query.keywords) or [query.track.value]
-        if query.experience_level:
-            terms = [f"{query.experience_level} {t}" for t in terms]
         params = {
             "app_id": settings.adzuna_app_id,
             "app_key": settings.adzuna_app_key,
-            "what_or": " ".join(terms),
             "results_per_page": min(query.limit, 50),
             "max_days_old": 30,  # don't re-pull stale postings
-            "sort_by": "date",
         }
+        # With specific ROLE TITLES (user search / target roles), use Adzuna's relevance
+        # search (`what`) and let it rank by relevance — a role search wants the best match,
+        # not the most recent "engineer" posting. Fall back to `what_or` + date-sort over
+        # raw skills only when no role titles are set (AND-style `what` over many skills
+        # returns almost nothing).
+        if query.role_titles:
+            terms = list(query.role_titles)
+            if query.experience_level:
+                terms = [f"{query.experience_level} {t}" for t in terms]
+            params["what"] = " ".join(terms)
+        else:
+            terms = list(query.keywords) or [query.track.value]
+            if query.experience_level:
+                terms = [f"{query.experience_level} {t}" for t in terms]
+            params["what_or"] = " ".join(terms)
+            params["sort_by"] = "date"
         if query.location:
             params["where"] = query.location
         async with httpx.AsyncClient(timeout=20) as client:

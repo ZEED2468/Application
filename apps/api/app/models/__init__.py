@@ -4,10 +4,14 @@ This is the Day-0 schema-freeze source of truth. Changes after freeze are
 additive only (new nullable columns / new tables).
 """
 
+# CV engine tables (registered so Alembic autogenerate + Base.metadata see them).
+from app.cv_engine.runs.models import CvRun, CvRunStep
+from app.cv_engine.templates.models import CvTemplate
 from app.db import Base
 from app.models.ai_integration import AiIntegration
 from app.models.application import Application
 from app.models.application_event import ApplicationEvent
+from app.models.ats_analysis import AtsAnalysis
 from app.models.chat import ChatPrompt, ChatSession
 from app.models.contact import Contact
 from app.models.cover_letter import CoverLetter, CoverLetterTemplate
@@ -57,7 +61,12 @@ __all__ = [
     "Invite",
     "Platform",
     "SourceBoard",
+    "AtsAnalysis",
     "UserLlmCredential",
     "TrackEntity",
     "AiIntegration",
+    # CV engine (Pipeline × Rule Registry)
+    "CvRun",
+    "CvRunStep",
+    "CvTemplate",
 ]

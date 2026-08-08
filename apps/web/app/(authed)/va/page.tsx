@@ -103,7 +103,7 @@ export default function VaQueuePage() {
                             · {item.company}
                           </span>
                         </p>
-                        <p className="text-xs text-coffee-300">
+                        <p className="text-xs text-coffee-400">
                           {item.hunter_name} ·{" "}
                           {item.track in TRACK_LABELS
                             ? TRACK_LABELS[item.track]

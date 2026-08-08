@@ -3,8 +3,10 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
-/** A minimal accessible modal dialog (Esc + backdrop to close). */
+/** A minimal accessible modal dialog: Esc + backdrop to close, focus trapped
+ *  while open and restored to the opener on close. */
 export function Dialog({
   open,
   onClose,
@@ -22,13 +24,7 @@ export function Dialog({
   footer?: React.ReactNode;
   className?: string;
 }) {
-  React.useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    if (open) document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  const panelRef = useFocusTrap<HTMLDivElement>(open, onClose);
 
   if (!open) return null;
 
@@ -41,8 +37,10 @@ export function Dialog({
     >
       <div className="absolute inset-0 bg-coffee-900/40" onClick={onClose} />
       <div
+        ref={panelRef}
+        tabIndex={-1}
         className={cn(
-          "relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-coffee-300 bg-white shadow-xl",
+          "relative z-10 flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-coffee-300 bg-white shadow-xl outline-none",
           className,
         )}
       >

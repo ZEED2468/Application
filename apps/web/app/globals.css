@@ -4,29 +4,50 @@
  * Design system — neutral text on white, Poppins.
  * ------------------------------------------------------------------------- */
 
+/* A single monotonic neutral ramp. Every step used anywhere in the app is defined
+ * here — an undefined step generates no utility in Tailwind v4, so the element
+ * silently inherits its parent colour and the intended hierarchy disappears.
+ *
+ * Text vs. surface split: 400 and darker are text tones (400 = #767676 = 4.54:1
+ * on white, the AA floor for normal text). 300 and lighter are borders, dividers
+ * and fills — never body text. */
 :root {
   --coffee-900: #1a1a1a;
+  --coffee-800: #262626;
   --coffee-700: #333333;
+  --coffee-600: #444444;
   --coffee-500: #555555;
+  --coffee-400: #767676;
   --coffee-300: #a3a3a3;
+  --coffee-200: #e5e5e5;
   --coffee-100: #f5f5f5;
+  --coffee-50: #fafafa;
   --cream: #ffffff;
   --white: #ffffff;
 
+  /* not_applied / no_response are fill-only (status dots), so they stay light.
+   * The rest are used as text — offer and interviewed are the readiness verdict,
+   * the most important sentence in the product — so they sit at AA on white:
+   * offer 5.0:1, interviewed 4.9:1, rejection 4.8:1, applied 7.8:1. */
   --status-not_applied: #d4d4d4;
   --status-applied: #525252;
   --status-no_response: #a3a3a3;
-  --status-interviewed: #ca8a04;
-  --status-offer: #16a34a;
+  --status-interviewed: #a16207;
+  --status-offer: #15803d;
   --status-rejection: #dc2626;
 }
 
 @theme inline {
   --color-coffee-900: var(--coffee-900);
+  --color-coffee-800: var(--coffee-800);
   --color-coffee-700: var(--coffee-700);
+  --color-coffee-600: var(--coffee-600);
   --color-coffee-500: var(--coffee-500);
+  --color-coffee-400: var(--coffee-400);
   --color-coffee-300: var(--coffee-300);
+  --color-coffee-200: var(--coffee-200);
   --color-coffee-100: var(--coffee-100);
+  --color-coffee-50: var(--coffee-50);
   --color-cream: var(--cream);
   --color-white: var(--white);
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import shutil
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -45,8 +47,10 @@ from app.models.thread import Thread
 from app.models.user import User
 from app.api._files import serve_key
 from app.api._pagination import PageParam, PageSizeParam, paginate
-from app.pipelines.apply import render, service
+from app.llm import ats_vet
+from app.pipelines.apply import ats, cv_parse, format_gate, render, service
 from app.pipelines.apply.latex_safety import assert_safe
+from app.pipelines.manual import service as manual_service
 from app.repositories import applications as app_repo
 from app.repositories import jobs as jobs_repo
 from app.repositories import profiles as profiles_repo
@@ -133,11 +137,45 @@ async def _job_row(session, job: Job, *, hunter_name: str | None = None) -> dict
     }
 
 
+class JobFromJdRequest(BaseModel):
+    jd_text: str
+    role_title: str | None = None
+    company: str | None = None
+    track: str | None = None
+
+
+@router.post("/from-jd")
+async def create_job_from_jd(
+    body: JobFromJdRequest,
+    user: User = Depends(current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Create (or reuse) a manual job from a pasted JD and return its id — the "Tailor"
+    nav entry. No generation here; the job workspace's Generate button runs the shared
+    engine, so both doors (a discovered job / a pasted JD) land in the same workspace."""
+    if not body.jd_text or not body.jd_text.strip():
+        return JSONResponse(
+            status_code=422,
+            content={"error": "empty_jd", "detail": "Paste a job description to tailor for."},
+        )
+    job = await manual_service.create_job_from_jd(
+        session, user_id=user.id, jd_text=body.jd_text,
+        role_title=body.role_title, company=body.company, track=body.track,
+    )
+    await session.flush()
+    return {"job_id": str(job.id)}
+
+
 class DiscoverRequest(BaseModel):
+    # The role titles the user is searching for (drives the provider query). Required for
+    # a search to run — an empty search is skipped so no provider API tokens are wasted.
+    roles: list[str] | None = None
     tracks: list[str] | None = None
     experience_levels: list[str] | None = None
     # Bypass the per-query cooldown for an explicit user-requested refresh.
     force: bool = False
+    # Keep only jobs a Nigeria-based candidate can actually apply to (default on).
+    nigeria_only: bool = True
 
 
 @router.post("/discover")
@@ -150,6 +188,7 @@ async def discover(
     return a per-source report. Newly-found jobs appear in the list immediately."""
     log.info("discover.requested", user_id=str(user.id), email=user.email, body=body)
     
+    requested_roles = body.roles if body and body.roles else []
     requested_tracks = body.tracks if body and body.tracks else []
     requested_levels = body.experience_levels if body and body.experience_levels else []
     
@@ -188,9 +227,11 @@ async def discover(
             session,
             user_id=user.id,
             profile=profile,
+            role_titles=requested_roles,
             selected_tracks=requested_tracks,
             selected_experience_levels=requested_levels,
             cooldown=not (body.force if body else False),
+            nigeria_only=(body.nigeria_only if body else True),
         )
         total += len(new_jobs)
         for r in report:
@@ -241,24 +282,27 @@ async def list_jobs(
         {uid: (await session.get(User, uid)).name for uid in user_ids} if is_va else {}
     )
     
+    # Track / experience filters are matched case-insensitively and trimmed, so
+    # "Frontend" or " frontend " match the stored "frontend". Empty/whitespace tokens
+    # collapse to "no filter" rather than silently excluding everything.
     track_list = []
     if tracks:
-        track_list = [t.strip() for t in tracks.split(",") if t.strip()]
-    elif track:
-        track_list = [track]
+        track_list = [t.strip().lower() for t in tracks.split(",") if t.strip()]
+    elif track and track.strip():
+        track_list = [track.strip().lower()]
 
     exp_list = []
     if experience_levels:
-        exp_list = [el.strip() for el in experience_levels.split(",") if el.strip()]
+        exp_list = [el.strip().lower() for el in experience_levels.split(",") if el.strip()]
 
     rows: list[dict] = []
     for uid in user_ids:
         for j in await jobs_repo.list_for_user(session, user_id=uid):
             if track_list:
                 job_track_val = (j.track.value if hasattr(j.track, "value") else j.track) if j.track else None
-                if job_track_val not in track_list:
+                if job_track_val is None or job_track_val.lower() not in track_list:
                     continue
-            if exp_list and j.experience_level not in exp_list:
+            if exp_list and (j.experience_level or "").lower() not in exp_list:
                 continue
             if origin is not None and j.origin != origin:
                 continue
@@ -304,15 +348,31 @@ async def get_job(
                                     "classification": r.classification.value if r.classification else None})
     audit = await app_repo.list_audit(session, user_id=job.user_id, application_id=app.id) if app else []
 
+    from app.api.tracks import track_generation_readiness
+    readiness = await track_generation_readiness(session, job.user_id, job.track)
+
+    # Latest CV-engine run for this job (format-fixes panel): state, real-artifact score, delta.
+    from app.api.cv_runs import run_to_dict
+    from app.cv_engine.runs.models import CvRun
+    latest_run = (await session.execute(
+        select(CvRun).where(CvRun.job_id == job.id).order_by(CvRun.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
     row.update({
         "description": job.description,
+        # Whether this track can back a real CV (parsed source CV + profile content) —
+        # the workspace shows an actionable "fill the gap" prompt when it can't.
+        "readiness": readiness,
+        "cv_run": run_to_dict(latest_run) if latest_run else None,
         "cv": ({"pdf_url": cv.pdf_url,
                 "download_url": f"/api/jobs/{job.id}/cv" if cv.pdf_key else None,
                 "ats_score": cv.ats_score,
-                "ats_breakdown": cv.ats_breakdown} if cv else None),
+                "ats_breakdown": cv.ats_breakdown,
+                "latex_source": cv.latex_source} if cv else None),
         "cover_letter": ({"pdf_url": cover.pdf_url,
                           "download_url": f"/api/jobs/{job.id}/cover" if cover.pdf_key else None,
-                          "body": cover.body} if cover else None),
+                          "body": cover.body,
+                          "latex_source": cover.latex_source} if cover else None),
         "application": ({"id": str(app.id), "status": app.status.value,
                          "tracker_status": app.tracker_status.value,
                          "application_status": app.tracker_status.value,
@@ -357,6 +417,9 @@ async def update_job_application_status(
             submitted_at=datetime.now(timezone.utc),
         )
         session.add(app)
+        # Flush so the new application gets its id BEFORE we log the creation event —
+        # record_event snapshots application.id, which is null until the insert.
+        await session.flush()
         if job.status in (JobStatus.ready, JobStatus.scored):
             job.status = JobStatus.submitted
         app_repo.record_event(
@@ -397,36 +460,123 @@ async def override_track(
 @router.post("/{job_id}/generate", response_model=GenerateResponse)
 async def generate(
     job_id: UUID,
+    force: bool = False,
+    regenerate: bool = False,
     principal: Principal = Depends(current_principal),
     session: AsyncSession = Depends(get_session),
 ) -> GenerateResponse:
-    """Run classify -> score -> tailor + render synchronously (dashboard action)."""
+    """Run classify -> score -> tailor + render synchronously (dashboard action).
+
+    `regenerate=true` re-tailors an existing CV (e.g. after confirming new profile
+    skills) by dropping the current CV + cover first, so the shared engine runs fresh.
+    """
     job = await session.get(Job, job_id)
     if job is None:
         raise NotFoundError("Job not found")
     await authorize_owner(session, principal, job.user_id, track=job.track)
     track = service.classify_track(job)
-    from app.api.tracks import require_track_resume
-    await require_track_resume(session, job.user_id, track)
+    from app.api.tracks import assert_track_generatable
+    # Trust gate: block (with actionable guidance) unless this track has a readable,
+    # parsed source CV + real profile content — never tailor from an empty placeholder.
+    await assert_track_generatable(session, job.user_id, track)
     profile = await profiles_repo.get_by_user_track(session, user_id=job.user_id, track=track)
     if profile is None:
         raise ConflictError(f"No master profile for track '{track.value}'")
     job = await service.score_relevance(session, job=job, profile=profile)
-    if job.status is JobStatus.rejected:
+    if job.status is JobStatus.rejected and not force:
+        # Below the relevance bar. The user's explicit generate can override (force=true).
         return GenerateResponse(job_id=job.id, status=job.status)
     # Idempotent: if a CV was already generated for this job, return it rather than
     # regenerating — a second cover-letter insert would violate uq_cover_letter_job.
     # (Re-tailoring an existing CV goes through the LaTeX builder, not this endpoint.)
     existing = await _cv_for(session, job.id)
-    if existing is not None:
+    if existing is not None and not regenerate:
         return GenerateResponse(
             job_id=job.id, status=job.status,
             generated_cv_id=existing.id, pdf_url=existing.pdf_url,
         )
+    if existing is not None:
+        # Force a fresh re-tailor: drop the existing CV + cover so the shared engine can
+        # run without violating uq_cv_job / uq_cover_letter_job.
+        cover = await _cover_for(session, job.id)
+        if cover is not None:
+            await session.delete(cover)
+        await session.delete(existing)
+        await session.flush()
     cv = await service.generate_cv(session, job=job, profile=profile)
     return GenerateResponse(
         job_id=job.id, status=job.status, generated_cv_id=cv.id, pdf_url=cv.pdf_url
     )
+
+
+class ConfirmSkillBody(BaseModel):
+    skill: str
+    detail: str | None = None
+
+
+@router.get("/{job_id}/gaps")
+async def job_gaps(
+    job_id: UUID,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """The JD's confirmable missing skills for this job — derived from the tailored CV's
+    ATS breakdown and AI-vetted to drop false positives — so the user can confirm the
+    ones they genuinely have. Empty until a CV exists (nothing to compare against yet)."""
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    cv = await _cv_for(session, job.id)
+    breakdown = (cv.ats_breakdown if cv else None) or {}
+    candidate = ats.gap_skills(breakdown, limit=10)
+    if not candidate:
+        return {"gaps": []}
+    track = job.track or Track.general
+    profile = await profiles_repo.get_by_user_track(session, user_id=job.user_id, track=track)
+    profile_dict = profiles_repo.profile_to_dict(profile) if profile else {}
+    result = await ats_vet.vet_gaps(
+        profile=profile_dict, jd_text=job.description or "",
+        role_title=job.role_title or job.title, candidate_gaps=candidate,
+        missing_keywords=breakdown.get("missing_keywords") or [],
+        matched_keywords=breakdown.get("matched_keywords") or [],
+    )
+    return {"gaps": [
+        {"skill": g.skill, "question": g.question, "reason": g.reason}
+        for g in result.gaps
+    ]}
+
+
+@router.post("/{job_id}/confirm-skill")
+async def confirm_skill(
+    job_id: UUID,
+    body: ConfirmSkillBody,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """The user confirms they genuinely have a JD skill → add it to their profile's
+    verified skills (per-track, truth-bounded). profile_to_dict → _augment_skills then
+    feeds it into every future generation for this track, and it stops being re-flagged."""
+    skill = (body.detail or body.skill or "").strip()
+    if not skill:
+        return JSONResponse(status_code=422, content={"error": "empty_skill",
+                            "detail": "Nothing to confirm."})
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise NotFoundError("Job not found")
+    await authorize_owner(session, principal, job.user_id, track=job.track)
+    track = job.track or Track.general
+    profile = await profiles_repo.get_by_user_track(session, user_id=job.user_id, track=track)
+    if profile is None:
+        raise ConflictError(f"No master profile for track '{track.value}'")
+    extras = dict(profile.verified_extras or {})
+    skills = list(extras.get("skills") or [])
+    if skill.lower() not in {s.lower() for s in skills}:
+        skills.append(skill)
+    extras["skills"] = skills[:50]
+    profile.verified_extras = extras
+    await session.flush()
+    return {"ok": True, "skill": skill, "track": track.value}
 
 
 @router.post("/{job_id}/submit", response_model=SubmitResponse)
@@ -521,11 +671,20 @@ async def download_cover(
     )
 
 
+def _latex_to_text(tex: str) -> str:
+    """Rough LaTeX → plain text so an edited CV can be re-scored — drop comments and
+    commands, keep the words (skills/keywords survive for keyword matching)."""
+    s = re.sub(r"%.*", "", tex)                          # comments
+    s = re.sub(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?", " ", s)   # \commands + optional [args]
+    s = s.replace("{", " ").replace("}", " ").replace("\\", " ")
+    return re.sub(r"[ \t]+", " ", s)
+
+
 async def _commit_latex(job: Job, latex: str, *, stem: str):
     """Sanitise + compile editor LaTeX, store .tex/.pdf at the job's canonical keys.
 
-    Returns ((tex_key, pdf_key, pdf_url), None) on success or (None, stderr) when the
-    LaTeX does not compile. Raises DomainError (400) for forbidden primitives.
+    Returns ((tex_key, pdf_key, pdf_url, pdf_bytes), None) on success or (None, stderr)
+    when the LaTeX does not compile. Raises DomainError (400) for forbidden primitives.
     """
     assert_safe(latex)
     pdf, stderr = await render.render_pdf_checked(latex)
@@ -535,7 +694,7 @@ async def _commit_latex(job: Job, latex: str, *, stem: str):
     pdf_key = f"{job.user_id}/{job.id}/{stem}.pdf"
     await r2.put_bytes(tex_key, latex.encode(), "application/x-tex")
     pdf_url = await r2.put_bytes(pdf_key, pdf, "application/pdf")
-    return (tex_key, pdf_key, pdf_url), None
+    return (tex_key, pdf_key, pdf_url, pdf), None
 
 
 @router.post("/{job_id}/cv/from-latex")
@@ -554,11 +713,24 @@ async def set_cv_from_latex(
     keys, stderr = await _commit_latex(job, body.latex, stem="cv")
     if keys is None:
         return JSONResponse(status_code=422, content={"error": "compile_failed", "stderr": (stderr or "")[:4000]})
-    tex_key, pdf_key, pdf_url = keys
+    tex_key, pdf_key, pdf_url, pdf = keys
     cv = await _cv_for(session, job.id)
     if cv is None:
         cv = GeneratedCv(user_id=job.user_id, job_id=job.id, cv_json={}, status=CvStatus.ready)
         session.add(cv)
+    # Re-score the ATS match against the *edited* content so "Ready to apply?" stays
+    # truthful after a hand-edit (the doc compiled, so the format gate can evaluate it).
+    cv_json = cv_parse.cv_json_from_text(_latex_to_text(body.latex))
+    gate = format_gate.evaluate(
+        tex=body.latex, pdf=pdf, has_compiler=shutil.which("tectonic") is not None
+    )
+    breakdown = ats.score(
+        cv_json=cv_json, jd_text=job.description or "",
+        role_title=job.role_title or job.title, gate=gate,
+    )
+    cv.cv_json = cv_json
+    cv.ats_score = breakdown["score"]
+    cv.ats_breakdown = breakdown
     cv.latex_source = body.latex
     cv.tex_key = tex_key
     cv.pdf_key = pdf_key
@@ -586,11 +758,12 @@ async def set_cover_from_latex(
     keys, stderr = await _commit_latex(job, body.latex, stem="cover")
     if keys is None:
         return JSONResponse(status_code=422, content={"error": "compile_failed", "stderr": (stderr or "")[:4000]})
-    tex_key, pdf_key, pdf_url = keys
+    tex_key, pdf_key, pdf_url, _pdf = keys
     cover = await _cover_for(session, job.id)
     if cover is None:
         cover = CoverLetter(user_id=job.user_id, job_id=job.id, status=CoverLetterStatus.ready)
         session.add(cover)
+    cover.latex_source = body.latex
     cover.tex_key = tex_key
     cover.pdf_key = pdf_key
     cover.pdf_url = pdf_url

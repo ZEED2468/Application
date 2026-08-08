@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.enums import LatexKind
+from app.core.enums import LatexKind, ParseStatus
 from app.core.errors import DomainError, NotFoundError
 from app.db import get_session
 from app.deps import current_user
@@ -279,18 +279,80 @@ async def duplicate_resume(
     )
 
 
+async def track_generation_readiness(session: AsyncSession, user_id, track) -> dict:
+    """Non-raising: can we generate a *real* CV for this track? Ready requires a source CV
+    that actually PARSED plus a profile with real content (non-empty truth_corpus) — so we
+    never tailor from an empty placeholder and pass off a name-only document. Returns a
+    structured dict the job detail exposes and the gate raises from."""
+    slug = track.value if hasattr(track, "value") else str(track or "")
+    label = _BUILTIN.get(slug, slug.title() if slug else "this")
+    role_cvs = (await session.execute(
+        select(RoleCv).where(RoleCv.user_id == user_id)
+    )).scalars().all()
+    role_cv = next((rc for rc in role_cvs if _tv(rc) == slug), None)
+    profiles = (await session.execute(
+        select(MasterProfile).where(MasterProfile.user_id == user_id)
+    )).scalars().all()
+    prof = next((p for p in profiles if _tv(p) == slug), None)
+
+    def blocked(reason: str, title: str, message: str) -> dict:
+        return {
+            "ready": False, "reason": reason, "title": title, "message": message,
+            "remediation": message,
+            "action": {"label": "Upload CV", "route": f"/profile?track={slug}"},
+        }
+
+    if role_cv is None:
+        return blocked(
+            "no_cv", f"{label} CV needed",
+            f"No CV for the {label} track yet — upload one so the résumé is tailored from "
+            f"your real experience, not a blank template. Or change the track on the right.",
+        )
+    if role_cv.parse_status is not ParseStatus.parsed:
+        return blocked(
+            "cv_unparsed", f"{label} CV couldn't be read",
+            f"We couldn't read your {label} CV (the upload didn't parse), so there's no "
+            f"content to tailor from. Re-upload it on your Profile.",
+        )
+    has_content = prof is not None and bool(
+        (prof.truth_corpus and prof.truth_corpus.strip()) or prof.skills or prof.experience
+    )
+    if not has_content:
+        return blocked(
+            "no_content", f"{label} profile is empty",
+            f"Your {label} profile has no readable content yet. Re-upload your CV so the "
+            f"résumé has real facts to work from.",
+        )
+    return {
+        "ready": True, "reason": None, "title": None, "message": None,
+        "remediation": None, "action": None,
+    }
+
+
+async def assert_track_generatable(session: AsyncSession, user_id, track) -> None:
+    """Raise a structured, actionable DomainError when a track can't back a real CV."""
+    r = await track_generation_readiness(session, user_id, track)
+    if not r["ready"]:
+        raise DomainError(
+            r["message"], code="track_not_ready", title=r["title"],
+            remediation=r["remediation"], action=r["action"],
+        )
+
+
 async def require_track_resume(session: AsyncSession, user_id, track) -> None:
-    """Guard: raise a structured `track_resume_required` error if the track has no resume.
-    Called by AI endpoints so business logic fails with actionable guidance, never silently."""
+    """Guard used by AI endpoints: raise a structured, actionable error unless the track has
+    a source CV that actually PARSED (existence alone isn't enough — a failed upload would
+    otherwise pass and generate from nothing)."""
     slug = track.value if hasattr(track, "value") else str(track or "")
     role_cvs = (await session.execute(
         select(RoleCv).where(RoleCv.user_id == user_id)
     )).scalars().all()
-    if not any(_tv(rc) == slug for rc in role_cvs):
+    matched = next((rc for rc in role_cvs if _tv(rc) == slug), None)
+    if matched is None or matched.parse_status is not ParseStatus.parsed:
         raise DomainError(
-            "This track does not have a resume associated with it. Upload or assign a "
-            "resume before using AI-powered features.",
+            "This track does not have a readable resume yet. Upload (or re-upload) a "
+            "resume for this track before using AI-powered features.",
             code="track_resume_required",
-            remediation="Upload or assign a resume for this track.",
+            remediation="Upload or re-upload a resume for this track.",
             action={"label": "Upload Resume", "route": f"/profile?track={slug}"},
         )

@@ -11,13 +11,13 @@ _SAMPLES = {
     Track.frontend: [
         ("Acme Mobile", "Senior React Native Engineer", "Remote",
          "Build polished cross-platform mobile apps with React Native, animations and UI polish."),
-        ("Pixelworks", "Frontend Engineer (React)", "Berlin",
+        ("Pixelworks", "Frontend Engineer (React)", "Remote - EMEA",
          "Ship production web frontends in React + TypeScript with a focus on performance."),
     ],
     Track.backend: [
         ("Streamline", "Backend Engineer (Go)", "Remote",
          "Design and deploy production backend microservices in Go and NestJS, distributed systems."),
-        ("DataForge", "Platform Engineer", "London",
+        ("DataForge", "Platform Engineer", "Remote (worldwide)",
          "Own infrastructure and backend services; Kubernetes, Postgres, event-driven systems."),
     ],
     Track.general: [

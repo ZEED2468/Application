@@ -9,22 +9,19 @@ from app.api.onboarding import (
     onboarding_status,
     set_career_details,
 )
-from app.core.enums import ParseStatus
-from app.models.role_cv import RoleCv
 from app.models.user_llm_credential import UserLlmCredential
 from tests.helpers import seed_hunter
 
 
 @pytest.mark.asyncio
 async def test_onboarding_status_reports_next_action(session):
-    user, profile = await seed_hunter(session)
+    user, profile = await seed_hunter(session)  # a set-up hunter already has a parsed CV
 
     r = await onboarding_status(user=user, session=session)
     assert r["complete"] is False
-    assert r["next_action"]["key"] == "upload_cv"
+    # The CV is uploaded (seed_hunter); the next required action is confirming the profile.
+    assert r["next_action"]["key"] == "confirm"
 
-    session.add(RoleCv(user_id=user.id, track=profile.track, original_filename="cv.pdf",
-                       parse_status=ParseStatus.parsed))
     profile.confirmed = True
     profile.target_roles = ["Backend Engineer"]
     session.add(UserLlmCredential(user_id=user.id, provider="openai", encrypted_api_key="x"))
