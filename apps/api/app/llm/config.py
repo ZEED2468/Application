@@ -28,6 +28,8 @@ FEATURES = {
     # CV-engine judgment (Slice 6): the JD-coverage rescuer + its skeptical verifier
     # (again separate, for verifier independence).
     "cv_judge", "cv_judge_verify",
+    # CV-engine slot inference (Slice 7): the summary composer + its independent verifier.
+    "cv_infer", "cv_infer_verify",
 }
 
 
