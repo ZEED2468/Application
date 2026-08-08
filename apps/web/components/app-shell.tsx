@@ -6,6 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Briefcase,
+  ClipboardList,
+  MessageSquareText,
   ScanSearch,
   Inbox,
   Globe,
@@ -17,13 +19,11 @@ import {
   LogOut,
   Menu,
   X,
-  PanelLeft,
 } from "lucide-react";
 import type { MeResponse } from "@jd/shared-types";
 import { authService } from "@/lib/api/services";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
-import { useFocusTrap } from "@/lib/use-focus-trap";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OnboardingLauncher } from "@/components/onboarding-launcher";
 
@@ -49,12 +49,14 @@ function navFor(me?: MeResponse): NavGroup[] {
       label: "Workspace",
       items: [
         { href: "/jobs", label: "Jobs", icon: Briefcase },
-        { href: "/ats-checker", label: "Tailor", icon: ScanSearch },
+        { href: "/applications", label: "Tracker", icon: ClipboardList },
+        { href: "/ats-checker", label: "ATS Checker", icon: ScanSearch },
+        { href: "/manual", label: "Manual Apply", icon: MessageSquareText },
       ],
     },
   ];
 
-  // The VA queue is a VA's worklist — hunters watch progress in Jobs → Submitted.
+  // The VA queue is a VA's worklist — hunters monitor progress on the Tracker instead.
   if (isVa) {
     groups.push({
       label: "Assist",
@@ -93,25 +95,22 @@ function BrandLink() {
       <p className="text-xl font-semibold tracking-tight text-coffee-900">
         The Outreach Desk
       </p>
-      <p className="text-xs uppercase tracking-[0.18em] text-coffee-400">
+      <p className="text-xs uppercase tracking-[0.18em] text-coffee-300">
         Application engine
       </p>
     </Link>
   );
 }
 
-/** Grouped nav list, shared by the desktop sidebar and the mobile drawer. When
- *  `collapsed`, renders an icon-only rail (labels hidden, tooltips via title). */
+/** Grouped nav list, shared by the desktop sidebar and the mobile drawer. */
 function SidebarNav({
   groups,
   pathname,
   onNavigate,
-  collapsed,
 }: {
   groups: NavGroup[];
   pathname: string;
   onNavigate?: () => void;
-  collapsed?: boolean;
 }) {
   return (
     <nav className="flex flex-1 flex-col gap-4">
@@ -120,8 +119,8 @@ function SidebarNav({
           key={group.label ?? `group-${gi}`}
           className={cn("flex flex-col gap-1", !group.label && "mt-auto")}
         >
-          {group.label && !collapsed && (
-            <p className="px-3 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-coffee-400">
+          {group.label && (
+            <p className="px-3 pb-1 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-coffee-300">
               {group.label}
             </p>
           )}
@@ -135,17 +134,15 @@ function SidebarNav({
                 href={item.href}
                 data-tour={item.href}
                 onClick={onNavigate}
-                title={collapsed ? item.label : undefined}
                 className={cn(
-                  "flex items-center rounded-md text-[0.95rem] transition-colors",
-                  collapsed ? "justify-center p-2" : "gap-3 px-3 py-2",
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-[0.95rem] transition-colors",
                   active
                     ? "bg-coffee-100 font-medium text-coffee-900"
                     : "text-coffee-700 hover:bg-coffee-100/60",
                 )}
               >
-                <Icon className="size-4 shrink-0 text-coffee-500" />
-                {!collapsed && item.label}
+                <Icon className="size-4 text-coffee-500" />
+                {item.label}
               </Link>
             );
           })}
@@ -160,18 +157,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  // Collapsible desktop sidebar → an icon rail, giving the content more room.
-  const [collapsed, setCollapsed] = React.useState(false);
-  React.useEffect(() => {
-    setCollapsed(localStorage.getItem("jd_sidebar_collapsed") === "true");
-  }, []);
-  const toggleCollapsed = React.useCallback(() => {
-    setCollapsed((c) => {
-      const next = !c;
-      localStorage.setItem("jd_sidebar_collapsed", next ? "true" : "false");
-      return next;
-    });
-  }, []);
 
   const { data: me, isLoading } = useQuery<MeResponse>({
     queryKey: queryKeys.me,
@@ -182,10 +167,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const groups = React.useMemo(() => navFor(me), [me]);
   const isJobsTracker = pathname === "/jobs";
-  // The job workspace uses a right-side push-panel, so it needs the full width.
-  const isWorkspace = pathname.startsWith("/jobs/");
-  const closeMobile = React.useCallback(() => setMobileOpen(false), []);
-  const drawerRef = useFocusTrap<HTMLElement>(mobileOpen, closeMobile);
 
   // Close the mobile drawer whenever the route changes.
   React.useEffect(() => {
@@ -202,32 +183,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-white">
-      {/* Desktop sidebar (collapsible → icon rail) */}
-      <aside
-        className={cn(
-          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-coffee-300 bg-white py-6 transition-[width] duration-200 md:flex",
-          collapsed ? "w-16 items-center px-2" : "w-64 px-4",
-        )}
-      >
-        <div
-          className={cn(
-            "flex items-center gap-2",
-            collapsed ? "justify-center" : "justify-between",
-          )}
-        >
-          {!collapsed && <BrandLink />}
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={collapsed ? "Expand" : "Collapse"}
-            className="rounded-md p-2 text-coffee-500 hover:bg-coffee-100"
-          >
-            <PanelLeft className="size-5" />
-          </button>
-        </div>
-        <div className="mt-8 flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
-          <SidebarNav groups={groups} pathname={pathname} collapsed={collapsed} />
+      {/* Desktop sidebar */}
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-coffee-300 bg-white px-4 py-6 md:flex">
+        <BrandLink />
+        <div className="mt-8 flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <SidebarNav groups={groups} pathname={pathname} />
         </div>
       </aside>
 
@@ -236,18 +196,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true">
           <div
             className="absolute inset-0 bg-coffee-900/40"
-            onClick={closeMobile}
+            onClick={() => setMobileOpen(false)}
           />
-          <aside
-            ref={drawerRef}
-            tabIndex={-1}
-            className="absolute left-0 top-0 flex h-full w-64 flex-col border-r border-coffee-300 bg-white px-4 py-6 shadow-xl outline-none"
-          >
+          <aside className="absolute left-0 top-0 flex h-full w-64 flex-col border-r border-coffee-300 bg-white px-4 py-6 shadow-xl">
             <div className="flex items-start justify-between">
               <BrandLink />
               <button
                 type="button"
-                onClick={closeMobile}
+                onClick={() => setMobileOpen(false)}
                 aria-label="Close menu"
                 className="rounded-md p-1 text-coffee-500 hover:bg-coffee-100"
               >
@@ -258,7 +214,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SidebarNav
                 groups={groups}
                 pathname={pathname}
-                onNavigate={closeMobile}
+                onNavigate={() => setMobileOpen(false)}
               />
             </div>
           </aside>
@@ -315,11 +271,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main
           className={cn(
             "mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden",
-            isJobsTracker
-              ? "max-w-none px-4 py-4"
-              : isWorkspace
-                ? "max-w-none overflow-auto px-6 py-8"
-                : "max-w-6xl overflow-auto px-6 py-8",
+            isJobsTracker ? "max-w-none px-4 py-4" : "max-w-6xl overflow-auto px-6 py-8",
           )}
         >
           {children}
