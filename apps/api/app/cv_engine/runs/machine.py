@@ -12,6 +12,7 @@ Flow (Slice 1, no PATCH round yet):
 
 Terminal honesty: a run is RELEASED only when the format gate PASSED on a real compiled
 PDF and no critical/major violation remains. A missing compiler (gate ``unevaluated``),
+
 a failed compile, or any blocking violation ends at NEEDS_REVIEW — never a silent pass.
 """
 
@@ -30,6 +31,7 @@ from app.cv_engine.render.compile import CompileResult, compile_tex
 from app.cv_engine.render.extract import dual_extract
 from app.cv_engine.rules import default_registry
 from app.cv_engine.rules.base import FixMode, Phase, Registry, RuleContext, Violation, is_blocking
+from app.cv_engine.runs import gaps
 from app.cv_engine.runs.models import CvRun, CvRunStep
 from app.cv_engine.scoring import score_artifact
 from app.cv_engine.templates import (
@@ -64,6 +66,7 @@ class _Work:
     rendered_violations: list[Violation] = field(default_factory=list)
     patch: dict = field(default_factory=lambda: {"fixed": [], "resolved": []})
     spec: TemplateSpec | None = None
+    suspended: bool = False   # set by _gap_analyze when the run stops for a TRUE_GAP (Slice 7)
 
     @property
     def cv_json(self) -> dict:
@@ -132,20 +135,77 @@ async def _ingest(session, run: CvRun, work: _Work) -> None:
     )
 
 
-async def _gap_analyze(session, run: CvRun, work: _Work) -> None:
-    """Record slot verdicts against the resolved template's REQUIRED slots (its demand).
+async def _infer_slots(work: _Work) -> dict:
+    """Fill an INFERABLE slot (the summary) from the ledger, behind the deterministic grounding
+    seal (door #1) AND an independent supports judge (door #2). A no-op offline or on rejection.
+    Splices the summary into work.cv_json; returns audit meta for the gap step."""
+    from app.llm import client
 
-    Deterministic pass only (FILLED vs TRUE_GAP). INFERABLE (LLM selection) and the
-    NEEDS_INPUT suspension for TRUE_GAPs land in Slice 7 — here a missing required slot
-    simply surfaces as a structure violation downstream, so the run stays linear.
+    meta = {"model": None, "prompt_version": None, "inferred": []}
+    if not client.is_live("cv_infer") or slot_present("summary", work.cv_json):
+        return meta
+    from app.llm import cv_infer
+
+    result = await cv_infer.infer_summary(
+        work.ledger, role_title=work.input.get("role_title"),
+        jd_text=work.input.get("jd_text") or "",
+    )
+    if not result.applied or not result.summary:
+        return meta
+
+    # Door #1: the grounding seal — reject a summary that introduces any blocking violation.
+    candidate = {**work.cv_json, "summary": result.summary}
+    pre_block = {v.rule_id for v in work.registry.run(_draft_ctx(work), Phase.draft)
+                 if is_blocking(v.severity)}
+    cand_ctx = _draft_ctx(_Work(input={**work.input, "cv_json": candidate},
+                                registry=work.registry, ledger=work.ledger, spec=work.spec))
+    cand_block = {v.rule_id for v in work.registry.run(cand_ctx, Phase.draft)
+                  if is_blocking(v.severity)}
+    if cand_block - pre_block:
+        return meta
+
+    # Door #2: independent verifier — every claim/entity is in the candidate's history.
+    ledger_text = " ".join(str(f.get("text") or "") for f in work.ledger)
+    if not await cv_infer.supports(result.summary, ledger_text):
+        return meta
+
+    work.input["cv_json"] = candidate
+    meta.update(model=result.model, prompt_version=cv_infer.PROMPT_VERSION, inferred=["summary"])
+    return meta
+
+
+async def _gap_analyze(session, run: CvRun, work: _Work) -> None:
+    """Classify the template's REQUIRED slots (FILLED / INFERABLE / TRUE_GAP), fill what is
+    inferable from the ledger, and SUSPEND to NEEDS_INPUT for genuine gaps (Slice 7).
+
+    An absent-but-derivable slot (the summary) is composed from the candidate's own history,
+    verified, and filled — the run continues. An absent, non-inferable required slot raises real
+    prompt-cards on a ChatSession linked to the run and stops the pipeline; answering them (via the
+    existing /chat endpoint) resumes it. Offline, inference no-ops and only the deterministic
+    TRUE_GAP suspension applies, so a complete CV runs exactly as before.
     """
     t = time.perf_counter()
-    cv = work.cv_json
-    required = [s.id for s in (work.spec.required_slots() if work.spec else ())]
-    verdicts = {sid: ("FILLED" if slot_present(sid, cv) else "TRUE_GAP") for sid in required}
+    verdicts = gaps.classify(work.spec, work.cv_json)
+    infer = await _infer_slots(work)
+    slots = gaps.gap_slots(work.spec, work.cv_json)
+    detail = {"slots": verdicts, "template": work.spec.id if work.spec else None}
+    if infer["inferred"]:
+        detail["inferred"] = infer["inferred"]
+    if slots:
+        chat = await gaps.raise_gap_prompts(session, run, slots)
+        run.needs_input = {"session_id": str(chat.id), "slots": slots}
+        work.suspended = True
+        await _record(
+            session, run, RunState.needs_input,
+            detail={**detail, "gaps": slots, "session_id": str(chat.id)},
+            model=infer["model"], prompt_version=infer["prompt_version"],
+            duration_ms=int((time.perf_counter() - t) * 1000),
+        )
+        return
+    run.needs_input = None
     await _record(
-        session, run, RunState.gap_analyzed,
-        detail={"slots": verdicts, "template": work.spec.id if work.spec else None},
+        session, run, RunState.gap_analyzed, detail=detail,
+        model=infer["model"], prompt_version=infer["prompt_version"],
         duration_ms=int((time.perf_counter() - t) * 1000),
     )
 
@@ -511,6 +571,8 @@ async def coordinate(session, run: CvRun, *, spec: TemplateSpec | None = None) -
     work = _Work(input=run.input or {}, registry=default_registry(), spec=spec)
     await _ingest(session, run, work)
     await _gap_analyze(session, run, work)
+    if work.suspended:                 # a TRUE_GAP stopped the run at NEEDS_INPUT (Slice 7)
+        return run
     await _diagnose(session, run, work)
     await _patch(session, run, work)
     await _render(session, run, work)
