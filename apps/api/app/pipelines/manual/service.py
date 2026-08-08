@@ -271,6 +271,12 @@ async def answer_prompt(
         if fact and fact not in (chat.confirmed_facts or []):
             chat.confirmed_facts = [*(chat.confirmed_facts or []), fact]
     await session.flush()
+
+    # A CV-engine gap prompt (Slice 7): when every gap on the run's session is answered, the
+    # answers merge into the run's cv_json and the pipeline re-coordinates from the top.
+    if prompt.kind is ChatPromptKind.missing_section:
+        from app.cv_engine.runs import gaps
+        await gaps.resume_if_ready(session, chat_session_id=prompt.chat_session_id)
     return prompt
 
 

@@ -35,6 +35,15 @@ async def test_cv_engine_fixture(session, path):
     exp = fx["expect"]
     blocking = _blocking_ids(run)
 
+    if exp.get("suspends"):
+        # A missing required, non-inferable slot suspends to NEEDS_INPUT before render (Slice 7).
+        assert run.state.value == "needs_input", f"{path.stem}: expected suspension"
+        assert set(exp["suspends"]) <= set((run.needs_input or {}).get("slots", [])), (
+            f"{path.stem}: expected gaps {exp['suspends']}, got {run.needs_input}"
+        )
+        assert not run.artifact_ref, "a suspended run renders no artifact"
+        return
+
     if exp["clean"]:
         assert not blocking, f"clean fixture produced blocking violations: {blocking}"
         if has_compiler():

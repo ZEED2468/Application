@@ -24,6 +24,7 @@ _KIND_UI = {
     "missing_skill_confirm": "skill",
     "reframe_confirm": "reframe",
     "seniority_confirm": "detail",
+    "missing_section": "detail",   # CV-engine gap: a free-text answer card (Slice 7)
 }
 
 

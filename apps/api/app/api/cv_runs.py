@@ -49,6 +49,7 @@ def run_to_dict(run: CvRun) -> dict:
         "violations": run.violations,
         "delta": run.delta,
         "judgment": run.judgment,
+        "needs_input": run.needs_input,
     }
 
 

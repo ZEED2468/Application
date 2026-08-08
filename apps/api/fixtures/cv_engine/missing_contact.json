@@ -1,6 +1,6 @@
 {
   "name": "missing_contact",
-  "description": "No reachable contact/link — a blocking structure violation (needs_review).",
+  "description": "No reachable contact/link — a TRUE_GAP that suspends to needs_input (Slice 7).",
   "input": {
     "name": "Ada Hunter",
     "role_title": "Senior Backend Engineer",
@@ -26,6 +26,6 @@
   },
   "expect": {
     "clean": false,
-    "blocking": ["structure.contact_present"]
+    "suspends": ["contact"]
   }
 }

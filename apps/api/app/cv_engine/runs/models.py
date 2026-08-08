@@ -59,6 +59,9 @@ class CvRun(Base, TimestampMixin):
     # verdict. NULL offline / when no JD is attached. Never feeds the score or the release
     # decision — judgment is second, on the deterministic floor.
     judgment: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
+    # Set while the run is suspended at NEEDS_INPUT (Slice 7): {session_id, slots} — points a
+    # client at the ChatSession holding the TRUE_GAP prompt-cards. NULL once resumed/released.
+    needs_input: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
     # R2 key of the compiled PDF (filled once RENDER succeeds).
     artifact_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
 

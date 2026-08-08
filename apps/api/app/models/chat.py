@@ -39,6 +39,11 @@ class ChatSession(Base, TimestampMixin):
     job_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("job.id", ondelete="SET NULL"), nullable=True
     )
+    # Set when this session holds a CV-engine run's TRUE_GAP prompts (Slice 7): links the
+    # session back to its run so answering the prompts resumes it.
+    cv_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("cv_run.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     ats_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     ats_breakdown: Mapped[dict] = mapped_column(JsonB, default=dict)
     # Facts the VA has confirmed TRUE during the chat; merged into the tailoring input.
@@ -61,3 +66,6 @@ class ChatPrompt(Base, TimestampMixin):
     selected: Mapped[list] = mapped_column(JsonB, default=list)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # For a missing_section gap prompt (Slice 7): which CV slot the answer fills, so resume
+    # merges it into the right cv_json section. NULL for the manual-path prompt kinds.
+    slot: Mapped[str | None] = mapped_column(String(32), nullable=True)
