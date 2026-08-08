@@ -7,6 +7,7 @@
 JOB_DISCOVERED = "evt.job.discovered"
 JOB_SCORED = "evt.job.scored"
 CV_GENERATED = "evt.cv.generated"
+CV_RUN_SUBMITTED = "evt.cv.run.submitted"  # drive a created CvRun through the engine off-request
 APPLICATION_SUBMITTED = "evt.application.submitted"
 OUTREACH_SENT = "evt.outreach.sent"
 REPLY_RECEIVED = "evt.reply.received"
@@ -21,6 +22,7 @@ ALL_EVENTS = [
     JOB_DISCOVERED,
     JOB_SCORED,
     CV_GENERATED,
+    CV_RUN_SUBMITTED,
     APPLICATION_SUBMITTED,
     OUTREACH_SENT,
     REPLY_RECEIVED,

@@ -18,6 +18,7 @@ from app.events.names import (
     CHAT_PROMPTS_RAISED,
     CHAT_SESSION_STARTED,
     CV_GENERATED,
+    CV_RUN_SUBMITTED,
     JOB_DISCOVERED,
     JOB_SCORED,
     OUTREACH_SENT,
@@ -39,6 +40,10 @@ class JobScored(EventPayload):
     job_id: UUID
     relevance_score: float
     track: Track
+
+
+class CvRunSubmitted(EventPayload):
+    run_id: UUID
 
 
 class CvGenerated(EventPayload):
@@ -92,6 +97,7 @@ CONTRACTS: dict[str, type[EventPayload]] = {
     JOB_DISCOVERED: JobDiscovered,
     JOB_SCORED: JobScored,
     CV_GENERATED: CvGenerated,
+    CV_RUN_SUBMITTED: CvRunSubmitted,
     APPLICATION_SUBMITTED: ApplicationSubmitted,
     OUTREACH_SENT: OutreachSent,
     REPLY_RECEIVED: ReplyReceived,

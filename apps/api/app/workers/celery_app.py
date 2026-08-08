@@ -56,6 +56,7 @@ celery_app.autodiscover_tasks(
         "app.pipelines.outreach",
         "app.pipelines.respond",
         "app.email",
+        "app.cv_engine.runs",
     ],
     related_name="tasks",
 )
