@@ -25,6 +25,9 @@ FEATURES = {
     # CV-engine agent repair (Slice 5): the rewriter + an independent verifier
     # (separate so it can run on a different model — verifier independence).
     "cv_repair", "cv_repair_verify",
+    # CV-engine judgment (Slice 6): the JD-coverage rescuer + its skeptical verifier
+    # (again separate, for verifier independence).
+    "cv_judge", "cv_judge_verify",
 }
 
 
