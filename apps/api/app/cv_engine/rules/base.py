@@ -128,6 +128,9 @@ class Registry:
     def for_phase(self, phase: Phase) -> list[Rule]:
         return [r for r in self.rules if r.phase is phase]
 
+    def fix_mode_of(self, rule_id: str) -> FixMode | None:
+        return next((r.fix_mode for r in self.rules if r.id == rule_id), None)
+
     def run(self, ctx: RuleContext, phase: Phase) -> list[Violation]:
         out: list[Violation] = []
         for rule in self.for_phase(phase):

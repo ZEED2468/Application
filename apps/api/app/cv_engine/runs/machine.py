@@ -17,6 +17,7 @@ a failed compile, or any blocking violation ends at NEEDS_REVIEW — never a sil
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import time
@@ -28,7 +29,7 @@ from app.cv_engine.ingest import build_ledger
 from app.cv_engine.render.compile import CompileResult, compile_tex
 from app.cv_engine.render.extract import dual_extract
 from app.cv_engine.rules import default_registry
-from app.cv_engine.rules.base import Phase, Registry, RuleContext, Violation, is_blocking
+from app.cv_engine.rules.base import FixMode, Phase, Registry, RuleContext, Violation, is_blocking
 from app.cv_engine.runs.models import CvRun, CvRunStep
 from app.cv_engine.scoring import score_artifact
 from app.cv_engine.templates import (
@@ -41,6 +42,9 @@ from app.cv_engine.templates import (
 from app.cv_engine.templates.library import slot_present
 from app.integrations import r2
 from app.pipelines.apply import format_gate
+
+MAX_REPAIR_ROUNDS = 2   # bounded agent repair per run (spec §5)
+MAX_PAGE_ROUNDS = 1     # one extra render round to trim to the page limit
 
 
 @dataclass
@@ -80,12 +84,13 @@ def _hash(obj) -> str:
 
 async def _record(
     session, run: CvRun, state: RunState, *, violations=None, detail=None,
-    duration_ms=None, input_hash=None,
+    duration_ms=None, input_hash=None, model=None, prompt_version=None,
 ) -> CvRunStep:
     step = CvRunStep(
         run_id=run.id, user_id=run.user_id, state=state,
         violations=[v.to_dict() for v in (violations or [])],
         detail=detail or {}, duration_ms=duration_ms, input_hash=input_hash,
+        model=model, prompt_version=prompt_version,
     )
     session.add(step)
     run.state = state
@@ -174,13 +179,110 @@ async def _patch(session, run: CvRun, work: _Work) -> None:
     work.input["cv_json"] = cv
 
     work.draft_violations = work.registry.run(_draft_ctx(work), Phase.draft)
+
+    # Bounded agent repair behind the deterministic floor (LLM; a no-op offline).
+    repair = await _agent_repair_draft(work, fixes)
+
     resolved = sorted(pre_ids - {v.rule_id for v in work.draft_violations})
     work.patch = {"fixed": fixes, "resolved": resolved}
     await _record(
         session, run, RunState.patching, violations=work.draft_violations,
-        detail={"fixed_count": len(fixes), "resolved": resolved},
+        detail={"fixed_count": len(fixes), "resolved": resolved, **repair["detail"]},
+        model=repair["model"], prompt_version=repair["prompt_version"],
         duration_ms=int((time.perf_counter() - t) * 1000),
     )
+
+
+def _apply_rewrites(
+    cv_json: dict, bullets: list[dict], summary: str | None
+) -> tuple[dict, list[dict]]:
+    """Splice ONLY the confirmed rewrites (change nothing else); return (cv, FixRecords)."""
+    cv = copy.deepcopy(cv_json)
+    records: list[dict] = []
+    rewrite_map = {b["original"]: b["rewrite"] for b in bullets if b["rewrite"] != b["original"]}
+    for e in cv.get("experience") or []:
+        if not isinstance(e, dict) or not e.get("bullets"):
+            continue
+        new: list = []
+        for b in e["bullets"]:
+            after = rewrite_map.get(str(b))
+            if after:
+                records.append({"rule_id": "agent.rewrite_bullet", "field": "experience.bullets",
+                                "before": str(b), "after": after})
+                new.append(after)
+            else:
+                new.append(b)
+        e["bullets"] = new
+    if summary and not (cv.get("summary") or "").strip():
+        records.append({"rule_id": "agent.write_summary", "field": "summary",
+                        "before": "", "after": summary})
+        cv["summary"] = summary
+    return cv, records
+
+
+async def _agent_repair_draft(work: _Work, fixes: list[dict]) -> dict:
+    """Bounded LLM rewrite of agent-fixable draft violations. Each rewrite must pass an
+    independent entailment judge AND the deterministic grounding seal (re-diagnose); a round
+    that introduces a blocking violation is rejected. Returns audit meta for the patch step."""
+    from app.llm import client
+
+    meta = {"model": None, "prompt_version": None, "detail": {}}
+    if not client.is_live("cv_repair"):
+        return meta
+    from app.llm import cv_repair
+
+    rounds: list[dict] = []
+    model: str | None = None
+    for attempt in range(MAX_REPAIR_ROUNDS):
+        agent_viol = [v for v in work.draft_violations
+                      if work.registry.fix_mode_of(v.rule_id) is FixMode.agent]
+        if not agent_viol:
+            break
+        result = await cv_repair.repair_draft(
+            work.cv_json, agent_viol, work.ledger,
+            work.registry.constraints_block(_draft_ctx(work), Phase.draft),
+            jd_text=work.input.get("jd_text") or "",
+        )
+        if not result.applied:
+            break
+        model = result.model or model
+
+        # Door #2: independent judge confirms each bullet rewrite adds no claim (drop unconfirmed).
+        kept = [b for b in (result.rewrites.get("bullets") or [])
+                if await cv_repair.entails(b["original"], b["rewrite"])]
+        summary = result.rewrites.get("summary")
+        if not kept and not summary:
+            rounds.append({"attempt": attempt, "accepted": False,
+                           "reason": "no_confirmed_rewrites"})
+            break
+
+        candidate, records = _apply_rewrites(work.cv_json, kept, summary)
+        cand_ctx = _draft_ctx(_Work(input={**work.input, "cv_json": candidate},
+                                    registry=work.registry, ledger=work.ledger, spec=work.spec))
+        cand_viol = work.registry.run(cand_ctx, Phase.draft)
+
+        # Door #5: the deterministic seal — reject a round that introduces any blocking violation.
+        pre_block = {v.rule_id for v in work.draft_violations if is_blocking(v.severity)}
+        new_block = {v.rule_id for v in cand_viol if is_blocking(v.severity)} - pre_block
+        if new_block:
+            rounds.append({"attempt": attempt, "accepted": False,
+                           "reason": "introduced_blocking", "rules": sorted(new_block)})
+            break
+
+        work.input["cv_json"] = candidate
+        work.draft_violations = cand_viol
+        fixes.extend(records)
+        rounds.append({"attempt": attempt, "accepted": True,
+                       "bullets": len(kept), "summary": bool(summary)})
+        # Stop if no progress on the agent-fixable set.
+        still = sum(1 for v in cand_viol if work.registry.fix_mode_of(v.rule_id) is FixMode.agent)
+        if still >= len(agent_viol):
+            break
+
+    meta["model"] = model
+    meta["prompt_version"] = cv_repair.PROMPT_VERSION if rounds else None
+    meta["detail"] = {"repair_rounds": rounds} if rounds else {}
+    return meta
 
 
 async def _render(session, run: CvRun, work: _Work) -> None:
@@ -258,6 +360,58 @@ async def _release(session, run: CvRun, work: _Work) -> None:
     )
 
 
+def _leaves(x, out: set | None = None) -> set:
+    out = set() if out is None else out
+    if isinstance(x, str):
+        s = x.strip()
+        if s:
+            out.add(s)
+    elif isinstance(x, dict):
+        for v in x.values():
+            _leaves(v, out)
+    elif isinstance(x, list):
+        for v in x:
+            _leaves(v, out)
+    return out
+
+
+async def _page_fit(session, run: CvRun, work: _Work) -> None:
+    """Outer trim loop: if the rendered CV exceeds the template's page limit, let the agent
+    REMOVE the lowest-relevance content (subset-verified — removal never invents), then
+    re-render + re-verify. Bounded; a no-op offline or when it doesn't over-run."""
+    from app.llm import client
+
+    if not work.spec or not client.is_live("cv_repair"):
+        return
+    from app.llm import cv_repair
+
+    for _ in range(MAX_PAGE_ROUNDS):
+        if not any(v.rule_id == "rendered.page_count" for v in work.rendered_violations):
+            return
+        t = time.perf_counter()
+        result = await cv_repair.trim_to_fit(
+            work.cv_json, work.spec.page_limit, jd_text=work.input.get("jd_text") or "",
+        )
+        # Removal-only: every leaf in the trimmed CV must already exist in the original.
+        if (not result.applied or not result.cv_json
+                or not _leaves(result.cv_json) <= _leaves(work.cv_json)):
+            return
+        work.input["cv_json"] = result.cv_json
+        work.patch.setdefault("fixed", []).append(
+            {"rule_id": "agent.trim_to_fit", "field": "cv_json",
+             "before": "over the page limit", "after": f"trimmed to fit {work.spec.page_limit}"}
+        )
+        work.draft_violations = work.registry.run(_draft_ctx(work), Phase.draft)
+        await _record(
+            session, run, RunState.patching, model=result.model,
+            prompt_version=cv_repair.PROMPT_VERSION,
+            detail={"page_fit": True, "page_limit": work.spec.page_limit},
+            duration_ms=int((time.perf_counter() - t) * 1000),
+        )
+        await _render(session, run, work)
+        await _re_diagnose(session, run, work)
+
+
 # --- Public API ---------------------------------------------------------------------
 
 
@@ -291,6 +445,7 @@ async def coordinate(session, run: CvRun, *, spec: TemplateSpec | None = None) -
     await _patch(session, run, work)
     await _render(session, run, work)
     await _re_diagnose(session, run, work)
+    await _page_fit(session, run, work)
     await _release(session, run, work)
     return run
 

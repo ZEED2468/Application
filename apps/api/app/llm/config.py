@@ -22,6 +22,9 @@ from app.llm.providers import get as get_provider
 FEATURES = {
     "tailoring", "cover_letter", "hookfinder", "draft_email", "classify_reply",
     "ats_vet", "ats_analyze", "resume_intel", "cv_structure", "track_classify",
+    # CV-engine agent repair (Slice 5): the rewriter + an independent verifier
+    # (separate so it can run on a different model — verifier independence).
+    "cv_repair", "cv_repair_verify",
 }
 
 
