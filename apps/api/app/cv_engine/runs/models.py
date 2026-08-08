@@ -55,6 +55,10 @@ class CvRun(Base, TimestampMixin):
     violations: Mapped[list] = mapped_column(JsonB, default=list)
     # Per-rule fail→pass / pass→fail transitions across the run (the delta report).
     delta: Mapped[dict] = mapped_column(JsonB, default=dict)
+    # Advisory LLM read on the verified artifact (Slice 6): semantic JD coverage + a fit
+    # verdict. NULL offline / when no JD is attached. Never feeds the score or the release
+    # decision — judgment is second, on the deterministic floor.
+    judgment: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
     # R2 key of the compiled PDF (filled once RENDER succeeds).
     artifact_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
 

@@ -186,8 +186,10 @@ class InviteStatus(str, enum.Enum):
 class RunState(str, enum.Enum):
     """A CvRun's position in the one-pipeline state machine.
 
-    INGESTED → GAP_ANALYZED → DIAGNOSED → PATCHING → RECOMPILED → VERIFIED → RELEASED,
+    INGESTED → GAP_ANALYZED → DIAGNOSED → PATCHING → RECOMPILED → VERIFIED → JUDGED → RELEASED,
     with two off-ramps: NEEDS_INPUT (suspend/resume) and NEEDS_REVIEW (terminal, visible).
+    JUDGED is the advisory LLM read on the verified artifact; it never changes the release
+    decision (that stays a function of the gate + deterministic blocking violations).
     """
 
     ingested = "ingested"
@@ -196,6 +198,7 @@ class RunState(str, enum.Enum):
     patching = "patching"
     recompiled = "recompiled"
     verified = "verified"
+    judged = "judged"
     released = "released"
     needs_input = "needs_input"
     needs_review = "needs_review"
