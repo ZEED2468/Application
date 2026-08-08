@@ -36,3 +36,19 @@ async def test_every_number_in_the_artifact_traces_to_the_ledger(session):
     in_artifact = {_num(m.group(0)) for m in _NUMBER.finditer(text)}
     stray = in_artifact - allowed
     assert not stray, f"artifact contains numbers absent from the ledger: {sorted(stray)}"
+
+
+async def test_every_change_and_edge_traces_to_the_ledger(session):
+    """Provenance closure over the change graph (Slice 8): every change cites, and every
+    `derived_from` edge points at, a real ledger fact — a change can never originate from a
+    third source. Compiler-independent (the delta + ledger are set before render)."""
+    user, _ = await seed_hunter(session)
+    fx = json.loads((FIX_DIR / "messy_dates.json").read_text(encoding="utf-8"))
+    run = await run_pipeline(session, user_id=user.id, input=fx["input"])
+
+    fact_ids = {f["id"] for f in run.ledger_snapshot["facts"]}
+    assert fact_ids
+    for rec in run.delta.get("fixed", []):
+        assert set(rec.get("source") or []) <= fact_ids, f"change cites a non-ledger source: {rec}"
+    for f in run.ledger_snapshot["facts"]:
+        assert set(f.get("derived_from") or []) <= fact_ids, f"edge to a non-ledger fact: {f}"
