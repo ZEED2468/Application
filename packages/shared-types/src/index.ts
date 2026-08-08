@@ -472,6 +472,7 @@ export type RunState =
   | "patching"
   | "recompiled"
   | "verified"
+  | "judged"
   | "released"
   | "needs_input"
   | "needs_review";
@@ -490,6 +491,8 @@ export interface CvFix {
   field: string;
   before: string;
   after: string;
+  /** Provenance: the ledger fact id(s) this change derived from (Slice 8). */
+  source?: string[];
 }
 
 export interface CvRunDelta {
@@ -510,6 +513,23 @@ export interface CvRunResult {
   artifact_ref: string | null;
   violations: CvViolation[];
   delta: CvRunDelta;
+}
+
+/** One recorded transition in a run's audit trail (GET /cv/runs/{id}). */
+export interface CvRunStep {
+  state: RunState;
+  violations: CvViolation[];
+  detail: Record<string, unknown>;
+  model: string | null;
+  prompt_version: string | null;
+  duration_ms: number | null;
+  input_hash: string | null;
+  created_at: string | null;
+}
+
+/** A run result plus its ordered step trail — the change-history / eval-pair surface (Slice 8). */
+export interface CvRunDetail extends CvRunResult {
+  steps: CvRunStep[];
 }
 
 export interface JobDetail {
