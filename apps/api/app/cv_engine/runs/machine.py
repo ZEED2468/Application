@@ -185,9 +185,13 @@ async def _infer_slots(work: _Work) -> dict:
     return meta
 
 
-async def _gap_analyze(session, run: CvRun, work: _Work) -> None:
+async def _gap_analyze(session, run: CvRun, work: _Work, *, allow_suspend: bool = True) -> None:
     """Classify the template's REQUIRED slots (FILLED / INFERABLE / TRUE_GAP), fill what is
     inferable from the ledger, and SUSPEND to NEEDS_INPUT for genuine gaps (Slice 7).
+
+    `allow_suspend=False` (the generation path) still classifies + infers but never stops: a
+    genuine gap falls through as a structure violation → needs_review, so a best-effort CV is
+    still produced rather than blocking on a missing contact link.
 
     An absent-but-derivable slot (the summary) is composed from the candidate's own history,
     verified, and filled — the run continues. An absent, non-inferable required slot raises real
@@ -206,7 +210,7 @@ async def _gap_analyze(session, run: CvRun, work: _Work) -> None:
     detail = {"slots": verdicts, "template": work.spec.id if work.spec else None}
     if infer["inferred"]:
         detail["inferred"] = infer["inferred"]
-    if slots:
+    if slots and allow_suspend:
         chat = await gaps.raise_gap_prompts(session, run, slots)
         run.needs_input = {"session_id": str(chat.id), "slots": slots}
         work.suspended = True
@@ -218,6 +222,8 @@ async def _gap_analyze(session, run: CvRun, work: _Work) -> None:
         )
         return
     run.needs_input = None
+    if slots:
+        detail["gaps"] = slots            # noted but not blocked (allow_suspend=False)
     await _record(
         session, run, RunState.gap_analyzed, detail=detail,
         model=infer["model"], prompt_version=infer["prompt_version"],
@@ -366,6 +372,7 @@ async def _agent_repair_draft(work: _Work, fixes: list[dict]) -> dict:
 async def _render(session, run: CvRun, work: _Work) -> None:
     t = time.perf_counter()
     work.tex = render_template(work.spec, work.cv_json, name=work.name)
+    run.tex = work.tex                      # expose the LaTeX for generation to persist (Slice 9)
     work.compiled = await compile_tex(work.tex)
     pdf = work.compiled.pdf
     if pdf:
@@ -406,6 +413,7 @@ async def _re_diagnose(session, run: CvRun, work: _Work) -> None:
             role_title=work.input.get("role_title"), gate=gate,
         )
         run.score = work.breakdown.get("score")
+        run.breakdown = work.breakdown       # expose the ATS breakdown (Slice 9)
     await _record(
         session, run, RunState.verified, violations=work.rendered_violations,
         detail={"gate": gate, "score": run.score},
@@ -425,6 +433,7 @@ async def _release(session, run: CvRun, work: _Work) -> None:
     final = [*work.draft_violations, *work.rendered_violations]
     run.violations = [v.to_dict() for v in final]
     run.delta = {**work.patch, **_delta(final)}
+    run.result_cv_json = work.cv_json        # the final patched content produced (Slice 9)
     blocking = any(is_blocking(v.severity) for v in final)
     gate_passed = bool(work.gate and work.gate.get("status") == "pass")
     state = RunState.released if (gate_passed and not blocking) else RunState.needs_review
@@ -581,14 +590,19 @@ async def create_run(
     return run
 
 
-async def coordinate(session, run: CvRun, *, spec: TemplateSpec | None = None) -> CvRun:
-    """Run the pipeline to a terminal state (RELEASED / NEEDS_REVIEW), recording each step."""
+async def coordinate(
+    session, run: CvRun, *, spec: TemplateSpec | None = None, allow_suspend: bool = True
+) -> CvRun:
+    """Run the pipeline to a terminal state (RELEASED / NEEDS_REVIEW), recording each step.
+
+    `allow_suspend=False` runs straight through even when a required slot is a genuine gap (the
+    generation path wants a best-effort verified CV, not a NEEDS_INPUT stop)."""
     if spec is None:  # re-resolve the EXACT pinned template (immutable) if not threaded in
         spec = await get_template(session, run.template_id, run.template_version)
         spec = spec or default_template()
     work = _Work(input=run.input or {}, registry=default_registry(), spec=spec)
     await _ingest(session, run, work)
-    await _gap_analyze(session, run, work)
+    await _gap_analyze(session, run, work, allow_suspend=allow_suspend)
     if work.suspended:                 # a TRUE_GAP stopped the run at NEEDS_INPUT (Slice 7)
         return run
     await _diagnose(session, run, work)
@@ -603,7 +617,7 @@ async def coordinate(session, run: CvRun, *, spec: TemplateSpec | None = None) -
 
 async def run_pipeline(
     session, *, user_id, input: dict, mode: RunMode = RunMode.fresh_build, job_id=None,
-    template_ref: str | None = None,
+    template_ref: str | None = None, allow_suspend: bool = True,
 ) -> CvRun:
     """Create + coordinate a run in one call (the endpoint + tests use this)."""
     spec = await resolve_template(
@@ -612,4 +626,4 @@ async def run_pipeline(
     run = await create_run(
         session, user_id=user_id, input=input, mode=mode, job_id=job_id, spec=spec
     )
-    return await coordinate(session, run, spec=spec)
+    return await coordinate(session, run, spec=spec, allow_suspend=allow_suspend)
