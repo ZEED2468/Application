@@ -17,7 +17,7 @@ enums so the sqlite test DB works).
 
 import uuid
 
-from sqlalchemy import Enum, Float, ForeignKey, Integer, String, Uuid
+from sqlalchemy import Enum, Float, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.enums import RunMode, RunState
@@ -62,6 +62,11 @@ class CvRun(Base, TimestampMixin):
     # Set while the run is suspended at NEEDS_INPUT (Slice 7): {session_id, slots} — points a
     # client at the ChatSession holding the TRUE_GAP prompt-cards. NULL once resumed/released.
     needs_input: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
+    # The engine's actual output (Slice 9) — what it produced, so a caller (generation) can persist
+    # it as the GeneratedCv: the final patched cv_json, the ats.score breakdown, and the LaTeX.
+    result_cv_json: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
+    breakdown: Mapped[dict | None] = mapped_column(JsonB, nullable=True)
+    tex: Mapped[str | None] = mapped_column(Text, nullable=True)
     # R2 key of the compiled PDF (filled once RENDER succeeds).
     artifact_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
