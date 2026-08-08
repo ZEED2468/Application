@@ -146,6 +146,8 @@ class ChatPromptKind(str, enum.Enum):
     missing_skill_confirm = "missing_skill_confirm"
     reframe_confirm = "reframe_confirm"
     seniority_confirm = "seniority_confirm"
+    # A CV-engine run's required-slot gap, asked through the same prompt-card surface (Slice 7).
+    missing_section = "missing_section"
 
 
 class CoverLetterStatus(str, enum.Enum):
