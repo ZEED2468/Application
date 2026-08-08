@@ -503,6 +503,45 @@ export interface CvRunDelta {
   violation_count: number;
 }
 
+/** Semantic JD-coverage rescue: terms the exact scan missed but the CV covers (Slice 6). */
+export interface CvJudgmentCoverage {
+  deterministic_missing: string[];
+  semantic_covered: { keyword: string; evidence: string }[];
+  still_missing: string[];
+  summary: string;
+}
+
+export interface CvJudgmentGap {
+  skill: string;
+  severity: string;
+  reason: string;
+}
+
+/** Advisory overall-fit read (mirrors the ATS AI analysis shape). */
+export interface CvJudgmentFit {
+  fit_score: number | null;
+  fit_summary: string;
+  strengths: string[];
+  gaps: CvJudgmentGap[];
+  recommendations: string[];
+  false_positives: string[];
+  verdict: string;
+}
+
+/** The advisory LLM judgment on a run — second, on the deterministic floor (Slice 6). */
+export interface CvJudgment {
+  coverage: CvJudgmentCoverage;
+  fit: CvJudgmentFit;
+  model?: string | null;
+  prompt_version?: string | null;
+}
+
+/** Set while a run is suspended at NEEDS_INPUT: the ChatSession holding its gap prompts (Slice 7). */
+export interface CvNeedsInput {
+  session_id: string;
+  slots: string[];
+}
+
 /** A CV-engine run result: score on the compiled artifact + violations + what got fixed. */
 export interface CvRunResult {
   run_id: string;
@@ -513,6 +552,10 @@ export interface CvRunResult {
   artifact_ref: string | null;
   violations: CvViolation[];
   delta: CvRunDelta;
+  /** Advisory LLM read (Slice 6); null offline or without a JD. */
+  judgment?: CvJudgment | null;
+  /** Present when the run suspended for a missing required fact (Slice 7). */
+  needs_input?: CvNeedsInput | null;
 }
 
 /** One recorded transition in a run's audit trail (GET /cv/runs/{id}). */

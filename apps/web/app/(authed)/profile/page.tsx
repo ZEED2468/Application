@@ -44,6 +44,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
 import { FormatFixes } from "@/components/format-fixes";
+import { RunJudgment } from "@/components/run-judgment";
 import { TemplatePicker } from "@/components/template-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -530,6 +531,7 @@ export default function ProfilePage() {
                 {revamp && (
                   <div className="space-y-4">
                     <FormatFixes run={revamp} />
+                    {revamp.judgment && <RunJudgment run={revamp} />}
                     {revamp.artifact_ref && (
                       <a
                         href={

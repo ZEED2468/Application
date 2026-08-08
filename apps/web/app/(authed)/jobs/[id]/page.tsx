@@ -49,6 +49,9 @@ import { ErrorState } from "@/components/states";
 import { SidePanel } from "@/components/ui/drawer";
 import { AtsBreakdown } from "@/components/ats-breakdown";
 import { FormatFixes } from "@/components/format-fixes";
+import { RunJudgment } from "@/components/run-judgment";
+import { RunTrail } from "@/components/run-trail";
+import { GapCards } from "@/components/gap-cards";
 import { ResumeEditor } from "@/components/resume-editor";
 import { GapFiller } from "@/components/gap-filler-drawer";
 import { StatusCell } from "../status-cell";
@@ -108,6 +111,13 @@ export default function JobDetailPage({
     queryKey: queryKeys.audit(data?.application?.id ?? ""),
     queryFn: () => applicationsService.audit(data!.application!.id),
     enabled: Boolean(data?.application?.id),
+  });
+
+  // The run's full step trail (audit / eval pairs) — fetched lazily for the fixes panel.
+  const runDetail = useQuery({
+    queryKey: queryKeys.cvRun(data?.cv_run?.run_id ?? ""),
+    queryFn: () => cvRunsService.getRunDetail(data!.cv_run!.run_id),
+    enabled: Boolean(data?.cv_run?.run_id),
   });
 
   const trackMutation = useMutation({
@@ -476,7 +486,17 @@ export default function JobDetailPage({
 
         {shownPanel?.kind === "fixes" &&
           (data.cv_run ? (
-            <FormatFixes run={data.cv_run} />
+            <div className="space-y-8">
+              {data.cv_run.needs_input && (
+                <GapCards
+                  sessionId={data.cv_run.needs_input.session_id}
+                  onResolved={() => refetch()}
+                />
+              )}
+              <FormatFixes run={data.cv_run} />
+              {data.cv_run.judgment && <RunJudgment run={data.cv_run} />}
+              {runDetail.data && <RunTrail steps={runDetail.data.steps} />}
+            </div>
           ) : (
             <p className="text-sm text-coffee-500">
               Run “Check &amp; fix format” to see the report.

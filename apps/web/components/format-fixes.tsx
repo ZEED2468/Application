@@ -94,6 +94,11 @@ export function FormatFixes({ run }: { run: CvRunResult }) {
                   <span className="text-coffee-400">→</span>
                   <span className="font-medium text-coffee-800">{f.after}</span>
                 </div>
+                {f.source && f.source.length > 0 && (
+                  <p className="mt-1 text-xs text-coffee-400">
+                    from {f.source.length} source fact{f.source.length > 1 ? "s" : ""}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
