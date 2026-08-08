@@ -21,7 +21,7 @@ from app.core.errors import DomainError, NotFoundError
 from app.cv_engine.ingest import parse_cv_text
 from app.cv_engine.ingest.normalize import normalize_text
 from app.cv_engine.runs.machine import run_pipeline
-from app.cv_engine.runs.models import CvRun
+from app.cv_engine.runs.models import CvRun, CvRunStep
 from app.db import get_session
 from app.deps import Principal, authorize_owner, current_principal, current_user
 from app.integrations import r2
@@ -50,6 +50,20 @@ def run_to_dict(run: CvRun) -> dict:
         "delta": run.delta,
         "judgment": run.judgment,
         "needs_input": run.needs_input,
+    }
+
+
+def step_to_dict(step: CvRunStep) -> dict:
+    """One transition in the run's audit trail — the readable 'why did it change this' surface."""
+    return {
+        "state": step.state.value,
+        "violations": step.violations,
+        "detail": step.detail,
+        "model": step.model,
+        "prompt_version": step.prompt_version,
+        "duration_ms": step.duration_ms,
+        "input_hash": step.input_hash,
+        "created_at": step.created_at.isoformat() if step.created_at else None,
     }
 
 
@@ -167,6 +181,25 @@ async def revamp_track_cv(
         },
     )
     return {**run_to_dict(run), "parse": {"confidence": parsed.confidence, "flags": parsed.flags}}
+
+
+@router.get("/runs/{run_id}", summary="A run + its ordered step trail (audit / eval pairs)")
+async def get_run_detail(
+    run_id: UUID,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """The run's result plus every recorded transition, in order — the change-history surface
+    (each patching step's before/after violations + the delta's sourced fixed records are the
+    run's 'free eval pairs', labeled with registry_version / model / prompt_version)."""
+    run = await session.get(CvRun, run_id)
+    if run is None:
+        raise NotFoundError("Run not found")
+    await authorize_owner(session, principal, run.user_id)
+    steps = (await session.execute(
+        select(CvRunStep).where(CvRunStep.run_id == run.id).order_by(CvRunStep.created_at)
+    )).scalars().all()
+    return {**run_to_dict(run), "steps": [step_to_dict(s) for s in steps]}
 
 
 @router.get("/runs/{run_id}/artifact", summary="Download a run's compiled PDF")
