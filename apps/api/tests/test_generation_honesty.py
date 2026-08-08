@@ -11,12 +11,13 @@ import pytest
 
 from app.config import settings
 from app.core.enums import CvStatus, JobSourceName, JobStatus, Origin, Track, UserRole
+from app.cv_engine.render.compile import has_compiler
 from app.integrations import r2
 from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.user import User
 from app.pipelines import generation
-from app.pipelines.apply import format_gate, render
+from app.pipelines.apply import render
 from app.security import hash_password
 
 
@@ -31,7 +32,7 @@ async def _seed(session):
         skills=["Go", "Kubernetes", "Postgres"],
         experience=[{"title": "Backend Engineer", "company": "Streamline",
                      "bullets": ["Built Go microservices on Kubernetes"]}],
-        projects=[], education=[], links={},
+        projects=[], education=[], links={"github": "https://github.com/grace"},
     )
     session.add(profile)
     await session.flush()
@@ -58,6 +59,8 @@ def real_mode(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_real_mode_compile_failure_is_not_marked_ready(session, monkeypatch, real_mode):
+    # The engine compiles via compile_tex → render.render_pdf_checked, so forcing that to fail makes
+    # the engine's gate fail → needs_review; generation must not present it as ready.
     async def _fail(tex, *a, **k):
         return None, "! Undefined control sequence."
 
@@ -73,21 +76,17 @@ async def test_real_mode_compile_failure_is_not_marked_ready(session, monkeypatc
     )
     assert cv.status is CvStatus.failed              # never presented as ready
     assert job.status is not JobStatus.ready         # a fix-first state, not submittable
-    assert cv.tailoring_diff["render"]["gate"]["status"] == "fail"
+    assert cv.tailoring_diff["engine"]["state"] == "needs_review"
 
 
+@pytest.mark.skipif(not has_compiler(), reason="needs tectonic for the engine to release")
 @pytest.mark.asyncio
-async def test_real_mode_clean_render_is_ready(session, monkeypatch, real_mode):
-    async def _ok(tex, *a, **k):
-        return b"%PDF-1.4 real", ""
-
-    monkeypatch.setattr(render, "render_pdf_checked", _ok)
-    monkeypatch.setattr(format_gate, "_pdf_text_len", lambda pdf: 1500)  # text extracts
-
+async def test_real_mode_clean_render_is_ready(session, real_mode):
+    # A complete profile compiled for real by the engine releases → generation marks it ready.
     user, profile, job = await _seed(session)
     cv, _cover = await generation.generate_cv_and_cover(
         session, job=job, profile=profile, owner=user, emit=lambda *a, **k: None,
     )
-    assert cv.status is CvStatus.ready               # single-column build_tex + real text
+    assert cv.status is CvStatus.ready               # the engine released the artifact
     assert job.status is JobStatus.ready
-    assert cv.tailoring_diff["render"]["gate"]["status"] == "pass"
+    assert cv.tailoring_diff["engine"]["state"] == "released"
