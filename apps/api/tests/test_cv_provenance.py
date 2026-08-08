@@ -116,3 +116,29 @@ async def test_run_detail_state_matches_the_run(session):
     detail = await get_run_detail(run.id, _principal(user), session)
     assert detail["state"] == run.state.value
     assert run.state in (RunState.released, RunState.needs_review)
+
+
+async def test_derived_arithmetic_ledger(session):
+    # Two roles spanning 2018-2024 → a computed "6 years experience" metric fact (Slice 11).
+    user, _ = await seed_hunter(session)
+    cv = {
+        "summary": "Backend engineer building systems.", "skills": ["Go", "Postgres"],
+        "experience": [
+            {"title": "Engineer", "company": "Streamline", "dates": "2018 -- 2020",
+             "bullets": ["Built Go services"]},
+            {"title": "Engineer", "company": "Northwind", "dates": "2021 -- 2024",
+             "bullets": ["Ran Postgres"]},
+        ],
+        "links": {"github": "https://github.com/adahunter"},
+    }
+    run = await run_pipeline(
+        session, user_id=user.id,
+        input={"cv_json": cv, "jd_text": "Go Postgres", "name": "Ada Hunter"})
+
+    facts = run.ledger_snapshot["facts"]
+    metric = next(f for f in facts if f["kind"] == "metric")
+    assert metric["text"] == "6 years experience" and metric["source"] == "derived"
+    role_ids = [f["id"] for f in facts if f["kind"] == "role"]
+    # It aggregates every role, and its derived_from edges point at real ledger facts (closure).
+    assert metric["derived_from"] == role_ids
+    assert set(metric["derived_from"]) <= {f["id"] for f in facts}

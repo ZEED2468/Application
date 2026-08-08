@@ -10,6 +10,10 @@ truth source that makes the grounding seal meaningful (fixtures, and later uploa
 
 from __future__ import annotations
 
+import re
+
+_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+
 
 def _fact(
     kind: str, text: str, *, idx: int, source: str = "profile", payload: dict | None = None
@@ -75,9 +79,39 @@ def _from_cv_json(cv_json: dict) -> list[dict]:
     return facts
 
 
+def _years_in(value) -> list[int]:
+    return [int(m.group(0)) for m in _YEAR.finditer(str(value or ""))]
+
+
+def _derived_facts(base: list[dict]) -> list[dict]:
+    """Derived-arithmetic facts (Slice 11): a computed total the base facts only imply.
+
+    Career span = latest year seen across the roles minus the earliest — a total the CV can cite
+    truthfully ("N years experience") even though no single date states it. Carries `derived_from`
+    edges to every role it aggregated; its number enters grounding's allowed set like any payload
+    number (grounding is per-token, so it grounds the digit, not the semantics — a known limit)."""
+    roles = [f for f in base if f.get("kind") == "role"]
+    years: list[int] = []
+    for f in roles:
+        payload = f.get("payload") or {}
+        for key in ("dates", "start", "end"):
+            years += _years_in(payload.get(key))
+        years += _years_in(f.get("text"))
+    if len(set(years)) < 2:
+        return []
+    span = max(years) - min(years)
+    if span <= 0:
+        return []
+    return [_fact(
+        "metric", f"{span} years experience", idx=len(base), source="derived",
+        payload={"years": span, "from": min(years), "to": max(years)},
+    ) | {"derived_from": [f["id"] for f in roles]}]
+
+
 def build_ledger(run_input: dict) -> list[dict]:
-    """Return the run's ledger: an explicit `ledger` if provided, else derived from cv_json."""
+    """Return the run's ledger: an explicit `ledger` if provided, else derived from cv_json, plus
+    any derived-arithmetic facts computed from the base set."""
     explicit = (run_input or {}).get("ledger")
-    if explicit:
-        return _normalize(explicit)
-    return _from_cv_json((run_input or {}).get("cv_json") or {})
+    cv_json = (run_input or {}).get("cv_json") or {}
+    base = _normalize(explicit) if explicit else _from_cv_json(cv_json)
+    return base + _derived_facts(base)
