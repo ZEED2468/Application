@@ -347,13 +347,23 @@ async def score_relevance(session, *, job: Job, profile: MasterProfile, emit=_re
     return job
 
 
-async def generate_cv(session, *, job: Job, profile: MasterProfile, emit=_real_emit) -> GeneratedCv:
-    """Tailor + ATS + cover letter via the SHARED engine (same path as manual)."""
+async def generate_cv(
+    session, *, job: Job, profile: MasterProfile,
+    ask_coverage_gaps: bool = False, emit=_real_emit,
+) -> GeneratedCv:
+    """Tailor + ATS + cover letter via the SHARED engine (same path as manual).
+
+    `ask_coverage_gaps=True` (the workspace Generate action) lets the engine SUSPEND on a JD-critical
+    skill the profile lacks, so the candidate confirms it via prompt-cards instead of the model
+    inventing it. The autonomous discovery path keeps it False — headless, a suspend would strand the
+    job with no one to answer.
+    """
     from app.pipelines import generation
 
     owner = await session.get(User, job.user_id)
     cv, _cover = await generation.generate_cv_and_cover(
-        session, job=job, profile=profile, owner=owner, emit=emit
+        session, job=job, profile=profile, owner=owner,
+        ask_coverage_gaps=ask_coverage_gaps, emit=emit,
     )
     return cv
 

@@ -24,6 +24,7 @@ from app.core.enums import (
     JobSourceName,
     JobStatus,
     Origin,
+    RunState,
     Track,
 )
 from app.core.errors import ConflictError, NotFoundError
@@ -260,10 +261,13 @@ async def answer_prompt(
     prompt.selected = selected
     prompt.detail = detail
     prompt.resolved = True
+    chat = await session.get(ChatSession, prompt.chat_session_id)
 
+    # Manual sessions (no linked run): a "Yes" on a missing-skill prompt confirms it TRUE and is
+    # carried into the next generation via confirmed_facts.
     confirmed_true = any("yes" in (s or "").lower() or "true" in (s or "").lower() for s in selected)
-    if prompt.kind is ChatPromptKind.missing_skill_confirm and confirmed_true:
-        chat = await session.get(ChatSession, prompt.chat_session_id)
+    if (chat is not None and chat.cv_run_id is None
+            and prompt.kind is ChatPromptKind.missing_skill_confirm and confirmed_true):
         # Extract the skill name from the question (quoted token).
         m = re.search(r'"([^"]+)"', prompt.question)
         skill = m.group(1) if m else (detail or "")
@@ -272,11 +276,17 @@ async def answer_prompt(
             chat.confirmed_facts = [*(chat.confirmed_facts or []), fact]
     await session.flush()
 
-    # A CV-engine gap prompt (Slice 7): when every gap on the run's session is answered, the
-    # answers merge into the run's cv_json and the pipeline re-coordinates from the top.
-    if prompt.kind is ChatPromptKind.missing_section:
+    # A CV-engine run session (structural OR JD-coverage gaps): when every prompt on the run's
+    # session is answered, the answers merge into the run's cv_json and it re-coordinates from the
+    # top. If that terminal run belongs to a job, re-map it onto the job's GeneratedCv (a suspended
+    # generation left a pending one). Lazy import — the engine must not import generation.
+    if chat is not None and chat.cv_run_id is not None:
         from app.cv_engine.runs import gaps
-        await gaps.resume_if_ready(session, chat_session_id=prompt.chat_session_id)
+        run = await gaps.resume_if_ready(session, chat_session_id=prompt.chat_session_id)
+        if (run is not None and run.job_id
+                and run.state in (RunState.released, RunState.needs_review)):
+            from app.pipelines import generation
+            await generation.remap_run_to_generated_cv(session, run)
     return prompt
 
 
