@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 import { useFocusTrap } from "@/lib/use-focus-trap";
 
 /**
- * A right-side PUSH panel — part of the flex layout, not a fixed overlay. When it
- * opens its width animates `0 → width`, so the sibling content shifts left to make
- * room (split view, no backdrop). Stays mounted through the close animation. Esc
- * closes it, but focus is NOT trapped — both sides stay usable.
+ * A right-side slide-in panel, pinned below the top bar (`fixed right-0 top-16`). It
+ * slides in on a transform (`translate-x-full → 0`) over the page's right edge — no
+ * backdrop and focus is NOT trapped, so both sides stay usable (split-view feel). Stays
+ * mounted through the close animation, then unmounts. Esc closes it.
  */
 export function SidePanel({
   open,
@@ -39,7 +39,9 @@ export function SidePanel({
       return;
     }
     setShown(false);
-    const t = window.setTimeout(() => setRender(false), 280);
+    // Keep it mounted until the 300ms slide-out finishes (+20ms buffer) — unmounting early
+    // clipped the closing animation.
+    const t = window.setTimeout(() => setRender(false), 320);
     return () => window.clearTimeout(t);
   }, [open]);
 
