@@ -311,6 +311,25 @@ export default function JobDetailPage({
             refreshToken={refreshToken}
             readiness={data.readiness}
           />
+
+          {/* The CV suspended mid-generation on a JD must-have we couldn't verify: ask the
+              candidate right here (never invent it). Front-and-centre under the résumé so the
+              questions are the obvious next step — not buried in a side panel. */}
+          {data.cv_run?.needs_input && (
+            <section className="mt-6 rounded-lg border border-status-interviewed/40 bg-status-interviewed/5 p-5">
+              <p className="text-sm text-coffee-700">
+                Almost there — this role asks for a few skills we couldn&apos;t find in your
+                profile. Confirm the ones you genuinely have (a line on how you used each helps)
+                and we&apos;ll finish tailoring. Skip the rest and they stay off your CV.
+              </p>
+              <div className="mt-4">
+                <GapCards
+                  sessionId={data.cv_run.needs_input.session_id}
+                  onResolved={() => refetch()}
+                />
+              </div>
+            </section>
+          )}
         </div>
 
         {/* A compact context rail; heavy detail opens in the floating panel. */}
@@ -487,12 +506,7 @@ export default function JobDetailPage({
         {shownPanel?.kind === "fixes" &&
           (data.cv_run ? (
             <div className="space-y-8">
-              {data.cv_run.needs_input && (
-                <GapCards
-                  sessionId={data.cv_run.needs_input.session_id}
-                  onResolved={() => refetch()}
-                />
-              )}
+              {/* Gap prompts are surfaced in the main column (not here) so they can't be missed. */}
               <FormatFixes run={data.cv_run} />
               {data.cv_run.judgment && <RunJudgment run={data.cv_run} />}
               {runDetail.data && <RunTrail steps={runDetail.data.steps} />}
