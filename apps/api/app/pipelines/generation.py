@@ -101,9 +101,19 @@ async def generate_cv_and_cover(
     )
 
     # --- Tailored CV (truth-bounded) ---
-    # JD-critical techs drive an explicit achievement reframe of the candidate's REAL
-    # experience (computed from the JD alone, so it's valid pre-tailoring).
-    priority_techs = ats.critical_keywords(job.description or "")
+    # The candidate's REAL profile view (skills flattened) — used both as the owned-skill set below
+    # and as the independent grounding ledger for the engine.
+    profile_cv = {**profile_dict,
+                  "skills": tailoring._flatten_skills(profile_dict.get("skills"))}
+    owned_tokens = ats._cv_tokens(ats._cv_text(profile_cv))
+    # JD-critical techs drive an explicit achievement reframe — but ONLY the ones the candidate
+    # actually has. Emphasizing an un-owned critical tells the model to feature a skill the profile
+    # lacks, which it fabricates (and grounding then blocks). Un-owned criticals are the JD gaps the
+    # engine asks about (PR 2), never inventions.
+    priority_techs = [
+        k for k in ats.critical_keywords(job.description or "")
+        if ats._normalize_token(k) in owned_tokens
+    ]
     cv_json, diff = await tailoring.tailor(
         profile_dict, job_title=job.title, job_description=job.description,
         priority_techs=priority_techs,
@@ -115,8 +125,6 @@ async def generate_cv_and_cover(
     # The CV engine FINISHES the CV: it grounds the tailored content against the candidate's REAL
     # profile (an independent ledger), repairs/renders/judges it, and its verified output becomes
     # the GeneratedCv. allow_suspend=False — a genuine gap is flagged (needs_review), never a stop.
-    profile_cv = {**profile_dict,
-                  "skills": tailoring._flatten_skills(profile_dict.get("skills"))}
     run = await run_pipeline(
         session, user_id=job.user_id, job_id=job.id, allow_suspend=False,
         input={
