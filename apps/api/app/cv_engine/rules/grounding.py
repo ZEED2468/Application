@@ -29,6 +29,14 @@ _MONTHS = {
 _SECTION_WORDS = {
     "summary", "skills", "experience", "projects", "education", "certifications", "languages",
 }
+# Common capitalized-in-narrative words that are NOT proper nouns — proficiency levels and
+# resume adjectives. Without this, a mid-clause "Proficient in Go" or "Native fluency" is wrongly
+# read as an invented entity. (ats.py keeps its own stoplist; grounding's is deliberately separate.)
+_COMMON_WORDS = {
+    "proficient", "native", "fluent", "expert", "advanced", "intermediate", "beginner", "basic",
+    "experienced", "skilled", "familiar", "seasoned", "certified", "proven", "strong", "extensive",
+    "working", "solid",
+}
 
 
 def _num(token: str) -> str:
@@ -90,7 +98,8 @@ def _entity_suspects(strings: list[str], name: str) -> list[str]:
         for i, raw in enumerate(words):
             core = raw.strip(".,;:()[]{}\"'")
             norm = _tok(core)
-            if len(norm) < 3 or norm in _MONTHS or norm in _SECTION_WORDS or norm in name_toks:
+            if (len(norm) < 3 or norm in _MONTHS or norm in _SECTION_WORDS
+                    or norm in _COMMON_WORDS or norm in name_toks):
                 continue
             if not any(c.isalpha() for c in norm):
                 continue  # pure numbers/percentages are the numbers rule's job, not entities
@@ -126,13 +135,19 @@ def _entities_verbatim(ctx: RuleContext) -> Iterable[Violation]:
     ledger_tokens = {_tok(w) for w in _WORD.findall(_ledger_text(ctx.ledger))}
     ledger_tokens.discard("")
     for entity in _entity_suspects(_content_strings(ctx.cv_json), ctx.name):
-        if _tok(entity) not in ledger_tokens:
-            yield Violation(
-                rule_id="grounding.entities_verbatim", severity=Severity.critical,
-                message=f"'{entity}' does not appear in your verified history.",
-                fix_hint="Use only real employers/products/places — never invent entities.",
-                span={"where": "content", "entity": entity},
-            )
+        # Compound/slashed entities ("Native/Expo", "CI/CD") ground half-by-half: the ledger
+        # tokenizer already splits on '/', so a pair whose halves are both real must pass. Flag the
+        # first sub-token that is itself ungrounded; a plain entity is its own only sub-token.
+        parts = [p for p in entity.split("/") if _tok(p)] or [entity]
+        ungrounded = next((p for p in parts if _tok(p) not in ledger_tokens), None)
+        if ungrounded is None:
+            continue
+        yield Violation(
+            rule_id="grounding.entities_verbatim", severity=Severity.critical,
+            message=f"'{ungrounded}' does not appear in your verified history.",
+            fix_hint="Use only real employers/products/places — never invent entities.",
+            span={"where": "content", "entity": ungrounded},
+        )
 
 
 RULES: list[Rule] = [
