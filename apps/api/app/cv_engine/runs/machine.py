@@ -185,6 +185,31 @@ async def _infer_slots(work: _Work) -> dict:
     return meta
 
 
+def _coverage_gaps(work: _Work) -> list[str]:
+    """JD-critical skills absent from the profile ledger (PR: mid-flight gap prompts).
+
+    Uses grounding's OWN tokenizer over the ledger, so a coverage gap here is exactly a skill the
+    seal would refuse to ground if the model claimed it — the two never disagree. Computed against
+    the ledger (real profile facts), never the tailored cv_json (which may hold a fabrication)."""
+    from app.cv_engine.rules import grounding
+    from app.pipelines.apply import ats
+
+    jd_text = work.input.get("jd_text") or ""
+    if not jd_text.strip():
+        return []
+    ledger_tokens = {grounding._tok(w)
+                     for w in grounding._WORD.findall(grounding._ledger_text(work.ledger))}
+    ledger_tokens.discard("")
+    out: list[str] = []
+    seen: set[str] = set()
+    for kw in ats.critical_keywords(jd_text):
+        tk = grounding._tok(kw)
+        if tk and tk not in ledger_tokens and tk not in seen:
+            seen.add(tk)
+            out.append(kw)
+    return out
+
+
 async def _gap_analyze(session, run: CvRun, work: _Work, *, allow_suspend: bool = True) -> None:
     """Classify the template's REQUIRED slots (FILLED / INFERABLE / TRUE_GAP), fill what is
     inferable from the ledger, and SUSPEND to NEEDS_INPUT for genuine gaps (Slice 7).
@@ -221,6 +246,25 @@ async def _gap_analyze(session, run: CvRun, work: _Work, *, allow_suspend: bool 
             duration_ms=int((time.perf_counter() - t) * 1000),
         )
         return
+    # JD-coverage gaps (mid-flight ask): when generation sets `ask_coverage_gaps`, a JD-critical
+    # skill the profile lacks becomes a prompt-card the candidate answers instead of something the
+    # model invents. Independent of `allow_suspend`; suspends only when a NEW gap is still open, so a
+    # declined skill (already asked) never re-suspends the run on resume.
+    if work.input.get("ask_coverage_gaps"):
+        jd_gaps = _coverage_gaps(work)
+        if jd_gaps:
+            chat, open_prompts = await gaps.raise_coverage_prompts(session, run, jd_gaps)
+            if open_prompts:
+                skills = [p.slot for p in open_prompts]
+                run.needs_input = {"session_id": str(chat.id), "slots": skills}
+                work.suspended = True
+                await _record(
+                    session, run, RunState.needs_input,
+                    detail={**detail, "coverage_gaps": skills, "session_id": str(chat.id)},
+                    model=infer["model"], prompt_version=infer["prompt_version"],
+                    duration_ms=int((time.perf_counter() - t) * 1000),
+                )
+                return
     run.needs_input = None
     if slots:
         detail["gaps"] = slots            # noted but not blocked (allow_suspend=False)

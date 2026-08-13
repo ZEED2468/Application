@@ -15,6 +15,7 @@ from app.config import settings
 from app.core.enums import CoverLetterStatus, CvStatus, JobStatus, RunState, Track
 from app.cv_engine.ingest import build_ledger
 from app.cv_engine.runs.machine import run_pipeline
+from app.cv_engine.runs.models import CvRun
 from app.events import names
 from app.events.bus import emit as _real_emit
 from app.events.contracts import CvGenerated
@@ -89,9 +90,90 @@ def merge_confirmed_facts(profile_dict: dict, confirmed: list[str] | None) -> di
     return merged
 
 
+async def _materialize_generated_cv(
+    session, *, run: CvRun, job: Job, owner: User | None, base_cv_json: dict, diff: dict,
+    profile: MasterProfile | None = None, role_cv_id=None, cv: GeneratedCv | None = None,
+) -> tuple[GeneratedCv, bool]:
+    """Map an engine run's verified output onto a GeneratedCv — create on first generate, UPDATE the
+    same row on a resume re-map (never a second insert; uq_cv_job). Returns (cv, ready).
+
+    Ready ONLY when the engine RELEASED. A SUSPENDED run (needs_input) is never ready — not even in
+    fake/dev mode, where the stub-render convenience otherwise marks a compiler-less run ready.
+    """
+    final_cv_json = run.result_cv_json or base_cv_json
+    breakdown = run.breakdown or ats.score(
+        cv_json=final_cv_json, jd_text=job.description or "",
+        role_title=job.role_title or job.title, gate={},
+    )
+    name = owner.name if owner else ""
+    tex = run.tex or render.build_tex(final_cv_json, name=name)
+    pdf = (await r2.get_bytes(run.artifact_ref)) if run.artifact_ref else None
+    if pdf is None:                       # engine didn't compile (no tectonic / gap) → stub render
+        pdf = await render.render_pdf(tex)
+    diff = {**(diff or {}), "engine": {
+        "run_id": str(run.id), "state": run.state.value, "score": run.score,
+        "violations": len(run.violations or []), "needs_input": run.needs_input,
+    }}
+    ready = run.state == RunState.released or (
+        settings.use_fake_integrations and run.state is not RunState.needs_input
+    )
+    tex_key = f"{job.user_id}/{job.id}/cv.tex"
+    pdf_key = f"{job.user_id}/{job.id}/cv.pdf"
+    await r2.put_bytes(tex_key, tex.encode(), "application/x-tex")
+    pdf_url = await r2.put_bytes(pdf_key, pdf, "application/pdf")
+
+    if cv is None:
+        cv = GeneratedCv(
+            user_id=job.user_id, job_id=job.id,
+            master_profile_id=profile.id if profile else None, source_role_cv_id=role_cv_id,
+        )
+        session.add(cv)
+    cv.cv_json = final_cv_json
+    cv.latex_source = tex
+    cv.tex_key = tex_key
+    cv.pdf_key = pdf_key
+    cv.pdf_url = pdf_url
+    cv.tailoring_diff = diff
+    cv.ats_score = breakdown.get("score")
+    cv.ats_breakdown = breakdown
+    cv.status = CvStatus.ready if ready else CvStatus.failed
+    return cv, ready
+
+
+async def remap_run_to_generated_cv(session, run: CvRun) -> GeneratedCv | None:
+    """Re-map a resumed generation run onto the job's pending GeneratedCv.
+
+    When a generation run suspends for a JD-coverage gap, a pending GeneratedCv (status=failed) was
+    persisted and the job left `tailoring`. After the candidate answers and the run re-coordinates to
+    a terminal state, this UPDATES that same row with the verified output and advances the job when
+    ready. The cover letter (already produced at suspend) is left as-is — it doesn't depend on the
+    confirmed skill.
+    """
+    if run.job_id is None:
+        return None
+    job = await session.get(Job, run.job_id)
+    if job is None:
+        return None
+    cv = (await session.execute(
+        select(GeneratedCv).where(GeneratedCv.job_id == job.id).limit(1)
+    )).scalar_one_or_none()
+    if cv is None:
+        return None
+    owner = await session.get(User, job.user_id)
+    cv, ready = await _materialize_generated_cv(
+        session, run=run, job=job, owner=owner, base_cv_json=cv.cv_json or {},
+        diff=dict(cv.tailoring_diff or {}), cv=cv,
+    )
+    job.status = JobStatus.ready if ready else JobStatus.tailoring
+    await session.flush()
+    log.info("generation.remap", job_id=str(job.id), run_state=run.state.value, ready=bool(ready))
+    return cv
+
+
 async def generate_cv_and_cover(
     session, *, job: Job, profile: MasterProfile, owner: User,
-    role_cv_id=None, confirmed_facts: list[str] | None = None, emit=_real_emit,
+    role_cv_id=None, confirmed_facts: list[str] | None = None,
+    ask_coverage_gaps: bool = False, emit=_real_emit,
 ) -> tuple[GeneratedCv, CoverLetter]:
     track = job.track or Track.general
     job.status = JobStatus.tailoring
@@ -124,46 +206,22 @@ async def generate_cv_and_cover(
 
     # The CV engine FINISHES the CV: it grounds the tailored content against the candidate's REAL
     # profile (an independent ledger), repairs/renders/judges it, and its verified output becomes
-    # the GeneratedCv. allow_suspend=False — a genuine gap is flagged (needs_review), never a stop.
+    # the GeneratedCv. allow_suspend=False keeps STRUCTURAL gaps non-blocking; ask_coverage_gaps
+    # (workspace generate) instead SUSPENDS on a JD-critical skill the profile lacks, so the
+    # candidate confirms it via prompt-cards rather than the model inventing it.
     run = await run_pipeline(
         session, user_id=job.user_id, job_id=job.id, allow_suspend=False,
         input={
             "cv_json": cv_json, "ledger": build_ledger({"cv_json": profile_cv}),
             "jd_text": job.description or "", "role_title": job.role_title or job.title,
             "track": track.value, "name": owner.name,
+            "ask_coverage_gaps": ask_coverage_gaps,
         },
     )
-    final_cv_json = run.result_cv_json or cv_json
-    breakdown = run.breakdown or ats.score(
-        cv_json=final_cv_json, jd_text=job.description or "",
-        role_title=job.role_title or job.title, gate={},
+    cv, cv_ready = await _materialize_generated_cv(
+        session, run=run, job=job, owner=owner, base_cv_json=cv_json, diff=diff,
+        profile=profile, role_cv_id=role_cv_id,
     )
-    tex = run.tex or render.build_tex(final_cv_json, name=owner.name)
-    pdf = (await r2.get_bytes(run.artifact_ref)) if run.artifact_ref else None
-    if pdf is None:                       # engine didn't compile (no tectonic / gap) → stub render
-        pdf = await render.render_pdf(tex)
-    diff["engine"] = {
-        "run_id": str(run.id), "state": run.state.value, "score": run.score,
-        "violations": len(run.violations or []), "needs_input": run.needs_input,
-    }
-
-    # Ready only when the engine RELEASED (gate passed + no blocking violation). Fake/dev mode
-    # keeps the stub-render convenience.
-    cv_ready = settings.use_fake_integrations or run.state == RunState.released
-
-    tex_key = f"{job.user_id}/{job.id}/cv.tex"
-    pdf_key = f"{job.user_id}/{job.id}/cv.pdf"
-    await r2.put_bytes(tex_key, tex.encode(), "application/x-tex")
-    cv_pdf_url = await r2.put_bytes(pdf_key, pdf, "application/pdf")
-
-    cv = GeneratedCv(
-        user_id=job.user_id, job_id=job.id, master_profile_id=profile.id,
-        source_role_cv_id=role_cv_id, cv_json=final_cv_json, latex_source=tex,
-        tex_key=tex_key, pdf_key=pdf_key, pdf_url=cv_pdf_url, tailoring_diff=diff,
-        ats_score=breakdown.get("score"), ats_breakdown=breakdown,
-        status=CvStatus.ready if cv_ready else CvStatus.failed,
-    )
-    session.add(cv)
 
     # --- Cover letter (3-paragraph, real hook, same truth boundary) ---
     template = (
@@ -204,5 +262,5 @@ async def generate_cv_and_cover(
                     run_state=run.state.value, needs_input=bool(run.needs_input))
     await session.flush()
     emit(names.CV_GENERATED, CvGenerated(user_id=job.user_id, job_id=job.id, generated_cv_id=cv.id))
-    log.info("generation.done", job_id=str(job.id), ats=breakdown.get("score"), cv_ready=cv_ready)
+    log.info("generation.done", job_id=str(job.id), ats=cv.ats_score, cv_ready=cv_ready)
     return cv, cover
