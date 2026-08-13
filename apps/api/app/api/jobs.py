@@ -503,7 +503,10 @@ async def generate(
             await session.delete(cover)
         await session.delete(existing)
         await session.flush()
-    cv = await service.generate_cv(session, job=job, profile=profile)
+    # Workspace generate: let the engine ask the candidate to confirm a JD-critical skill their
+    # profile lacks (mid-flight prompt-cards) rather than inventing it. A suspended run returns a
+    # pending CV; the job detail surfaces the gap prompts, and answering them finishes the CV.
+    cv = await service.generate_cv(session, job=job, profile=profile, ask_coverage_gaps=True)
     return GenerateResponse(
         job_id=job.id, status=job.status, generated_cv_id=cv.id, pdf_url=cv.pdf_url
     )

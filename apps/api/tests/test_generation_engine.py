@@ -5,15 +5,19 @@ profile (an independent ledger) and persists its verified output as the Generate
 that invents an employer the profile lacks is caught by grounding → it is never marked ready.
 """
 
+from uuid import UUID
+
 from sqlalchemy import select
 
-from app.core.enums import JobSourceName, Origin, RunState, Track, UserRole
+from app.core.enums import CvStatus, JobSourceName, Origin, RunState, Track, UserRole
 from app.cv_engine.runs.models import CvRun
 from app.llm import tailoring
+from app.models.chat import ChatPrompt
 from app.models.job import Job
 from app.models.master_profile import MasterProfile
 from app.models.user import User
 from app.pipelines import generation
+from app.pipelines.manual import service
 from app.security import hash_password
 
 
@@ -103,3 +107,37 @@ async def test_priority_techs_excludes_unowned_criticals(session, monkeypatch):
     pt = {p.lower() for p in captured["priority_techs"]}
     assert "go" in pt              # owned critical → still emphasized
     assert "kafka" not in pt       # un-owned critical → filtered out, never handed to the model
+
+
+async def test_generation_suspends_on_coverage_gap_then_resumes(session):
+    # Workspace generate (ask_coverage_gaps=True) with a JD demanding a skill the profile lacks:
+    # the run SUSPENDS with a prompt-card and leaves a PENDING (failed) CV; answering "Yes" resumes
+    # the run and re-maps the SAME GeneratedCv to ready — the mid-flight Claude-style ask.
+    user, profile, job = await _seed(session)
+    job.description = "Backend Engineer. Kafka is required."
+
+    cv, _cover = await generation.generate_cv_and_cover(
+        session, job=job, profile=profile, owner=user, ask_coverage_gaps=True,
+        emit=lambda *a, **k: None)
+
+    run = (await session.execute(select(CvRun).where(CvRun.job_id == job.id))).scalar_one()
+    assert run.state is RunState.needs_input
+    assert [s.lower() for s in run.needs_input["slots"]] == ["kafka"]
+    assert cv.status is CvStatus.failed            # pending until the gap is answered
+    cv_id = cv.id
+
+    prompt = (await session.execute(select(ChatPrompt).where(
+        ChatPrompt.chat_session_id == UUID(run.needs_input["session_id"])))).scalars().first()
+    await service.answer_prompt(
+        session, user_id=user.id, prompt_id=prompt.id,
+        selected=["Yes — I have it"], detail="Ran Kafka pipelines in production")
+
+    # Same row, now finished — the run re-coordinated and re-mapped onto the pending CV.
+    only = (await session.execute(select(CvRun).where(CvRun.job_id == job.id))).scalars().all()
+    assert run.state is not RunState.needs_input
+    cvs = (await session.execute(select(generation.GeneratedCv).where(
+        generation.GeneratedCv.job_id == job.id))).scalars().all()
+    assert len(cvs) == 1 and cvs[0].id == cv_id            # UPDATE, never a second insert
+    assert cvs[0].status is CvStatus.ready
+    assert "kafka" in [s.lower() for s in (cvs[0].cv_json.get("skills") or [])]
+    assert len(only) == 1                                  # one run, resumed in place

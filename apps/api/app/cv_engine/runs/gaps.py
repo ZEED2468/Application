@@ -89,6 +89,54 @@ async def raise_gap_prompts(session, run, slots: list[str]):
     return chat
 
 
+async def raise_coverage_prompts(session, run, jd_gaps: list[str]):
+    """Ask the candidate to confirm/deny each JD-critical skill their profile lacks (a coverage gap).
+
+    Mirrors `raise_gap_prompts` but for SKILLS rather than structural slots: one
+    `missing_skill_confirm` prompt per gap, the skill stored in `slot`. Skips any skill already asked
+    (resolved OR open) so a *declined* skill is never re-asked — the loop guard that keeps a resume
+    from suspending forever. Returns `(chat, open_prompts)`; the caller suspends only if
+    `open_prompts` is non-empty.
+    """
+    from sqlalchemy import select
+
+    from app.core.enums import ChatPromptKind, ChatState
+    from app.models.chat import ChatPrompt, ChatSession
+
+    chat = (await session.execute(
+        select(ChatSession).where(ChatSession.cv_run_id == run.id)
+    )).scalars().first()
+    if chat is None:
+        chat = ChatSession(
+            user_id=run.user_id, cv_run_id=run.id, surface="cv_engine",
+            state=ChatState.prompts_raised, confirmed_facts=[],
+        )
+        session.add(chat)
+        await session.flush()
+    existing = (await session.execute(
+        select(ChatPrompt).where(ChatPrompt.chat_session_id == chat.id)
+    )).scalars().all()
+    asked = {(p.slot or "").lower() for p in existing
+             if p.kind is ChatPromptKind.missing_skill_confirm}
+    open_prompts = [p for p in existing
+                    if p.kind is ChatPromptKind.missing_skill_confirm and not p.resolved]
+    for skill in jd_gaps:
+        if (skill or "").lower() in asked:
+            continue
+        prompt = ChatPrompt(
+            user_id=run.user_id, chat_session_id=chat.id,
+            kind=ChatPromptKind.missing_skill_confirm, slot=skill,
+            question=(f'The role calls for "{skill}", but it is not in your verified history. '
+                      f"Do you have real {skill} experience? Add one line on how you used it."),
+            options=["Yes — I have it", "No"],
+        )
+        session.add(prompt)
+        open_prompts.append(prompt)
+        asked.add(skill.lower())
+    await session.flush()
+    return chat, open_prompts
+
+
 def _link_label(url: str) -> str:
     u = (url or "").lower()
     if "github" in u:
@@ -121,14 +169,34 @@ def merge_answer(cv_json: dict, slot: str, text: str) -> dict:
     return cv
 
 
+def _is_yes(selected: list[str] | None) -> bool:
+    """A confirmed-true answer on a Yes/No skill prompt."""
+    return any("yes" in (s or "").lower() or "true" in (s or "").lower() for s in (selected or []))
+
+
+def _add_skill(cv_json: dict, skill: str) -> dict:
+    """Add a confirmed skill to the CV's skills list (case-insensitive dedupe); returns a new dict."""
+    cv = copy.deepcopy(cv_json)
+    skills = list(cv.get("skills") or [])
+    if skill and skill.lower() not in {str(s).lower() for s in skills}:
+        skills.append(skill)
+    cv["skills"] = skills
+    return cv
+
+
 async def resume_if_ready(session, *, chat_session_id):
     """Resume the run once every gap prompt on its session is answered (else no-op).
 
-    Merges each resolved answer into the run's cv_json (skipping any slot already filled, so a
-    re-suspend never double-merges), clears needs_input, and re-coordinates from the top."""
+    Two kinds of prompt merge back into the run before it re-coordinates:
+    - `missing_section` (structural slot): splice the answer into the right cv_json section (skipping
+      any slot already filled, so a re-suspend never double-merges);
+    - `missing_skill_confirm` (JD-coverage gap): a "Yes" adds the confirmed skill to the skills list
+      AND, when the run carries an explicit ledger (generation), appends a ledger fact so grounding
+      accepts it; a "No" is skipped (the skill stays honestly absent).
+    Then clears needs_input and re-coordinates from the top."""
     from sqlalchemy import select
 
-    from app.core.enums import ChatState, RunState
+    from app.core.enums import ChatPromptKind, ChatState, RunState
     from app.cv_engine.runs.models import CvRun
     from app.models.chat import ChatPrompt, ChatSession
 
@@ -145,11 +213,32 @@ async def resume_if_ready(session, *, chat_session_id):
         return None
 
     cv = (run.input or {}).get("cv_json") or {}
+    has_ledger = (run.input or {}).get("ledger") is not None
+    ledger = list((run.input or {}).get("ledger") or [])
+    ledger_touched = False
     for p in prompts:
-        answer = (p.detail or "").strip() or " ".join(p.selected or [])
-        if p.slot and answer and not slot_present(p.slot, cv):
-            cv = merge_answer(cv, p.slot, answer)
-    run.input = {**(run.input or {}), "cv_json": cv}
+        if p.kind is ChatPromptKind.missing_skill_confirm:
+            if not _is_yes(p.selected):
+                continue
+            skill = (p.slot or "").strip()
+            if not skill:
+                continue
+            cv = _add_skill(cv, skill)
+            if has_ledger:
+                detail = (p.detail or "").strip()
+                ledger.append({
+                    "kind": "skill", "source": "confirmed", "derived_from": [], "payload": {},
+                    "text": (f"{skill}. {detail}".strip() if detail else skill),
+                })
+                ledger_touched = True
+        else:
+            answer = (p.detail or "").strip() or " ".join(p.selected or [])
+            if p.slot and answer and not slot_present(p.slot, cv):
+                cv = merge_answer(cv, p.slot, answer)
+    new_input = {**(run.input or {}), "cv_json": cv}
+    if ledger_touched:
+        new_input["ledger"] = ledger
+    run.input = new_input
     run.needs_input = None
     chat.state = ChatState.ready
     await session.flush()
